@@ -70,5 +70,5 @@ Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 
 Last session: 2026-09-08 09:26 Asia/Bangkok
 Stopped at: Phase 1 authority-and-evidence reconciliation complete; no live infrastructure or browser state changed.
-Resume file: `.superpowers/sdd/2026-09-08-phase-1-authority-evidence/task-2-report.md`
+Resume file: `.planning/ROADMAP.md`
 Exact next action: Verify provider endpoint/model prerequisites and prepare owner-only credential/native-OAuth entry without exposing values.
