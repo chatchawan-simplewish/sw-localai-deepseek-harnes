@@ -978,6 +978,8 @@ def apply(v2=False):
 
 
 DIAGNOSTIC_CODES = frozenset({
+    'JOURNAL_SIZE', 'JOURNAL_ROWS', 'JOURNAL_FIELDS', 'JOURNAL_TARGET', 'JOURNAL_VALUE', 'JOURNAL_CURSOR',
+    'JOURNAL_UNKNOWN_ENUM', 'JOURNAL_ID', 'JOURNAL_NUMBER', 'JOURNAL_INTERVAL', 'JOURNAL_TIMEOUT', 'JOURNAL_EXIT', 'JOURNAL_NO_EVIDENCE',
     'APPLIED_PROPERTIES',
     'CANDIDATE_ANCESTOR_DRIFT',
     'CANDIDATE_ANCESTOR_MODE',
@@ -1173,6 +1175,120 @@ def diagnostic_error(error):
             'errno': number if type(number) is int else None, 'safe_code': code}
 
 
+JOURNAL_FIELDS = ('__REALTIME_TIMESTAMP', '__MONOTONIC_TIMESTAMP', '_PID', '_UID', '_GID', 'UNIT',
+                  'MESSAGE_ID', '_BOOT_ID', 'JOB_TYPE', 'JOB_RESULT', 'UNIT_RESULT', 'RESULT', 'ERRNO', 'EXIT_CODE', 'EXIT_STATUS')
+JOURNAL_ENUMS = {
+    'JOB_TYPE': {'start', 'stop', 'restart', 'try-restart', 'reload', 'reload-or-start', 'verify-active', 'nop'},
+    'JOB_RESULT': {'done', 'canceled', 'timeout', 'failed', 'dependency', 'skipped', 'invalid', 'assert', 'unsupported', 'collected', 'once'},
+    'UNIT_RESULT': {'success', 'resources', 'timeout', 'exit-code', 'signal', 'core-dump', 'watchdog', 'start-limit-hit', 'oom-kill', 'protocol', 'exec-condition'},
+    'RESULT': {'success', 'resources', 'timeout', 'exit-code', 'signal', 'core-dump', 'watchdog', 'start-limit-hit', 'oom-kill', 'protocol', 'exec-condition'},
+    'EXIT_CODE': {'exited', 'killed', 'dumped'},
+}
+
+
+def journal_records(raw):
+    require(len(raw) <= 65536, 'JOURNAL_SIZE')
+    lines = raw.splitlines()
+    require(len(lines) <= 128, 'JOURNAL_ROWS')
+    records = []
+    for line in lines:
+        row = json.loads(line)
+        require(type(row) is dict and set(row) <= set(JOURNAL_FIELDS) | {'__CURSOR'}, 'JOURNAL_FIELDS')
+        require(row.get('_PID') == '1' and row.get('UNIT') == UNIT_V2, 'JOURNAL_TARGET')
+        out = {field: None for field in JOURNAL_FIELDS}
+        for key, value in row.items():
+            require(type(value) is str and len(value) <= 512, 'JOURNAL_VALUE')
+            if key == '__CURSOR':
+                require(re.fullmatch(r'[a-zA-Z0-9=;_-]+', value), 'JOURNAL_CURSOR')
+                continue
+            if key in JOURNAL_ENUMS:
+                require(value in JOURNAL_ENUMS[key], 'JOURNAL_UNKNOWN_ENUM')
+                out[key] = value
+            elif key in {'MESSAGE_ID', '_BOOT_ID'}:
+                require(re.fullmatch('[0-9a-f]{32}', value), 'JOURNAL_ID')
+                out[key] = value
+            elif key == 'UNIT':
+                out[key] = value
+            else:
+                require(re.fullmatch('[0-9]{1,20}', value), 'JOURNAL_NUMBER')
+                number = int(value)
+                require(number <= (255 if key == 'EXIT_STATUS' else 4095 if key == 'ERRNO' else 2**64 - 1), 'JOURNAL_NUMBER')
+                out[key] = number
+        # Exact fixed UTC evidence interval, expressed as Unix microseconds.
+        require(type(out['__REALTIME_TIMESTAMP']) is int
+                and 1788895020000000 <= out['__REALTIME_TIMESTAMP'] <= 1788895140000000, 'JOURNAL_INTERVAL')
+        require(out['_BOOT_ID'] is not None, 'JOURNAL_ID')
+        records.append(out)
+    return records
+
+
+def attempt_journal_diagnostic():
+    """Read only the exact v2 PID-1 lifecycle fields; never request journal MESSAGE."""
+    result = {'status': 'ATTEMPT_JOURNAL_INCOMPLETE', 'unit': UNIT_V2, 'records': [],
+              'boot_binding': 'NOT PROVEN', 'runtime_acceptance': 'NOT PROVEN'}
+    trust, proc, poller = Trusted(), None, None
+    try:
+        require(sys.platform == 'linux' and os.geteuid() == 0 and socket.gethostname() == 'deepseek-harness-01',
+                'DIAGNOSTIC_IDENTITY')
+        fd = trust.open('/usr/bin/journalctl', True)
+        require(os.fstat(fd).st_mode & 0o111, 'TOOL_EXECUTABLE')
+        trust.verify()
+        end = time.monotonic() + 5
+        proc = subprocess.Popen(['/usr/bin/journalctl', '--quiet', '--no-pager', '--output=json',
+                                 '--output-fields=' + ','.join(JOURNAL_FIELDS),
+                                 '--since=2026-09-08 19:17:00 UTC', '--until=2026-09-08 19:19:00 UTC',
+                                 '_PID=1', 'UNIT=' + UNIT_V2],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'TZ': 'UTC'}, cwd='/',
+                                close_fds=True, pass_fds=())
+        poller = selectors.DefaultSelector()
+        os.set_blocking(proc.stdout.fileno(), False)
+        poller.register(proc.stdout, selectors.EVENT_READ)
+        raw = bytearray()
+        while True:
+            remaining = end - time.monotonic()
+            require(remaining > 0 and poller.select(remaining), 'JOURNAL_TIMEOUT')
+            chunk = os.read(proc.stdout.fileno(), min(4096, 65537 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+            require(len(raw) <= 65536, 'JOURNAL_SIZE')
+            require(raw.count(b'\n') <= 128, 'JOURNAL_ROWS')
+        remaining = end - time.monotonic()
+        require(remaining > 0, 'JOURNAL_TIMEOUT')
+        try:
+            exit_code = proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            raise Blocked('JOURNAL_TIMEOUT') from None
+        require(exit_code == 0, 'JOURNAL_EXIT')
+        records = journal_records(raw)
+        trust.verify()
+        result['records'] = records
+        require(records, 'JOURNAL_NO_EVIDENCE')
+        result['status'] = 'ATTEMPT_JOURNAL_COMPLETE'
+    except Exception as error:
+        result.update(diagnostic_error(error))
+    finally:
+        try:
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=1)
+        except Exception as error:
+            result.update(status='ATTEMPT_JOURNAL_INCOMPLETE', cleanup_error=diagnostic_error(error))
+        finally:
+            for owned in ([poller] if poller is not None else []) + ([proc.stdout] if proc is not None else []):
+                try:
+                    owned.close()
+                except Exception as error:
+                    result.update(status='ATTEMPT_JOURNAL_INCOMPLETE', cleanup_error=diagnostic_error(error))
+            for fd, _, _ in reversed(list(trust.held.values())):
+                try:
+                    os.close(fd)
+                except Exception as error:
+                    result.update(status='ATTEMPT_JOURNAL_INCOMPLETE', cleanup_error=diagnostic_error(error))
+    return result
+
+
 def apply_v2():
     """Separate explicit runtime attempt, with process-local limits restored after owned FDs close."""
     import resource
@@ -1361,6 +1477,39 @@ def self_test():
     import urllib.request
     from types import SimpleNamespace
     from unittest.mock import patch
+    journal_row = {'_PID': '1', 'UNIT': UNIT_V2, '__REALTIME_TIMESTAMP': '1788895080000000', '_BOOT_ID': 'a' * 32}
+    journal_raw = json.dumps(journal_row).encode() + b'\n'
+    require(journal_records(journal_raw)[0]['JOB_RESULT'] is None, 'SELF_TEST_JOURNAL_OPTIONAL')
+    for mutation in ({'MESSAGE': 'private text'}, {'_PID': '2'}, {'UNIT': UNIT}, {'JOB_RESULT': 'private text'},
+                     {'MESSAGE_ID': 'X' * 32}, {'__REALTIME_TIMESTAMP': '1788895140000001'}):
+        try:
+            journal_records(json.dumps(journal_row | mutation).encode())
+        except Blocked:
+            pass
+        else:
+            raise Blocked('SELF_TEST_JOURNAL_VALIDATION')
+    for chunks, expected in (([journal_raw, b''], None), ([b''], 'JOURNAL_NO_EVIDENCE'),
+                             ([b'x' * 4096] * 17, 'JOURNAL_SIZE'), ([b'\n' * 129], 'JOURNAL_ROWS')):
+        fake_stream = SimpleNamespace(fileno=lambda: 71, close=lambda: None)
+        journal_proc = SimpleNamespace(stdout=fake_stream, wait=lambda **kw: 0, poll=lambda: 0)
+        journal_poller = SimpleNamespace(register=lambda *a: None, select=lambda _: True, close=lambda: None)
+        with patch.dict(globals(), {'Trusted': lambda: SimpleNamespace(held={}, open=lambda *a: 71, verify=lambda: None)}), \
+             patch.object(sys, 'platform', 'linux'), patch.object(os, 'geteuid', return_value=0, create=True), \
+             patch.object(socket, 'gethostname', return_value='deepseek-harness-01'), \
+             patch.object(os, 'fstat', return_value=SimpleNamespace(st_mode=0o100755)), \
+             patch.object(os, 'set_blocking'), patch.object(os, 'read', side_effect=chunks), \
+             patch.object(selectors, 'DefaultSelector', return_value=journal_poller), \
+             patch.object(subprocess, 'Popen', return_value=journal_proc) as journal_start:
+            receipt = attempt_journal_diagnostic()
+        command_args = journal_start.call_args.args[0]
+        require('_PID=1' in command_args and 'UNIT=' + UNIT_V2 in command_args
+                and '--since=2026-09-08 19:17:00 UTC' in command_args
+                and '--until=2026-09-08 19:19:00 UTC' in command_args
+                and 'MESSAGE' not in next(x.split('=', 1)[1].split(',') for x in command_args if x.startswith('--output-fields='))
+                and journal_start.call_args.kwargs['pass_fds'] == () and journal_start.call_args.kwargs['close_fds'] is True,
+                'SELF_TEST_JOURNAL_SOURCE_FILTER')
+        require(receipt['status'] == ('ATTEMPT_JOURNAL_COMPLETE' if expected is None else 'ATTEMPT_JOURNAL_INCOMPLETE')
+                and (expected is None or receipt['safe_code'] == expected), 'SELF_TEST_JOURNAL_BOUNDS')
     good = {'DSH_HOME': HOME, 'HOME': '/home/dsh', 'PATH': '/usr/bin'}
     validate_selector(good, '/usr/bin')
     validate_listener([('0100007F:0C09', '77')], {'77'})
@@ -1720,6 +1869,7 @@ if __name__ == '__main__':
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--apply-v2', action='store_true')
+    modes.add_argument('--attempt-journal-diagnostic', action='store_true')
     modes.add_argument('--self-test', action='store_true')
     modes.add_argument('--preflight-diagnostic', action='store_true')
     modes.add_argument('--resolver-diagnostic', action='store_true')
@@ -1727,7 +1877,7 @@ if __name__ == '__main__':
     modes.add_argument('--unresolved-census', action='store_true')
     args = parser.parse_args()
     try:
-        result = (self_test() if args.self_test else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
+        result = (self_test() if args.self_test else attempt_journal_diagnostic() if args.attempt_journal_diagnostic else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
                   else preflight_diagnostic(contained_diagnostic=True) if args.contained_preflight_diagnostic
                   else preflight_diagnostic(resolver_diagnostic=True) if args.resolver_diagnostic
                   else preflight_diagnostic() if args.preflight_diagnostic else apply_v2() if args.apply_v2 else apply() if args.apply else {
@@ -1738,4 +1888,4 @@ if __name__ == '__main__':
     except Exception:
         result = {'status': 'BLOCKED', 'error_code': 'PRECONDITION_OR_SELF_TEST_FAILURE'}
     print(json.dumps(result, sort_keys=True))
-    sys.exit(0 if result['status'] in {'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)
+    sys.exit(0 if result['status'] in {'ATTEMPT_JOURNAL_COMPLETE', 'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)

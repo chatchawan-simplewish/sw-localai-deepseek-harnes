@@ -1,0 +1,13 @@
+# VM105 v2 post-attempt checks
+
+Recorded 2026-09-09 02:24:24 Asia/Bangkok. V2 remains `CLEANUP_NOT_PROVEN` / runtime `NOT PROVEN`; no retry or cutover occurred.
+
+Independent documentary reviewer `native_oauth_review` accepted the v2 attempt, postcheck and journal receipts for checkpoint publication with zero blocking findings. This does not add runtime or namespace proof.
+
+- Independent live reviewer `native_oauth_review`: remote 02:19:48, receipt13590c/SSH0, pilot active PID829/NRestarts0/start14:41:13UTC; only127.0.0.1:3080 among checked ports. V2 unit not-found/inactive with empty ControlGroup. Local02:19:56, receiptf66654: reconnect task Running, loopback3080 PID33528, HTTP200. This proves preservation and observed unit absence, not cleanup of the uncaptured namespace.
+- Parent receipt6e4f52/SSH0 queried only key presence on the existing pilot service interface. Of33 requested keys,31 were emitted; only EnvironmentFiles and Sockets were missing, with no unexpected keys. No property values were emitted. Missing Sockets deterministically conflicts with the v2 helper schema on this interface. Its role in the lost initiating v2 failure remains an inference.
+- Parent receipt9cca10/SSH0 ran the existing candidate_inventory() in exact pristine mode, with no service action. It passed all original file pins, exact path set and private metadata checks: seven child entries, four0600 files and three0700 directories (candidate root separately verified). Therefore the candidate is currently pristine; this does not prove the Node process never ran. No partial-fallback exception was needed. Pilot contents were not inspected.
+
+Reviewer `candidate_smoke_review` accepted a source-based Sockets absence remedy in design only: require the exact root-owned transient fragment, no drop-ins/includes/Sockets assignments, an independently emitted empty TriggeredBy, no same-stem socket unit before a future start, direct systemd-run without socket activation/pipe/pty or passed descriptors, null streams and unchanged runtime namespace/listener checks. Missing Sockets must carry its own ABSENT_SOURCE_VERIFIED marker; emitted Sockets must be exactly empty. Revalidate source/identity before probes. This avoids a sleep-only service probe. Frozen implementation and any new application attempt still require independent review; v2 is consumed.
+
+The one reviewed systemd-manager journal diagnostic returned INCOMPLETE/JOURNAL_FIELDS with no records emitted; see `vm105-candidate-v2-journal-2026-09-09.json`. Unknown metadata fields are not proof that no event exists. No further journal query is planned. Preserve the original v2 receipt, including the lost-primary-error limitation.

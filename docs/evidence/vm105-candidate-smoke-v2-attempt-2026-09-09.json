@@ -1,0 +1,63 @@
+{
+  "recorded_bangkok": "2026-09-09 02:18:44",
+  "helper_sha256": "A7DCD1BA65C5A7E16A3E3269B13B4B59B58F74388292CB7645769FE9D9692D11",
+  "published_code_commit": "89d897a",
+  "execution_review": "candidate_smoke_review independently accepted one v2 attempt after two fixes; parent offline checks/hash matched",
+  "tool_receipt": "7457ee",
+  "ssh_exit_code": 1,
+  "attempt": {
+    "ancestor_absence_verified": true,
+    "checkpoints": [
+      "PILOT_ENVIRONMENTFILES_ABSENT_SOURCE_VERIFIED",
+      "PREFLIGHT_PASS",
+      "OWNED_PROCESS_CLEANUP_PASS",
+      "PILOT_IDENTITY_UNCHANGED"
+    ],
+    "closure_edge_count": 2011,
+    "closure_elapsed_ms": 6704,
+    "closure_package_count": 432,
+    "contained_edge_count": 4,
+    "contained_optional_peer_skipped": true,
+    "declaring_manifest_sha256": "2c7130cb149070446491c0556df3dc35939f8c7f1977fc9c6b6158e151116ac1",
+    "declaring_package": "zustand",
+    "dependency_kind": "peerDependencies",
+    "error_code": "HELD_NAMESPACE_UNAVAILABLE",
+    "fd_applied_hard_limit": 1048576,
+    "fd_applied_soft_limit": 4096,
+    "fd_hard_limit": 1048576,
+    "fd_restoration": "PASS",
+    "fd_restored_hard_limit": 1048576,
+    "fd_restored_soft_limit": 1024,
+    "fd_soft_limit": 1024,
+    "namespace_cleanup": "NOT PROVEN",
+    "parent_http_and_tunnel_verification": "REQUIRED_SEPARATELY",
+    "resolver_anchor": "/opt/deepseek-harness/node_modules/.pnpm/node_modules/zustand/package.json",
+    "resolver_attempted": true,
+    "resolver_paths": [
+      "/opt/deepseek-harness/node_modules/.pnpm/node_modules/zustand/node_modules",
+      "/opt/deepseek-harness/node_modules/.pnpm/node_modules",
+      "/opt/deepseek-harness/node_modules",
+      "/opt/node_modules",
+      "/node_modules"
+    ],
+    "runtime": "NOT PROVEN",
+    "status": "CLEANUP_NOT_PROVEN",
+    "unit": "deepseek-harness-candidate-smoke-20260909-v2.service",
+    "unresolved_dependency": "@types/react"
+  },
+  "parent_before": {
+    "chunk_id": "4a67be",
+    "wall_time_seconds": 3.6028243,
+    "exit_code": 0,
+    "original_token_count": 79,
+    "output": "MainPID=829\nNRestarts=0\nExecMainStartTimestamp=Tue 2026-09-08 14:41:13 UTC\nActiveState=active\nLoadState=not-found\nActiveState=inactive\nLISTEN 0      511    127.0.0.1:3080 0.0.0.0:*\n{\"TaskName\":\"DeepSeek Harness VM105 SSH Tunnel\",\"State\":4}\r\n{\"LocalAddress\":\"127.0.0.1\",\"LocalPort\":3080,\"OwningProcess\":33528}\r\n200\r\n"
+  },
+  "parent_after": {
+    "chunk_id": "733eff",
+    "wall_time_seconds": 3.4418183,
+    "exit_code": 0,
+    "original_token_count": 85,
+    "output": "MainPID=829\nNRestarts=0\nExecMainStartTimestamp=Tue 2026-09-08 14:41:13 UTC\nActiveState=active\nResult=success\nExecMainCode=0\nExecMainStatus=0\nControlGroup=\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nLISTEN 0      511    127.0.0.1:3080 0.0.0.0:*\nRunning\r\n{\"LocalAddress\":\"127.0.0.1\",\"LocalPort\":3080,\"OwningProcess\":33528}\r\n200\r\n"
+  },
+  "qualification": "The attempt passed preflight and issued transient startup but did not capture a namespace or prove API readiness. Owned process cleanup passed; namespace cleanup remains NOT PROVEN. Cleanup error replaced the initiating failure code, so root cause is not established. Absent-unit default Result=success/exit0 fields do not prove runtime success. No retry or cutover."
+}

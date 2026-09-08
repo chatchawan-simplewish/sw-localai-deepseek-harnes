@@ -1,0 +1,18 @@
+{
+  "recorded_bangkok": "2026-09-09 02:26:13",
+  "helper_sha256": "FA57E767E472FA92560E6652D0F5184ECAB5390A81A2AA432EE055BAF358B7D2",
+  "review": "candidate_smoke_review accepted one journal-only diagnostic; parent self-test/hash matched",
+  "tool_receipt": "c3b6d1",
+  "ssh_exit_code": 1,
+  "result": {
+    "boot_binding": "NOT PROVEN",
+    "errno": null,
+    "exception_class": "Blocked",
+    "records": [],
+    "runtime_acceptance": "NOT PROVEN",
+    "safe_code": "JOURNAL_FIELDS",
+    "status": "ATTEMPT_JOURNAL_INCOMPLETE",
+    "unit": "deepseek-harness-candidate-smoke-20260909-v2.service"
+  },
+  "qualification": "Unknown journal fields caused the strict parser to reject captured metadata. No journal record, primary failure cause, boot binding or runtime result is proven. Do not infer that no manager event exists. No further journal query is planned because this cannot recover the verifier's overwritten initiating error."
+}
