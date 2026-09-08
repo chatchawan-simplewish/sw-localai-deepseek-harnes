@@ -168,27 +168,56 @@ Run one in-memory PowerShell block containing the GREEN `Assert-StrictPosixPath`
 $expectedOrigin='https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git'
 if((git remote get-url origin).Trim() -cne $expectedOrigin){throw 'Unexpected repository origin'}
 if((git branch --show-current).Trim() -cne 'codex/vm105-authoritative-roadmap'){throw 'Unexpected branch'}
-$sshBaseArgs=@(
+$sshOptionArgs=@(
     '-i','C:\Users\chatc\.ssh\codex-prox01-vms-ed25519',
     '-o','BatchMode=yes',
     '-o','IdentitiesOnly=yes',
-    '-o','StrictHostKeyChecking=yes',
-    'dsh@192.168.1.139'
+    '-o','StrictHostKeyChecking=yes'
 )
+$sshDestination='dsh@192.168.1.139'
+
+function ConvertTo-PosixShellLiteral {
+    param([AllowEmptyString()][string]$Value)
+    $singleQuote=[string][char]39
+    $doubleQuote=[string][char]34
+    return $singleQuote+$Value.Replace($singleQuote,$singleQuote+$doubleQuote+$singleQuote+$doubleQuote+$singleQuote)+$singleQuote
+}
 
 function Invoke-StrictSsh {
-    param([string[]]$RemoteArgv,[int]$TimeoutSeconds=30)
+    param([string[]]$RemoteArgv,[int]$TimeoutSeconds=30,[int[]]$AllowedExitCodes=@(0))
+    if(-not $RemoteArgv.Count){throw 'Empty remote argv'}
+    $remoteCommand=(@($RemoteArgv | ForEach-Object{ConvertTo-PosixShellLiteral $_}) -join ' ')
     $psi=[Diagnostics.ProcessStartInfo]::new((Get-Command ssh.exe).Source)
     $psi.UseShellExecute=$false
     $psi.RedirectStandardOutput=$true
     $psi.RedirectStandardError=$true
-    foreach($arg in @($sshBaseArgs+$RemoteArgv)){[void]$psi.ArgumentList.Add($arg)}
+    foreach($arg in @($sshOptionArgs+'--'+$sshDestination+$remoteCommand)){[void]$psi.ArgumentList.Add($arg)}
     $process=[Diagnostics.Process]::Start($psi)
-    if(-not $process.WaitForExit($TimeoutSeconds*1000)){$process.Kill($true);throw 'SSH timeout'}
-    $stdout=$process.StandardOutput.ReadToEnd()
-    [void]$process.StandardError.ReadToEnd()
-    if($process.ExitCode-ne0){throw "SSH exit $($process.ExitCode)"}
-    return @($stdout -split "`r?`n" | Where-Object Length)
+    try{
+        $stdoutTask=$process.StandardOutput.ReadToEndAsync()
+        $stderrTask=$process.StandardError.ReadToEndAsync()
+        $timedOut=-not $process.WaitForExit($TimeoutSeconds*1000)
+        if($timedOut){$process.Kill($true)}
+        $process.WaitForExit()
+        $stdout=$stdoutTask.GetAwaiter().GetResult()
+        [void]$stderrTask.GetAwaiter().GetResult()
+        if($timedOut){throw 'SSH timeout'}
+        $exitCode=$process.ExitCode
+        if($exitCode -notin $AllowedExitCodes){throw "SSH exit $exitCode"}
+        return [pscustomobject]@{RawStdout=$stdout;ExitCode=$exitCode}
+    }finally{$process.Dispose()}
+}
+
+function Get-StrictSshScalar {
+    param([string[]]$RemoteArgv)
+    $value=(Invoke-StrictSsh $RemoteArgv).RawStdout.TrimEnd("`r","`n")
+    if($value -match "`r|`n"){throw 'BLOCKED multiline scalar metadata'}
+    return $value
+}
+
+function ConvertTo-PreservedSourceLines {
+    param([string]$RawText)
+    return @([regex]::Split($RawText,"`r`n|`n|`r"))
 }
 
 function ConvertFrom-InstalledFileMetadata {
@@ -200,60 +229,74 @@ function ConvertFrom-InstalledFileMetadata {
 }
 
 function Assert-CanonicalInstalledPath {
-    param([string]$Path)
-    Assert-StrictPosixPath $Path '/opt/deepseek-harness'
-    $resolved=(Invoke-StrictSsh @('/usr/bin/readlink','-f','--',$Path))-join''
+    param([string]$Path,[switch]$AllowRoot)
+    Assert-StrictPosixPath $Path '/opt/deepseek-harness' -AllowRoot:$AllowRoot
+    $resolved=Get-StrictSshScalar @('/usr/bin/readlink','-f','--',$Path)
     if($resolved-cne$Path){throw 'BLOCKED installed symlink path'}
 }
 
 function Assert-RootOwnedInstalledFile {
     param([string]$Path)
     Assert-CanonicalInstalledPath $Path
-    $line=(Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$Path))-join''
+    $line=Get-StrictSshScalar @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$Path)
     return ConvertFrom-InstalledFileMetadata $line $Path 'root' 'root'
 }
 
 function Assert-RootOwnedInstalledDirectory {
     param([string]$Path)
-    Assert-CanonicalInstalledPath $Path
-    $parts=((Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a','--',$Path))-join'') -split '\|',5
+    Assert-CanonicalInstalledPath $Path -AllowRoot
+    $parts=(Get-StrictSshScalar @('/usr/bin/stat','-c','%n|%F|%U|%G|%a','--',$Path)) -split '\|',5
     if($parts.Count-ne5 -or $parts[0]-cne$Path -or $parts[1]-cne'directory' -or $parts[2]-cne'root' -or $parts[3]-cne'root' -or ([Convert]::ToInt32($parts[4],8)-band18)-ne0){throw 'BLOCKED installed directory metadata'}
+}
+
+function Find-NearestInstalledPackageRoot {
+    param(
+        [string]$Entrypoint,
+        [scriptblock]$AssertDirectory={param($Path) Assert-RootOwnedInstalledDirectory $Path},
+        [scriptblock]$AssertFile={param($Path) Assert-RootOwnedInstalledFile $Path},
+        [scriptblock]$GetTestExit={param($Test,$Path) (Invoke-StrictSsh @('/usr/bin/test',$Test,$Path) -AllowedExitCodes @(0,1)).ExitCode}
+    )
+    $current=$Entrypoint.Substring(0,$Entrypoint.LastIndexOf('/',[StringComparison]::Ordinal))
+    while($current.StartsWith('/opt/deepseek-harness/',[StringComparison]::Ordinal) -or $current-ceq'/opt/deepseek-harness'){
+        & $AssertDirectory $current
+        $manifestPath="$current/package.json"
+        if((& $GetTestExit '-r' $current)-ne0 -or (& $GetTestExit '-x' $current)-ne0){throw 'BLOCKED unreadable package directory'}
+        if((& $GetTestExit '-L' $manifestPath)-eq0){throw 'BLOCKED package manifest symlink'}
+        if((& $GetTestExit '-e' $manifestPath)-eq0){
+            [void](& $AssertFile $manifestPath)
+            return $current
+        }
+        $slash=$current.LastIndexOf('/',[StringComparison]::Ordinal)
+        if($slash-le0){break}
+        $current=$current.Substring(0,$slash)
+    }
+    throw 'BLOCKED package root'
 }
 
 function Get-VerifiedInstalledEntrypoint {
     $wrapperPath='/usr/local/bin/dsh'
-    $wrapperLine=(Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$wrapperPath))-join''
+    $wrapperResolved=Get-StrictSshScalar @('/usr/bin/readlink','-f','--',$wrapperPath)
+    if($wrapperResolved-cne$wrapperPath){throw 'BLOCKED wrapper symlink path'}
+    $wrapperLine=Get-StrictSshScalar @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$wrapperPath)
     $wrapper=ConvertFrom-InstalledFileMetadata $wrapperLine $wrapperPath 'root' 'root'
-    $wrapperLines=Invoke-StrictSsh @('/usr/bin/cat','--',$wrapperPath)
+    $wrapperRaw=(Invoke-StrictSsh @('/usr/bin/cat','--',$wrapperPath)).RawStdout
+    $wrapperLines=ConvertTo-PreservedSourceLines $wrapperRaw
     $meaningful=@($wrapperLines | Where-Object{$_ -and $_ -notmatch '^#!' -and $_ -notmatch '^set -e(?:u)?$'})
     if($meaningful.Count-ne1){throw 'BLOCKED wrapper shape'}
     $match=[regex]::Match($meaningful[0],'^exec\s+(?:(/[A-Za-z0-9._/-]+)\s+)?((?:/opt/deepseek-harness)(?:/\S+)+)(?:\s+"\$@")?\s*$')
     if(-not $match.Success -or $meaningful[0] -match '\$\(|`|\$\{'){throw 'BLOCKED wrapper entrypoint'}
     if($match.Groups[1].Success){
         $interpreterPath=$match.Groups[1].Value
-        $interpreterResolved=(Invoke-StrictSsh @('/usr/bin/readlink','-f','--',$interpreterPath))-join''
+        $interpreterResolved=Get-StrictSshScalar @('/usr/bin/readlink','-f','--',$interpreterPath)
         if($interpreterResolved-cne$interpreterPath){throw 'BLOCKED wrapper interpreter symlink'}
-        $interpreterLine=(Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$interpreterPath))-join''
+        $interpreterLine=Get-StrictSshScalar @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$interpreterPath)
         [void](ConvertFrom-InstalledFileMetadata $interpreterLine $interpreterPath 'root' 'root')
     }
     $entrypoint=$match.Groups[2].Value
     Assert-StrictPosixPath $entrypoint '/opt/deepseek-harness'
     $entry=Assert-RootOwnedInstalledFile $entrypoint
-    $current=$entrypoint.Substring(0,$entrypoint.LastIndexOf('/'))
-    $packageRoot=$null
-    while($current.StartsWith('/opt/deepseek-harness/',[StringComparison]::Ordinal) -or $current-ceq'/opt/deepseek-harness'){
-        try{
-            Assert-RootOwnedInstalledDirectory $current
-            [void](Assert-RootOwnedInstalledFile "$current/package.json")
-            $packageRoot=$current
-            break
-        }catch{}
-        $slash=$current.LastIndexOf('/')
-        if($slash-le0){break}
-        $current=$current.Substring(0,$slash)
-    }
-    if(-not $packageRoot){throw 'BLOCKED package root'}
-    $package=((Invoke-StrictSsh @('/usr/bin/cat','--',"$packageRoot/package.json"))-join"`n") | ConvertFrom-Json
+    $packageRoot=(Find-NearestInstalledPackageRoot -Entrypoint $entrypoint)
+    $package=(Invoke-StrictSsh @('/usr/bin/cat','--',"$packageRoot/package.json")).RawStdout | ConvertFrom-Json
     if(-not $package.name -or $package.version-cne'0.1.1-rc.2'){throw 'BLOCKED package identity'}
     $packageName=[string]$package.name
     if($packageName-cmatch'^(@[a-z0-9][a-z0-9._-]*)/([a-z0-9][a-z0-9._-]*)$'){
@@ -262,8 +305,8 @@ function Get-VerifiedInstalledEntrypoint {
         $expectedSuffix="/$packageName"
     }else{throw 'BLOCKED package identity'}
     if(-not $packageRoot.EndsWith($expectedSuffix,[StringComparison]::Ordinal)){throw 'BLOCKED package path identity'}
-    $wrapperSha=((Invoke-StrictSsh @('/usr/bin/sha256sum','--',$wrapperPath))-join'').Split(' ')[0].ToUpperInvariant()
-    $entrySha=((Invoke-StrictSsh @('/usr/bin/sha256sum','--',$entrypoint))-join'').Split(' ')[0].ToUpperInvariant()
+    $wrapperSha=(Get-StrictSshScalar @('/usr/bin/sha256sum','--',$wrapperPath)).Split(' ')[0].ToUpperInvariant()
+    $entrySha=(Get-StrictSshScalar @('/usr/bin/sha256sum','--',$entrypoint)).Split(' ')[0].ToUpperInvariant()
     return [pscustomobject]@{
         wrapperPath=$wrapper.path;wrapperType=$wrapper.type;wrapperSymlink=$wrapper.symlink;wrapperOwner=$wrapper.owner;wrapperGroup=$wrapper.group;wrapperMode=$wrapper.mode;wrapperLinkCount=$wrapper.linkCount;wrapperSha256=$wrapperSha
         entrypointPath=$entry.path;entrypointType=$entry.type;entrypointSymlink=$entry.symlink;entrypointOwner=$entry.owner;entrypointGroup=$entry.group;entrypointMode=$entry.mode;entrypointLinkCount=$entry.linkCount;entrypointSha256=$entrySha
@@ -271,9 +314,11 @@ function Get-VerifiedInstalledEntrypoint {
     }
 }
 
+$identity=Get-StrictSshScalar @('/usr/bin/id','-un')
+if($identity-cne'dsh'){throw 'BLOCKED unexpected VM105 identity'}
 $installed=Get-VerifiedInstalledEntrypoint
 $sourcePaths=@(
-    Invoke-StrictSsh @('/usr/bin/find',$installed.packageRoot,'-xdev','-type','f','-print') |
+    ConvertTo-PreservedSourceLines (Invoke-StrictSsh @('/usr/bin/find',$installed.packageRoot,'-xdev','-type','f','-print')).RawStdout |
         Where-Object{$_ -match '/package\.json$|/README[^/]*$|/(docs|src|dist)/'}
 )
 foreach($path in $sourcePaths){
@@ -282,7 +327,59 @@ foreach($path in $sourcePaths){
 }
 ```
 
-Read only those verified package-owned source files in memory. Build an `installedSourceRef` only after its file digest and exact line range directly establish the stated claim. Selector `PASS` still requires direct installed-source proof for absolute path support, precedence, non-merge behavior, service compatibility, and all five mutable-store classes. Query only the proven selector key from effective unit metadata. If any claim, file boundary, ownership, link status, name/version, or selector behavior is missing or ambiguous, stop source inspection and record a precise `BLOCKED` reason; do not search another installation root, home directory, service environment, log, network package source, or current profile.
+Before the bounded identity read and any other VM call, run these local synthetic checks in the same PowerShell process, against the functions above. The child process is local and only proves that both redirected pipes drain beyond their normal buffer size:
+
+```powershell
+function Assert-RunnerCheck { param([bool]$Condition,[string]$Message) if(-not $Condition){throw $Message} }
+
+$quoted=(@('stat','-c','%n|%F|%U|%G|%a|%h','--','/path with space',"quote'value",'$(id);|&') | ForEach-Object{ConvertTo-PosixShellLiteral $_}) -join ' '
+Assert-RunnerCheck ($quoted -ceq "'stat' '-c' '%n|%F|%U|%G|%a|%h' '--' '/path with space' 'quote'`"'`"'value' '`$(id);|&'") 'POSIX argv quoting check failed'
+
+$localPsi=[Diagnostics.ProcessStartInfo]::new((Get-Command pwsh).Source)
+$localPsi.UseShellExecute=$false
+$localPsi.RedirectStandardOutput=$true
+$localPsi.RedirectStandardError=$true
+foreach($arg in @('-NoProfile','-Command',"[Console]::Out.Write('o'*131072);[Console]::Error.Write('e'*131072)")){[void]$localPsi.ArgumentList.Add($arg)}
+$localProcess=[Diagnostics.Process]::Start($localPsi)
+try{
+    $localOutTask=$localProcess.StandardOutput.ReadToEndAsync()
+    $localErrTask=$localProcess.StandardError.ReadToEndAsync()
+    Assert-RunnerCheck ($localProcess.WaitForExit(10000)) 'async pipe drain timed out'
+    $localOut=$localOutTask.GetAwaiter().GetResult()
+    $localErr=$localErrTask.GetAwaiter().GetResult()
+    Assert-RunnerCheck ($localProcess.ExitCode-eq0 -and $localOut.Length-eq131072 -and $localErr.Length-eq131072) 'async pipe drain content mismatch'
+}finally{if(-not $localProcess.HasExited){$localProcess.Kill($true)};$localProcess.Dispose()}
+
+$raw="first`n`nthird`n"
+$preserved=ConvertTo-PreservedSourceLines $raw
+Assert-RunnerCheck ($preserved.Count-eq4 -and $preserved[1]-ceq'' -and $preserved[3]-ceq'' -and (($preserved -join "`n")-ceq$raw)) 'raw stdout line preservation failed'
+
+Assert-StrictPosixPath '/opt/deepseek-harness' '/opt/deepseek-harness' -AllowRoot
+try{Assert-StrictPosixPath '/opt/deepseek-harness-other' '/opt/deepseek-harness' -AllowRoot;throw 'installed sibling accepted'}catch{if($_.Exception.Message-ceq'installed sibling accepted'){throw}}
+
+$noop={param($Path) [void]$Path}
+$script:probe=0
+$absentThenPresent={param($Test,$Path) if($Test-in @('-r','-x')){return 0};if($Test-ceq'-L'){return 1};$script:probe++;if($script:probe-eq1){return 1};return 0}
+$foundRoot=(Find-NearestInstalledPackageRoot '/opt/deepseek-harness/pkg/dist/index.js' $noop $noop $absentThenPresent)
+Assert-RunnerCheck ($foundRoot-ceq'/opt/deepseek-harness/pkg') 'absent manifest did not ascend to the nearest present manifest'
+$unsafe={param($Test,$Path) if($Test-in @('-r','-x')){return 0};if($Test-ceq'-L'){return 0};return 1}
+$transport={param($Test,$Path) throw 'SSH exit 255'}
+foreach($case in @([pscustomobject]@{Name='unsafe';Probe=$unsafe},[pscustomobject]@{Name='transport';Probe=$transport})){
+    $blocked=$false
+    try{[void](Find-NearestInstalledPackageRoot '/opt/deepseek-harness/pkg/dist/index.js' $noop $noop $case.Probe)}catch{$blocked=$true}
+    Assert-RunnerCheck $blocked "$($case.Name) manifest case did not stop"
+}
+
+$sourceReads=0
+try{
+    $resolved='/redirected/usr/local/bin/dsh'
+    if($resolved-cne'/usr/local/bin/dsh'){throw 'BLOCKED wrapper symlink path'}
+    $sourceReads++
+}catch{}
+Assert-RunnerCheck ($sourceReads-eq0) 'wrapper source read followed canonical mismatch'
+```
+
+Read only those verified package-owned source files in memory. Preserve each file's raw stdout, split it with `ConvertTo-PreservedSourceLines` only when deriving exact one-based line ranges, and obtain its exact digest separately with the verified `sha256sum -- <path>` call before constructing an `installedSourceRef`. Never trim or rejoin source text. Selector `PASS` still requires direct installed-source proof for absolute path support, precedence, non-merge behavior, service compatibility, and all five mutable-store classes. Query only the proven selector key from effective unit metadata. If any claim, file boundary, ownership, link status, name/version, or selector behavior is missing or ambiguous, stop source inspection and record a precise `BLOCKED` reason; do not search another installation root, home directory, service environment, log, network package source, or current profile.
 
 - [ ] **Step 7: Replace the selector-discovery result and recompute its digest**
 
@@ -350,14 +447,25 @@ The first selector-stage validation must fail with `review-status-value` while r
 Run all local checks, confirm the diff contains only the two owned implementation paths, then commit:
 
 ```powershell
-./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest
-./scripts/Test-Phase03Evidence.ps1 -Stage Network
+& ./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest
+if($LASTEXITCODE-ne0){throw 'Validator self-test failed'}
+& ./scripts/Test-Phase03Evidence.ps1 -Stage Network
+if($LASTEXITCODE-ne0){throw 'Phase 03 Network validation failed'}
 git diff --check -- 'scripts/Test-VM105ProfilePreparation.ps1' 'docs/evidence/vm105-profile-pointer-preparation.json'
+if($LASTEXITCODE-ne0){throw 'Implementation diff check failed'}
 $changed=@(git diff --name-only)
+if($LASTEXITCODE-ne0){throw 'Unable to enumerate implementation changes'}
 $unexpected=@($changed | Where-Object{$_ -cnotin @('scripts/Test-VM105ProfilePreparation.ps1','docs/evidence/vm105-profile-pointer-preparation.json')})
 if($unexpected.Count){throw "Unexpected changed path: $($unexpected-join', ')"}
+$alreadyStaged=@(git diff --cached --name-only)
+if($LASTEXITCODE-ne0){throw 'Unable to enumerate staged paths'}
+if($alreadyStaged.Count){throw "Pre-staged path blocks exact commit: $($alreadyStaged-join', ')"}
 git add -- 'scripts/Test-VM105ProfilePreparation.ps1' 'docs/evidence/vm105-profile-pointer-preparation.json'
+if($LASTEXITCODE-ne0){throw 'Exact-path implementation stage failed'}
+$staged=@(git diff --cached --name-only)
+if($LASTEXITCODE-ne0 -or @($staged | Where-Object{$_ -cnotin @('scripts/Test-VM105ProfilePreparation.ps1','docs/evidence/vm105-profile-pointer-preparation.json')}).Count){throw 'Unexpected staged implementation path'}
 git -c user.name='Codex' -c user.email='codex@local' commit -m 'fix: validate VM105 scoped package paths'
+if($LASTEXITCODE-ne0){throw 'Implementation commit failed'}
 ```
 
 Expected: self-test pass, Phase 03 Network check exit `0`, diff check exit `0`, and one exact-path implementation commit. The selector evidence intentionally remains `PENDING` until the next step.
@@ -377,12 +485,23 @@ On findings, set review to `REJECTED`, use the reviewer task name, current UTC, 
 On acceptance, set review to `ACCEPTED`, use the independent reviewer task name, current UTC, the exact `selectorDigest`, and `findings: []`. Do not change any digest-covered selector field after acceptance. Validate and commit the metadata-only finalization:
 
 ```powershell
-./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest
-./scripts/Test-VM105ProfilePreparation.ps1 -EvidencePath 'docs/evidence/vm105-profile-pointer-preparation.json' -Stage Selector
-./scripts/Test-Phase03Evidence.ps1 -Stage Network
+& ./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest
+if($LASTEXITCODE-ne0){throw 'Validator self-test failed'}
+& ./scripts/Test-VM105ProfilePreparation.ps1 -EvidencePath 'docs/evidence/vm105-profile-pointer-preparation.json' -Stage Selector
+if($LASTEXITCODE-ne0){throw 'Selector validation failed'}
+& ./scripts/Test-Phase03Evidence.ps1 -Stage Network
+if($LASTEXITCODE-ne0){throw 'Phase 03 Network validation failed'}
 git diff --check -- 'docs/evidence/vm105-profile-pointer-preparation.json'
+if($LASTEXITCODE-ne0){throw 'Review metadata diff check failed'}
+$alreadyStaged=@(git diff --cached --name-only)
+if($LASTEXITCODE-ne0){throw 'Unable to enumerate staged paths'}
+if($alreadyStaged.Count){throw "Pre-staged path blocks metadata commit: $($alreadyStaged-join', ')"}
 git add -- 'docs/evidence/vm105-profile-pointer-preparation.json'
+if($LASTEXITCODE-ne0){throw 'Exact-path metadata stage failed'}
+$staged=@(git diff --cached --name-only)
+if($LASTEXITCODE-ne0 -or $staged.Count-ne1 -or $staged[0]-cne'docs/evidence/vm105-profile-pointer-preparation.json'){throw 'Unexpected staged metadata path'}
 git -c user.name='Codex' -c user.email='codex@local' commit -m 'docs: finalize VM105 selector recovery review'
+if($LASTEXITCODE-ne0){throw 'Review metadata commit failed'}
 ```
 
 Expected:
@@ -397,6 +516,8 @@ EVIDENCE_PASS stage=Selector
 Run:
 
 ```powershell
+& ./scripts/Test-VM105ProfilePreparation.ps1 -EvidencePath 'docs/evidence/vm105-profile-pointer-preparation.json' -Stage Selector
+if($LASTEXITCODE-ne0){throw 'Selector validation failed; recovery remains stopped'}
 $record=Get-Content -Raw -LiteralPath 'docs/evidence/vm105-profile-pointer-preparation.json' | ConvertFrom-Json -DateKind String
 $accepted=$record.selectorDiscovery.review.status -ceq 'ACCEPTED' -and
           $record.selectorDiscovery.review.reviewedDigest -ceq $record.selectorDiscovery.selectorDigest
@@ -408,6 +529,15 @@ $resumeTask2=$accepted -and $record.selectorDiscovery.verdict -ceq 'PASS'
     originalPlanTask2=$(if($resumeTask2){'MAY_RESUME'}else{'STOPPED'})
 } | Format-List
 if(-not $accepted){throw 'Recovery outcome lacks accepted independent review'}
+```
+
+Before using the real record, prove locally that a stale reviewed digest cannot reach the resume decision. This fixture uses the validator result as the first gate and performs no file or remote writes:
+
+```powershell
+$resumeDecisionReached=$false
+$syntheticValidatorExit=1
+if($syntheticValidatorExit-ne0){$syntheticStopped=$true}else{$resumeDecisionReached=$true}
+if(-not $syntheticStopped -or $resumeDecisionReached){throw 'Stale-digest fixture reached resume decision'}
 ```
 
 If `originalPlanTask2` is `MAY_RESUME`, hand the exact accepted selector digest back to the original plan and resume at Task 2 only. If it is `STOPPED`, report the accepted blockers and take no further action. Neither branch authorizes candidate creation, cutover, service/systemd work, credentials, or any other prohibited operation during this recovery task.
