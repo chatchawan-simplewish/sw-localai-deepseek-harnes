@@ -36,13 +36,21 @@ function Get-Findings([hashtable]$Contents, [string]$SelectedStage) {
             continue
         }
         $lines = [regex]::Split([string]$Contents[$file], '\r?\n')
-        $pending = ''
+        $pending = ''; $pendingIndent = 0; $pendingJson = $false
         for ($line = 0; $line -lt $lines.Count; $line++) {
             $categories = @(Find-Categories $lines[$line])
-            if ($pending -and $lines[$line] -match '^\s*"') { $categories += @(Find-Categories ($pending + $lines[$line])) }
+            $indent = [regex]::Match($lines[$line], '^[ \t]*').Length
+            $jsonValue = $pendingJson -and $lines[$line] -match '^\s*(?:["{\[]|(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)(?=\s*[,}\]]?\s*$))'
+            if ($pending -and ($jsonValue -or $indent -gt $pendingIndent) -and $lines[$line] -notmatch '^\s*(?:#.*)?$') {
+                $categories += @(Find-Categories ($pending + $lines[$line]))
+            }
             foreach ($category in @($categories | Select-Object -Unique)) { '{0}:{1}:{2}' -f $file, ($line + 1), $category }
-            if ($lines[$line] -notmatch '^\s*$') { $pending = '' }
-            if ($lines[$line] -match '(?i)"(?:key|api[_-]?key|token|secret|password|client_secret|access_token|refresh_token|id_token|Authorization|Proxy-Authorization)"\s*:\s*$') { $pending = $lines[$line] }
+            if ($lines[$line] -notmatch '^\s*(?:#.*)?$') { $pending = '' }
+            $assignment = [regex]::Match($lines[$line], '(?i)(?:^|[{,])(?<indent>[ \t]*)(?:-[ \t]+)?(?<quote>["'']?)(?:key|api[_-]?key|token|secret|password|client_secret|access_token|refresh_token|id_token|Authorization|Proxy-Authorization)\k<quote>\s*(?<operator>[:=])\s*$')
+            if ($assignment.Success) {
+                $pending = $lines[$line]; $pendingIndent = $assignment.Groups['indent'].Length
+                $pendingJson = $assignment.Groups['quote'].Value -ceq '"' -and $assignment.Groups['operator'].Value -ceq ':'
+            }
         }
     }
 }
@@ -75,7 +83,29 @@ try {
         $contents.Remove($files[5]); if (@(Get-Findings $contents 'Network') -notcontains ($files[5] + ':1:missing-required-file')) { throw 'Missing-file self-test failed' }
         $contents[$files[4]] = '"api_key":' + "`n" + '"synthetic"'
         if (@(Get-Findings $contents 'Network') -notcontains ($files[4] + ':2:credential-assignment')) { throw 'Multiline-JSON self-test failed' }
-        Write-Output ('SelfTest PASS ({0} detection cases; clean, required-file, allowlist and suppressed-report checks)' -f $tests.Count)
+        $contents[$files[5]] = 'Credential-free evidence.'
+        $continuations = @(
+            @('"api_key":', '123456789'), @('{"api_key":', '123456789}'),
+            @('"api_key":', '[]'), @('"api_key":', '{}'),
+            @('"api_key":', '"synthetic"'), @('"api_key":', '  "synthetic",'),
+            @('api_key:', '  synthetic'), @('api_key:', "  'synthetic'"),
+            @('api_key =', '  synthetic'), @("'api_key' =", "  'synthetic'"),
+            @("'api_key':", '  synthetic'), @("'api_key':", "  'synthetic'"),
+            @('  api_key:', '    123456789'), @('  - api_key:', '    synthetic')
+        )
+        foreach ($case in $continuations) {
+            $contents[$files[4]] = $case[0] + "`n" + $case[1]
+            $findings = @(Get-Findings $contents 'Network')
+            if ($findings.Count -ne 1 -or $findings[0] -cne ($files[4] + ':2:credential-assignment')) { throw 'Continuation or exact-suppressed-report self-test failed' }
+        }
+        $contents[$files[4]] = "api_key:`n  # Credential-free comment`n  synthetic"
+        $findings = @(Get-Findings $contents 'Network')
+        if ($findings.Count -ne 1 -or $findings[0] -cne ($files[4] + ':3:credential-assignment')) { throw 'YAML-comment continuation self-test failed' }
+        foreach ($safe in @("api_key:`nSeparate credential-free prose.", "'api_key':`nSeparate credential-free prose.", "api_key:`n`nSeparate credential-free prose.", "  api_key:`n  Separate credential-free prose.", ('"api_key":' + "`n" + 'null'), ('"api_key":' + "`n" + '""'), ('"api_key":' + "`n" + '}'), ('"api_key":' + "`n" + ']'), "api_key:`n  null")) {
+            $contents[$files[4]] = $safe
+            if (@(Get-Findings $contents 'Network').Count) { throw 'Empty-label continuation self-test failed' }
+        }
+        Write-Output ('SelfTest PASS ({0} detection cases; {1} continuation cases; clean, required-file, allowlist and exact suppressed-report checks)' -f $tests.Count, $continuations.Count)
         exit 0
     }
     $contents = @{}; $readFailures = @()
