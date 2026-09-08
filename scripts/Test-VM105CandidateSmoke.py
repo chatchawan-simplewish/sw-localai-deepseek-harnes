@@ -305,50 +305,63 @@ def lookup_paths(anchor):
         current = pp.dirname(current)
 
 
-def closure(trust):
-    deadline = time.monotonic() + 30
-    root = json.loads(trust.read(PACKAGE + '/package.json'))
-    links = {root['name']: PACKAGE}
-    canonicals = {root['name']: PACKAGE}
-    queue = collections.deque([(PACKAGE + '/package.json', root)])
-    edges = 0
-    while queue:
-        anchor, manifest = queue.popleft()
-        for kind in ('dependencies', 'peerDependencies'):
-            deps = manifest.get(kind, {})
-            require(type(deps) is dict, 'DEPENDENCY_MAP')
-            for name, version in deps.items():
-                edges += 1
-                require(edges <= 1024 and time.monotonic() <= deadline, 'CLOSURE_BOUND')
-                package_name(name)
-                require(type(version) is str, 'DEPENDENCY_VERSION')
-                if name in links:
-                    continue
-                resolved = None
-                for search in lookup_paths(anchor):
-                    logical = pp.join(search, name)
-                    try:
-                        canonical = trust.resolve(logical)
-                    except FileNotFoundError:
+def closure(trust, stats=None):
+    started = time.monotonic()
+    if stats is not None:
+        stats.update(closure_package_count=0, closure_edge_count=0, closure_elapsed_ms=0)
+    try:
+        deadline = started + 30
+        root = json.loads(trust.read(PACKAGE + '/package.json'))
+        links = {root['name']: PACKAGE}
+        if stats is not None:
+            stats['closure_package_count'] = len(links)
+        canonicals = {root['name']: PACKAGE}
+        queue = collections.deque([(PACKAGE + '/package.json', root)])
+        edges = 0
+        while queue:
+            anchor, manifest = queue.popleft()
+            for kind in ('dependencies', 'peerDependencies'):
+                deps = manifest.get(kind, {})
+                require(type(deps) is dict, 'DEPENDENCY_MAP')
+                for name, version in deps.items():
+                    edges += 1
+                    if stats is not None:
+                        stats['closure_edge_count'] = edges
+                    require(edges <= 1024 and time.monotonic() <= deadline, 'CLOSURE_BOUND')
+                    package_name(name)
+                    require(type(version) is str, 'DEPENDENCY_VERSION')
+                    if name in links:
                         continue
-                    # An existing directory without its manifest is an invalid candidate.
-                    data = trust.read(canonical + '/package.json')
-                    child = json.loads(data)
-                    require(type(child) is dict and child.get('name') == name and type(child.get('version')) is str,
-                            'MANIFEST_IDENTITY')
-                    require(name not in KNOWN_MAPPINGS or canonical == KNOWN_MAPPINGS[name]['canonical'],
-                            'REVIEWED_PACKAGE_MAPPING')
-                    resolved = logical, canonical, child
-                    break
-                require(resolved is not None, 'INSTALLED_ONLY_RESOLUTION')
-                require(len(links) < 256, 'PACKAGE_BOUND')
-                logical, canonical, child = resolved
-                links[name], canonicals[name] = logical, canonical
-                queue.append((logical + '/package.json', child))
-    trust.verify()
-    require(all(canonicals.get(name) == entry['canonical'] for name, entry in KNOWN_MAPPINGS.items()),
-            'REVIEWED_CLOSURE_MAPPING')
-    return links, canonicals
+                    resolved = None
+                    for search in lookup_paths(anchor):
+                        logical = pp.join(search, name)
+                        try:
+                            canonical = trust.resolve(logical)
+                        except FileNotFoundError:
+                            continue
+                        # An existing directory without its manifest is an invalid candidate.
+                        data = trust.read(canonical + '/package.json')
+                        child = json.loads(data)
+                        require(type(child) is dict and child.get('name') == name and type(child.get('version')) is str,
+                                'MANIFEST_IDENTITY')
+                        require(name not in KNOWN_MAPPINGS or canonical == KNOWN_MAPPINGS[name]['canonical'],
+                                'REVIEWED_PACKAGE_MAPPING')
+                        resolved = logical, canonical, child
+                        break
+                    require(resolved is not None, 'INSTALLED_ONLY_RESOLUTION')
+                    require(len(links) < 256, 'PACKAGE_BOUND')
+                    logical, canonical, child = resolved
+                    links[name], canonicals[name] = logical, canonical
+                    if stats is not None:
+                        stats['closure_package_count'] = len(links)
+                    queue.append((logical + '/package.json', child))
+        trust.verify()
+        require(all(canonicals.get(name) == entry['canonical'] for name, entry in KNOWN_MAPPINGS.items()),
+                'REVIEWED_CLOSURE_MAPPING')
+        return links, canonicals
+    finally:
+        if stats is not None:
+            stats['closure_elapsed_ms'] = max(0, int((time.monotonic() - started) * 1000))
 
 
 def no_candidate_mounts():
@@ -815,19 +828,35 @@ def apply():
     return result
 
 
+DIAGNOSTIC_CODES = frozenset({
+    'CLOSURE_BOUND', 'PACKAGE_BOUND', 'PACKAGE_NAME', 'DEPENDENCY_MAP', 'DEPENDENCY_VERSION',
+    'MANIFEST_IDENTITY', 'REVIEWED_PACKAGE_MAPPING', 'REVIEWED_CLOSURE_MAPPING', 'INSTALLED_ONLY_RESOLUTION',
+    'TRUST_PATH', 'TRUST_OWNER_MODE', 'TRUST_TYPE', 'TRUST_LINK_COUNT', 'TRUST_ATTRIBUTES',
+    'TRUST_METADATA_DRIFT', 'TRUST_LINK_DRIFT', 'INSTALL_ESCAPE', 'LINK_OUTSIDE_INSTALL', 'LINK_OWNER',
+    'LINK_ATTRIBUTES', 'LINK_DRIFT', 'LINK_ESCAPE', 'LINK_BOUND', 'PACKAGE_DIRECTORY_TYPE',
+    'READ_BOUND', 'SOURCE_DIGEST_DRIFT', 'SOURCE_PIN', 'SOURCE_PINS_MISSING',
+    'DIAGNOSTIC_FD_HARD_LIMIT', 'DIAGNOSTIC_FD_LIMIT_MISMATCH', 'DIAGNOSTIC_FD_RESTORE_MISMATCH',
+})
+
+
 def diagnostic_error(error):
     names = {'Blocked', 'TimeoutError', 'OSError', 'FileNotFoundError', 'PermissionError',
              'ProcessLookupError', 'NotADirectoryError', 'IsADirectoryError', 'JSONDecodeError',
              'UnicodeDecodeError', 'ValueError', 'KeyError', 'IndexError', 'TypeError'}
     name = type(error).__name__
     number = getattr(error, 'errno', None)
+    code = None
+    if type(error) is Blocked:
+        code = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
+        code = code if code in DIAGNOSTIC_CODES else 'UNCLASSIFIED_BLOCKED'
     return {'exception_class': name if name in names else 'OTHER',
-            'errno': number if type(number) is int else None}
+            'errno': number if type(number) is int else None, 'safe_code': code}
 
 
 def preflight_diagnostic():
     """Read-only reproduction: this entry has no path to apply or unit controls."""
-    result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None,
+    result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None, 'safe_code': None,
+              'closure_package_count': None, 'closure_edge_count': None, 'closure_elapsed_ms': None,
               'held_fd_count': 0, 'last_successful_fd_count': None, 'fd_soft_limit': None, 'fd_hard_limit': None,
               'fd_applied_soft_limit': None, 'fd_applied_hard_limit': None,
               'fd_restored_soft_limit': None, 'fd_restored_hard_limit': None,
@@ -900,7 +929,7 @@ def preflight_diagnostic():
         stage('CANDIDATE_INVENTORY')
         candidate_inventory()
         stage('INSTALLED_CLOSURE')
-        closure(trust)
+        closure(trust, result)
         stage('UNIT_ABSENCE')
         require(show(UNIT, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
         stage('FINAL_CANDIDATE_INVENTORY')
@@ -953,8 +982,28 @@ def self_test():
     validate_selector(good, '/usr/bin')
     validate_listener([('0100007F:0C09', '77')], {'77'})
     validate_owned({'InvocationID': 'a', 'Description': 'b'}, ('a', 'b'))
-    require(diagnostic_error(OSError(24, 'must never appear in output')) == {'exception_class': 'OSError', 'errno': 24},
+    require(diagnostic_error(OSError(24, 'must never appear in output')) == {'exception_class': 'OSError', 'errno': 24, 'safe_code': None},
             'SELF_TEST_DIAGNOSTIC_SANITIZATION')
+    require(diagnostic_error(Blocked('PACKAGE_BOUND'))['safe_code'] == 'PACKAGE_BOUND'
+            and diagnostic_error(Blocked('must never appear in output'))['safe_code'] == 'UNCLASSIFIED_BLOCKED'
+            and diagnostic_error(Blocked('PACKAGE_BOUND', 'arbitrary extra text'))['safe_code'] == 'UNCLASSIFIED_BLOCKED'
+            and diagnostic_error(ValueError('PACKAGE_BOUND'))['safe_code'] is None, 'SELF_TEST_DIAGNOSTIC_CODE_ALLOWLIST')
+    root_manifest = {'name': '@deepseek-ai/dsh', 'dependencies': {f'p{i}': '*' for i in range(256)}}
+    mock_closure = SimpleNamespace(
+        read=lambda path: json.dumps(root_manifest if path == PACKAGE + '/package.json' else
+                                     {'name': pp.basename(pp.dirname(path)), 'version': '1'}).encode(),
+        resolve=lambda path: INSTALL + '/mock/' + pp.basename(path), verify=lambda: None)
+    counters = {}
+    with patch.dict(globals(), {'KNOWN_MAPPINGS': {}}):
+        try:
+            closure(mock_closure, counters)
+        except Blocked as error:
+            require(error.args == ('PACKAGE_BOUND',), 'SELF_TEST_CLOSURE_GUARD')
+        else:
+            raise RuntimeError('package bound accepted')
+    require(counters['closure_package_count'] == 256 and counters['closure_edge_count'] == 256
+            and type(counters['closure_elapsed_ms']) is int and counters['closure_elapsed_ms'] >= 0,
+            'SELF_TEST_CLOSURE_METRICS')
     def exhausted(*unused):
         raise OSError(24, 'must never appear in output')
     fake = SimpleNamespace(held={'mock': (71, None, None)}, read=exhausted)
