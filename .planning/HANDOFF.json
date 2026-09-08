@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-09-08T18:40:57+07:00",
+  "phase": "03",
+  "phase_name": "provider-prerequisites",
+  "phase_dir": ".planning/phases/03-provider-prerequisites",
+  "plan": 2,
+  "task": 1,
+  "total_tasks": 1,
+  "status": "paused_before_independent_plan_review",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Write and independently accept the VM105 selector BLOCKED record",
+      "status": "done",
+      "commit": "82ed70e"
+    },
+    {
+      "id": 2,
+      "name": "Draft the bounded npm scoped-package-path recovery plan",
+      "status": "in_progress",
+      "commit": "77e39a4",
+      "progress": "One-task plan committed and statically checked; independent plan review has not started."
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 3,
+      "name": "Independently review and, if necessary, revise the recovery plan",
+      "status": "not_started"
+    },
+    {
+      "id": 4,
+      "name": "Execute the accepted recovery task with fresh implementer and reviewer agents",
+      "status": "not_started"
+    },
+    {
+      "id": 5,
+      "name": "Resume the original candidate-preparation Task 2 only if the selector becomes independently accepted PASS",
+      "status": "not_started"
+    }
+  ],
+  "blockers": [
+    {
+      "description": "The installed wrapper hands off to an otherwise expected npm-scoped package path containing a complete @scope segment, while the approved fixed parser rejects every @ character.",
+      "type": "technical",
+      "workaround": "Use only the committed, independently reviewed recovery plan to admit a complete lowercase npm scope segment below /opt/deepseek-harness; otherwise retain BLOCKED."
+    }
+  ],
+  "human_actions_pending": [],
+  "decisions": [
+    {
+      "decision": "Use a fresh fixed candidate profile at /home/dsh/.dsh-profiles/vm105-provider-v1 and later switch only the service pointer reversibly.",
+      "rationale": "Leaves the current profile untouched and permits bounded automatic rollback after a separately approved maintenance restart.",
+      "phase": "03"
+    },
+    {
+      "decision": "Routine development recommendations are pre-approved; ask only for a supercritical, materially different, or materially more expensive departure.",
+      "rationale": "Owner instruction on 2026-09-08; credentials and live cutover remain separate action-time gates.",
+      "phase": "03"
+    },
+    {
+      "decision": "Close the original preparation plan after its accepted BLOCKED Task 1 and use a separate one-task recovery plan.",
+      "rationale": "Preserves fail-closed provenance instead of silently broadening the accepted parser contract.",
+      "phase": "03"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Read the phase handoff, verify repository origin, branch, HEAD 77e39a4701ee3b6c5b3cfa8964049cc1e44b3115, remote parity, and clean state; then dispatch an independent read-only review of docs/superpowers/plans/2026-09-08-vm105-scoped-package-path-recovery.md before any implementation.",
+  "context_notes": "Repository C:/Users/chatc/Projects/sw-localai-deepseek-harnes, authoritative worktree .worktrees/vm105-authoritative-roadmap, branch codex/vm105-authoritative-roadmap, URL https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git. Progress remains Total 09/21, Phase 1 05/05, Phase 2 03/03, Phase 3 01/02, Phase 4 00/09, Phase 5 00/02. Accepted selector evidence digest is 8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4 with overall and selector verdict BLOCKED, selector/blueprint/candidate null, review ACCEPTED. Parent verification passed self-test positive=6 negative=68, Selector evidence, Phase 3 Network scan, and diff check. No candidate profile, credential, OAuth, provider, service, systemd, firewall, or cutover mutation occurred. No project background process was started."
+}
