@@ -18,8 +18,8 @@ Review base: `4188d633797cc6b476247862e0f3733cabfecf7e`; initial status empty.
 - Operationally blocked routes: **6**; existing transport paths: **3**.
 - Proposed rules: **0**; `approvedRuleIds: []`; `releasableRuleIds: []`.
 - Verdict: **NO MUTATION RELEASE / FW-01 BLOCKED**.
-- Controller acceptance: **PENDING**, to be recorded separately by the controller
-  for this exact digest and empty rule list as a reviewed non-releasable state.
+- Controller acceptance: **RECORDED** in [Controller acceptance](#controller-acceptance)
+  for this exact digest and empty rule lists as a reviewed non-releasable state only.
 
 The packet is internally consistent and complete for its declared blocked state.
 Zero review findings does not resolve any operational prerequisite, release a
@@ -120,7 +120,7 @@ observations; no secret values, OAuth parameters or authentication headers appea
 
 The six operational blockers remain as recorded above. The Network stage cannot
 complete until genuine results and the 03-01 summary exist. Controller acceptance
-is still pending and cannot turn the current empty rule list into permission.
+is recorded below for the blocked state and cannot turn the empty rule lists into permission.
 No firewall, credential, OAuth, service, VM, browser, package, route or inference
 mutation occurred during this review. The routine choice is to preserve the
 blocked state; only new evidence and a refreshed independently reviewed packet
