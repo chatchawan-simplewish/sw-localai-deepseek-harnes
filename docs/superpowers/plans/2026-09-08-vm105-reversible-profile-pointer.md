@@ -99,12 +99,15 @@ Candidate check parsers return only these typed safe results:
 | --- | --- | --- |
 | `selector-gate` | `SelectorGateV1` | `selectorDigest`, `selectorVerdict`, `reviewStatus`, `reviewedDigest` |
 | `target-preflight` | `TargetPreflightV1` | `parentAbsent`, `rootAbsent`, `ancestorsSafe` |
-| `create-parent`, `create-root`, directory `metadata` | `CandidateDirectoryMetadataV1` | `path`, `objectType`, `symlink`, `owner`, `group`, `mode`, `aclBroad`, `unexpectedMount`; directories have no link-count-one rule |
-| `write-blueprint`, file `metadata` | `CandidateFileMetadataV1` | `path`, `objectType`, `symlink`, `owner`, `group`, `mode`, `linkCount`, `aclBroad`, `unexpectedMount`, `contentSha256`; regular files require `linkCount: 1` |
-| `static-validation` | `StaticValidationV1` | `supported`, `exitCode`, `parsedResult`; unsupported is `NOT PROVEN` unless it weakens isolation, then `BLOCKED` |
-| `secret-scan` | `SecretScanV1` | `filesScanned`, `findingCount`, `categories`; matching values are never present |
-| `service-unchanged` | `ServiceBaselineV1` | `activeState`, `subState`, `user`, `group`, `execStart`, `workingDirectory`, `umask`, `result`, `nRestarts`, `matchesBaseline` |
-| `network-unchanged` | `NetworkBaselineV1` | `listeners`, `localHttpStatus`, `ufwActive`, `tcp3080Allowed`, `directLanDenied`, `matchesBaseline` |
+| `create-parent`, `create-root` | `CandidateDirectoryMutationV1` | `path`, `attempted`, `completed`, `metadata`; `metadata` is `null` before/after a failed create or the exact `CandidateDirectoryMetadataV1` object below |
+| `write-blueprint` | `BlueprintWriteV1` | `plannedWrites`, `completedWrites`, `lastOperationOrder`; counts are nonnegative, completed never exceeds planned, and a `PASS` completes every planned write |
+| `metadata` | `CandidateMetadataSetV1` | `available`, `directories`, `files`, `allSafe`, `allDigestsMatch`; arrays contain only exact directory/file metadata objects, and `PASS` requires availability plus both booleans |
+| `static-validation` | `StaticValidationV1` | `supported`, `exitCode`, `parsedResult`; `NOT PROVEN` is permitted only when the blueprint declares the validator unsupported and the already parsed loopback/zero-route/fallback assertions remain exact; otherwise uncertainty is `BLOCKED` |
+| `secret-scan` | `SecretScanV1` | `available`, `filesScanned`, `findingCount`, `categories`; matching values are never present and `PASS` requires zero findings |
+| `service-unchanged` | `ServiceBaselineV1` | `available`, `activeState`, `subState`, `user`, `group`, `execStart`, `workingDirectory`, `umask`, `result`, `nRestarts`, `matchesBaseline` |
+| `network-unchanged` | `NetworkBaselineV1` | `available`, `listeners`, `localHttpStatus`, `ufwActive`, `tcp3080Allowed`, `directLanDenied`, `matchesBaseline` |
+
+`CandidateDirectoryMetadataV1` is exactly `path`, `objectType`, `symlink`, `owner`, `group`, `mode`, `aclBroad`, and `unexpectedMount`. `CandidateFileMetadataV1` is exactly those fields plus `linkCount` and `contentSha256`. No safe parser may return an opaque or additional property.
 
 Every `PASS` field is compared to the accepted baseline/blueprint, not accepted from a self-reported label. Empty, extra, malformed, timed-out, or unknown parser results are `BLOCKED`.
 
@@ -146,10 +149,20 @@ function Assert-True {
 
 function Assert-ExactKeys {
     param([object]$Value, [string[]]$Expected, [string]$Label)
+    Assert-True ($null -ne $Value -and $Value -isnot [string] -and $Value -isnot [Collections.IEnumerable]) "$Label object"
     $actual = @($Value.psobject.Properties.Name | Sort-Object)
     $wanted = @($Expected | Sort-Object)
     Assert-True (($actual -join "`n") -ceq ($wanted -join "`n")) "$Label keys differ"
 }
+
+function Assert-String { param([object]$Value,[string]$Label,[switch]$AllowEmpty) Assert-True ($Value -is [string] -and ($AllowEmpty -or -not [string]::IsNullOrWhiteSpace($Value)) -and $Value -notmatch '[\x00-\x08\x0b\x0c\x0e-\x1f]') "$Label string" }
+function Assert-Bool { param([object]$Value,[string]$Label) Assert-True ($Value -is [bool]) "$Label bool" }
+function Assert-Int { param([object]$Value,[string]$Label,[int64]$Min=([int64]::MinValue),[int64]$Max=([int64]::MaxValue)) Assert-True ($Value -is [byte] -or $Value -is [int16] -or $Value -is [int32] -or $Value -is [int64]) "$Label integer"; Assert-True ([int64]$Value -ge $Min -and [int64]$Value -le $Max) "$Label range" }
+function Assert-Array { param([object]$Value,[string]$Label) Assert-True ($null -ne $Value -and $Value -is [Collections.IEnumerable] -and $Value -isnot [string] -and $Value -isnot [Collections.IDictionary]) "$Label array" }
+function Assert-IsoTime { param([object]$Value,[string]$Label,[switch]$AllowNull) if($AllowNull -and $null-eq$Value){return}; Assert-String $Value $Label; $parsed=[DateTimeOffset]::MinValue; Assert-True ([DateTimeOffset]::TryParseExact($Value,'o',[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::None,[ref]$parsed)) "$Label timestamp" }
+function Assert-Digest { param([object]$Value,[string]$Label,[switch]$AllowNull) if($AllowNull -and $null-eq$Value){return}; Assert-True ($Value -is [string] -and $Value -cmatch '^[A-F0-9]{64}$') "$Label digest" }
+function Assert-StringArray { param([object]$Value,[string]$Label,[switch]$RequireAny) Assert-Array $Value $Label; if($RequireAny){Assert-True (@($Value).Count-gt0) "$Label empty"}; foreach($item in @($Value)){Assert-String $item "$Label item"} }
+function Assert-Blockers { param([object]$Value,[bool]$Required,[string]$Label) Assert-StringArray $Value $Label; Assert-True ((@($Value).Count-gt0)-eq$Required) "$Label count" }
 
 function Assert-Throws {
     param([scriptblock]$Action, [string]$Pattern)
@@ -209,12 +222,12 @@ function Assert-InstalledSourceRef {
     param([object]$Ref, [string]$PackageRoot)
     Assert-True ($Ref.sourceClass -ceq 'installed-source') 'proof-source-class'
     Assert-ExactKeys $Ref @('sourceClass','path','sha256','lineStart','lineEnd','claim') 'installedSourceRef'
+    Assert-String $Ref.path 'installed-source-path'; Assert-Digest $Ref.sha256 'installed-source'
+    Assert-Int $Ref.lineStart 'installed-source-lineStart' 1; Assert-Int $Ref.lineEnd 'installed-source-lineEnd' $Ref.lineStart
     if($Ref.path -ceq '/usr/local/bin/dsh'){Assert-StrictPosixPath $Ref.path '/usr/local/bin' }
     else { Assert-StrictPosixPath $Ref.path $PackageRoot -AllowRoot }
     Assert-True (($Ref.path -ceq '/usr/local/bin/dsh') -or $Ref.path.StartsWith("$PackageRoot/", [StringComparison]::Ordinal)) 'installed-source-root'
-    Assert-True ($Ref.sha256 -match '^[A-F0-9]{64}$') 'installed-source-digest'
-    Assert-True (($Ref.lineStart -ge 1) -and ($Ref.lineEnd -ge $Ref.lineStart)) 'installed-source-lines'
-    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Ref.claim)) 'installed-source-claim'
+    Assert-String $Ref.claim 'installed-source-claim'
 }
 
 function Assert-SanitizedUnitRef {
@@ -223,6 +236,8 @@ function Assert-SanitizedUnitRef {
     if($SelectorKey -match '^[A-Z][A-Z0-9_]{1,63}$'){$allowed += $SelectorKey}
     Assert-ExactKeys $Ref @('sourceClass','observationId','capturedAt','propertyAllowlist','observations','claim') 'sanitizedUnitRef'
     Assert-True ($Ref.sourceClass -ceq 'sanitized-unit') 'proof-source-class'
+    Assert-String $Ref.observationId 'unit-observation-id'; Assert-IsoTime $Ref.capturedAt 'unit-capturedAt'
+    Assert-Array $Ref.propertyAllowlist 'unit-property-allowlist'; Assert-Array $Ref.observations 'unit-observations'
     Assert-True (@($Ref.propertyAllowlist).Count -gt 0) 'unit-property-allowlist-empty'
     Assert-True (@($Ref.propertyAllowlist | Select-Object -Unique).Count -eq @($Ref.propertyAllowlist).Count) 'unit-property-allowlist-duplicate'
     foreach($name in @($Ref.propertyAllowlist)){Assert-True ($allowed -ccontains [string]$name) 'unit-property-allowlist'}
@@ -231,21 +246,30 @@ function Assert-SanitizedUnitRef {
         Assert-ExactKeys $item @('name','value') 'sanitizedUnitObservation'
         Assert-True ($Ref.propertyAllowlist -ccontains [string]$item.name) 'unit-property-allowlist'
         Assert-True ($seen.Add([string]$item.name)) 'unit-property-duplicate'
-        Assert-True (-not [string]::IsNullOrWhiteSpace([string]$item.value)) 'unit-property-empty'
+        Assert-String $item.name 'unit-property-name'; Assert-String $item.value 'unit-property-value' -AllowEmpty
+        Assert-True ($item.value -notmatch "`r|`n") 'unit-property-value-shape'
+        if($item.name -ceq 'User' -or $item.name -ceq 'Group'){Assert-True ($item.value -ceq 'dsh') 'unit-identity'}
+        if($item.name -ceq 'ActiveState'){Assert-True ($item.value -ceq 'active') 'unit-active'}
+        if($item.name -ceq 'SubState'){Assert-True ($item.value -ceq 'running') 'unit-running'}
+        if($item.name -ceq 'NRestarts'){Assert-True ($item.value -cmatch '^\d+$') 'unit-restarts'}
+        if($item.name -ceq $SelectorKey){Assert-True ($item.value -ceq 'ABSENT' -or $item.value -cmatch '^/[A-Za-z0-9._/-]+$') 'unit-selector-value'}
     }
     Assert-True ($seen.Count -eq @($Ref.propertyAllowlist).Count) 'unit-property-incomplete'
-    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Ref.claim)) 'unit-claim-empty'
+    Assert-String $Ref.claim 'unit-claim'
 }
 
 function Assert-PrivilegeReceiptRef {
     param([object]$Ref)
     Assert-ExactKeys $Ref @('sourceClass','operationId','capturedAt','queryUser','sudoPath','targetExecutable','targetArgv','noninteractive','result','exitCode','rawOutputStored','claim') 'privilegeReceiptRef'
     Assert-True ($Ref.sourceClass -ceq 'privilege-receipt') 'proof-source-class'
+    Assert-String $Ref.operationId 'privilege-operation'; Assert-IsoTime $Ref.capturedAt 'privilege-capturedAt'
+    Assert-String $Ref.queryUser 'privilege-user'; Assert-String $Ref.sudoPath 'privilege-sudo'; Assert-String $Ref.targetExecutable 'privilege-executable'; Assert-StringArray $Ref.targetArgv 'privilege-argv'
+    Assert-Bool $Ref.noninteractive 'privilege-noninteractive'; Assert-String $Ref.result 'privilege-result'; Assert-Int $Ref.exitCode 'privilege-exitCode'; Assert-Bool $Ref.rawOutputStored 'privilege-raw-output'
     Assert-True (($Ref.queryUser -ceq 'dsh') -and $Ref.noninteractive -and -not $Ref.rawOutputStored) 'privilege-receipt-safety'
     Assert-True ($Ref.sudoPath -ceq '/usr/bin/sudo') 'privilege-receipt-sudo'
     Assert-True (@('ALLOWED','DENIED') -ccontains [string]$Ref.result) 'privilege-receipt-result'
     Assert-True (($Ref.exitCode -eq 0) -eq ($Ref.result -ceq 'ALLOWED')) 'privilege-receipt-exit'
-    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Ref.claim)) 'privilege-receipt-claim'
+    Assert-String $Ref.claim 'privilege-receipt-claim'
 }
 
 function Assert-PrivilegeSeam {
@@ -269,101 +293,140 @@ function Assert-PrivilegeSeam {
     }
 }
 
-function Test-PreparationEvidence {
-    param([object]$Evidence, [ValidateSet('Selector','Candidate','Closeout')][string]$Stage)
-    Assert-True ($Evidence.schemaVersion -eq 1) 'schema-version'
-    Assert-True ($Evidence.workflowId -ceq 'vm105-profile-preparation') 'workflow-id'
-    Assert-True ($Evidence.target.candidateRoot -ceq '/home/dsh/.dsh-profiles/vm105-provider-v1') 'candidate-root'
-    $installed=$Evidence.selectorDiscovery.installedEntrypoint
-    Assert-ExactKeys $installed @('wrapperPath','wrapperType','wrapperSymlink','wrapperOwner','wrapperGroup','wrapperMode','wrapperLinkCount','wrapperSha256','entrypointPath','entrypointType','entrypointSymlink','entrypointOwner','entrypointGroup','entrypointMode','entrypointLinkCount','entrypointSha256','packageRoot','packageName','packageVersion','proofRefs') 'installedEntrypoint'
-    $packageRoot=[string]$installed.packageRoot
-    Assert-StrictPosixPath $packageRoot '/opt/deepseek-harness' -AllowRoot
-    Assert-True ($installed.wrapperPath -ceq '/usr/local/bin/dsh' -and $installed.wrapperType -ceq 'regular file' -and -not $installed.wrapperSymlink -and $installed.wrapperOwner -ceq 'root' -and $installed.wrapperGroup -ceq 'root' -and $installed.wrapperMode -ceq '0755' -and $installed.wrapperLinkCount -eq 1 -and $installed.wrapperSha256 -match '^[A-F0-9]{64}$') 'installed-wrapper-fields'
-    Assert-StrictPosixPath $installed.entrypointPath $packageRoot
-    Assert-True ($installed.entrypointType -ceq 'regular file' -and -not $installed.entrypointSymlink -and $installed.entrypointOwner -ceq 'root' -and $installed.entrypointGroup -ceq 'root' -and $installed.entrypointMode -ceq '0644' -and $installed.entrypointLinkCount -eq 1 -and $installed.entrypointSha256 -match '^[A-F0-9]{64}$') 'installed-entrypoint-fields'
-    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$installed.packageName) -and -not [string]::IsNullOrWhiteSpace([string]$installed.packageVersion)) 'installed-package-fields'
-    Assert-True (@($installed.proofRefs).Count -gt 0) 'installed-proof-empty'; foreach($ref in @($installed.proofRefs)){Assert-InstalledSourceRef $ref $packageRoot}
-    $baseline=$Evidence.selectorDiscovery.baseline
-    Assert-ExactKeys $baseline @('repositoryOrigin','branch','capturedAt','hostname','address','sshHostKeyIdentity','installedVersion','service','listeners','localHttp','ufw','directLanDenied') 'selectorBaseline'
-    Assert-SanitizedUnitRef $baseline.service ([string]$Evidence.selectorDiscovery.selector.name)
-    foreach($listener in @($baseline.listeners)){Assert-ExactKeys $listener @('address','port','protocol') 'baselineListener';Assert-True (@('127.0.0.1','::1')-ccontains[string]$listener.address -and $listener.port-eq3080 -and $listener.protocol-ceq'tcp') 'baseline-listener'}
-    Assert-ExactKeys $baseline.localHttp @('url','statusCode','exitCode') 'baselineHttp'; Assert-ExactKeys $baseline.ufw @('active','defaults','ruleIds','tcp3080Allowed') 'baselineUfw'; Assert-ExactKeys $baseline.directLanDenied @('source','destination','port','denied','timeoutMs') 'baselineDirectLan'
-    Assert-True ($baseline.localHttp.statusCode-eq200 -and $baseline.localHttp.exitCode-eq0 -and $baseline.ufw.active -and -not $baseline.ufw.tcp3080Allowed -and $baseline.directLanDenied.denied -and $baseline.directLanDenied.timeoutMs-ge1 -and $baseline.directLanDenied.timeoutMs-le5000) 'baseline-network'
-    $selector=$Evidence.selectorDiscovery.selector
-    Assert-True (-not[string]::IsNullOrWhiteSpace([string]$selector.name) -and -not[string]::IsNullOrWhiteSpace([string]$selector.precedence)) 'selector-fields'
-    Assert-StrictPosixPath $selector.absoluteCandidateValue '/home/dsh/.dsh-profiles' ; Assert-True (@($selector.futureUnitSelectorLines).Count-gt0) 'selector-unit-lines'
-    Assert-ExactKeys $selector.effectiveProfileProbe @('executable','argv') 'effectiveProfileProbe'; Assert-StrictPosixPath $selector.effectiveProfileProbe.executable $packageRoot; Assert-True (@($selector.effectiveProfileProbe.argv).Count-gt0) 'effective-profile-probe'
-    foreach ($proofName in @('absolutePath','precedence','nonMerge')) {
-        $semanticRefs=@($Evidence.selectorDiscovery.selector.proof.$proofName)
-        Assert-True ($semanticRefs.Count -gt 0) "missing-$proofName"
-        foreach ($ref in $semanticRefs) {
-            Assert-InstalledSourceRef $ref $packageRoot
-        }
-    }
-    foreach ($store in @('credentials','settings','plugins','sessionsState','otherMutableStores')) {
-        $refs=@($Evidence.selectorDiscovery.selector.proof.fullProfileScope.$store)
-        Assert-True ($refs.Count -gt 0) "missing-$store"
-        foreach ($ref in $refs) {
-            Assert-InstalledSourceRef $ref $packageRoot
-        }
-    }
-    $compatibility=$Evidence.selectorDiscovery.selector.proof.serviceCompatibility
-    Assert-True (@($compatibility.installed).Count -gt 0 -and @($compatibility.unit).Count -gt 0) 'missing-service-compatibility'
-    foreach($ref in @($compatibility.installed)){Assert-InstalledSourceRef $ref $packageRoot}; foreach($ref in @($compatibility.unit)){Assert-SanitizedUnitRef $ref ([string]$Evidence.selectorDiscovery.selector.name)}
-    $blueprint=$Evidence.selectorDiscovery.candidateBlueprint
-    Assert-ExactKeys $blueprint @('directories','files','staticValidation','policyAssertions') 'candidateBlueprint'
-    $policy=$blueprint.policyAssertions
-    Assert-ExactKeys $policy @('bindHost','port','activeProviderRoutes','automaticFallback','providerSelectionConfigured','oauthStateConfigured','hermesReferences') 'policyAssertions'
-    Assert-True ($policy.bindHost -ceq '127.0.0.1' -and $policy.port -eq 3080 -and $policy.activeProviderRoutes -eq 0 -and -not $policy.automaticFallback -and -not $policy.providerSelectionConfigured -and -not $policy.oauthStateConfigured -and -not $policy.hermesReferences) 'candidate-policy'
+function Assert-Review {
+    param([object]$Review,[string]$Digest,[string[]]$AllowedStatus)
+    Assert-ExactKeys $Review @('status','reviewedAt','reviewer','reviewedDigest','findings') 'review'
+    Assert-String $Review.status 'review-status'; Assert-True ($AllowedStatus -ccontains $Review.status) 'review-status-value'; Assert-Array $Review.findings 'review-findings'
+    foreach($finding in @($Review.findings)){Assert-String $finding 'review-finding'}
+    if($Review.status-ceq'PENDING'){Assert-True ($null-eq$Review.reviewedAt -and $null-eq$Review.reviewer -and $null-eq$Review.reviewedDigest -and @($Review.findings).Count-eq0) 'review-pending-fields'}
+    else {Assert-IsoTime $Review.reviewedAt 'reviewedAt';Assert-String $Review.reviewer 'reviewer';Assert-Digest $Review.reviewedDigest 'reviewedDigest';Assert-True ($Review.reviewedDigest-ceq$Digest) 'review-digest';if($Review.status-ceq'ACCEPTED'){Assert-True (@($Review.findings).Count-eq0) 'accepted-review-findings'}else{Assert-True (@($Review.findings).Count-gt0) 'rejected-review-findings'}}
+}
+
+function Assert-Target {
+    param([object]$Target)
+    Assert-ExactKeys $Target @('hostname','address','sshHostKeyIdentity','service','serviceUser','serviceGroup','candidateRoot','listenerHost','listenerPort','futureDropInDirectory','futureDropInFile') 'target'
+    foreach($name in @('hostname','address','sshHostKeyIdentity','service','serviceUser','serviceGroup','candidateRoot','listenerHost','futureDropInDirectory','futureDropInFile')){Assert-String $Target.$name "target-$name"}
+    Assert-Int $Target.listenerPort 'target-listenerPort' 1 65535
+    Assert-True ($Target.hostname-ceq'deepseek-harness-01' -and $Target.address-ceq'192.168.1.139' -and $Target.service-ceq'deepseek-harness.service' -and $Target.serviceUser-ceq'dsh' -and $Target.serviceGroup-ceq'dsh' -and $Target.candidateRoot-ceq'/home/dsh/.dsh-profiles/vm105-provider-v1' -and $Target.listenerHost-ceq'127.0.0.1' -and $Target.listenerPort-eq3080 -and $Target.futureDropInDirectory-ceq'/etc/systemd/system/deepseek-harness.service.d' -and $Target.futureDropInFile-ceq'/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf') 'target-values'
+}
+
+function Assert-InstalledEntrypoint {
+    param([object]$Installed)
+    Assert-ExactKeys $Installed @('wrapperPath','wrapperType','wrapperSymlink','wrapperOwner','wrapperGroup','wrapperMode','wrapperLinkCount','wrapperSha256','entrypointPath','entrypointType','entrypointSymlink','entrypointOwner','entrypointGroup','entrypointMode','entrypointLinkCount','entrypointSha256','packageRoot','packageName','packageVersion','proofRefs') 'installedEntrypoint'
+    foreach($name in @('wrapperPath','wrapperType','wrapperOwner','wrapperGroup','wrapperMode','entrypointPath','entrypointType','entrypointOwner','entrypointGroup','entrypointMode','packageRoot','packageName','packageVersion')){Assert-String $Installed.$name "installed-$name"}
+    Assert-Bool $Installed.wrapperSymlink 'wrapperSymlink';Assert-Bool $Installed.entrypointSymlink 'entrypointSymlink';Assert-Int $Installed.wrapperLinkCount 'wrapperLinkCount' 1 1;Assert-Int $Installed.entrypointLinkCount 'entrypointLinkCount' 1 1;Assert-Digest $Installed.wrapperSha256 'wrapperSha256';Assert-Digest $Installed.entrypointSha256 'entrypointSha256';Assert-Array $Installed.proofRefs 'installed-proofRefs'
+    Assert-StrictPosixPath $Installed.packageRoot '/opt/deepseek-harness' -AllowRoot;Assert-StrictPosixPath $Installed.entrypointPath $Installed.packageRoot
+    Assert-True ($Installed.wrapperPath-ceq'/usr/local/bin/dsh' -and $Installed.wrapperType-ceq'regular file' -and -not$Installed.wrapperSymlink -and $Installed.wrapperOwner-ceq'root' -and $Installed.wrapperGroup-ceq'root' -and ([Convert]::ToInt32($Installed.wrapperMode,8)-band18)-eq0 -and $Installed.entrypointType-ceq'regular file' -and -not$Installed.entrypointSymlink -and $Installed.entrypointOwner-ceq'root' -and $Installed.entrypointGroup-ceq'root' -and ([Convert]::ToInt32($Installed.entrypointMode,8)-band18)-eq0) 'installed-entrypoint-fields'
+    Assert-True (@($Installed.proofRefs).Count-gt0) 'installed-proof-empty';foreach($ref in @($Installed.proofRefs)){Assert-InstalledSourceRef $ref $Installed.packageRoot}
+}
+
+function Assert-Baseline {
+    param([object]$Baseline,[string]$SelectorKey)
+    Assert-ExactKeys $Baseline @('repositoryOrigin','branch','capturedAt','hostname','address','sshHostKeyIdentity','installedVersion','service','listeners','localHttp','ufw','directLanDenied') 'selectorBaseline'
+    foreach($name in @('repositoryOrigin','branch','hostname','address','sshHostKeyIdentity','installedVersion')){Assert-String $Baseline.$name "baseline-$name"};Assert-IsoTime $Baseline.capturedAt 'baseline-capturedAt'
+    Assert-True ($Baseline.repositoryOrigin-ceq'https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git' -and $Baseline.branch-ceq'codex/vm105-authoritative-roadmap' -and $Baseline.hostname-ceq'deepseek-harness-01' -and $Baseline.address-ceq'192.168.1.139' -and $Baseline.installedVersion-match'0\.1\.1-rc\.2') 'baseline-identity'
+    Assert-SanitizedUnitRef $Baseline.service $SelectorKey;Assert-Array $Baseline.listeners 'baseline-listeners';Assert-True (@($Baseline.listeners).Count-gt0) 'baseline-listeners-empty'
+    foreach($listener in @($Baseline.listeners)){Assert-ExactKeys $listener @('address','port','protocol') 'baselineListener';Assert-String $listener.address 'listener-address';Assert-Int $listener.port 'listener-port' 3080 3080;Assert-String $listener.protocol 'listener-protocol';Assert-True (@('127.0.0.1','::1')-ccontains$listener.address -and $listener.protocol-ceq'tcp') 'baseline-listener'}
+    Assert-ExactKeys $Baseline.localHttp @('url','statusCode','exitCode') 'baselineHttp';Assert-String $Baseline.localHttp.url 'http-url';Assert-Int $Baseline.localHttp.statusCode 'http-status' 200 200;Assert-Int $Baseline.localHttp.exitCode 'http-exit' 0 0;Assert-True ($Baseline.localHttp.url-ceq'http://127.0.0.1:3080/') 'http-url-value'
+    Assert-ExactKeys $Baseline.ufw @('active','defaults','ruleIds','tcp3080Allowed') 'baselineUfw';Assert-Bool $Baseline.ufw.active 'ufw-active';Assert-String $Baseline.ufw.defaults 'ufw-defaults';Assert-StringArray $Baseline.ufw.ruleIds 'ufw-ruleIds';Assert-Bool $Baseline.ufw.tcp3080Allowed 'ufw-tcp3080';Assert-True ($Baseline.ufw.active -and -not$Baseline.ufw.tcp3080Allowed) 'baseline-ufw'
+    Assert-ExactKeys $Baseline.directLanDenied @('source','destination','port','denied','timeoutMs') 'baselineDirectLan';Assert-String $Baseline.directLanDenied.source 'direct-source';Assert-String $Baseline.directLanDenied.destination 'direct-destination';Assert-Int $Baseline.directLanDenied.port 'direct-port' 3080 3080;Assert-Bool $Baseline.directLanDenied.denied 'direct-denied';Assert-Int $Baseline.directLanDenied.timeoutMs 'direct-timeout' 1 5000;Assert-True ($Baseline.directLanDenied.denied) 'baseline-direct-denial'
+}
+
+function Assert-CandidateBlueprint {
+    param([object]$Blueprint,[string]$PackageRoot,[string]$CandidateRoot)
+    Assert-ExactKeys $Blueprint @('directories','files','staticValidation','policyAssertions') 'candidateBlueprint';Assert-Array $Blueprint.directories 'candidate-directories';Assert-Array $Blueprint.files 'candidate-files'
     $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach($directory in @($blueprint.directories)){
-        Assert-ExactKeys $directory @('relativePath','owner','group','mode','contentSource','sourceRefs') 'candidateDirectory'
-        Assert-StrictPosixRelativePath $directory.relativePath; Assert-True ($paths.Add([string]$directory.relativePath)) 'candidate-path-duplicate'
-        Assert-True ($directory.owner -ceq 'dsh' -and $directory.group -ceq 'dsh' -and $directory.mode -ceq '0700' -and @('installed-default','approved-setting')-ccontains[string]$directory.contentSource) 'candidate-directory'
-        Assert-True (@($directory.sourceRefs).Count -gt 0) 'candidate-source-empty'; foreach($ref in @($directory.sourceRefs)){Assert-InstalledSourceRef $ref $packageRoot}
+    foreach($directory in @($Blueprint.directories)){Assert-ExactKeys $directory @('relativePath','owner','group','mode','contentSource','sourceRefs') 'candidateDirectory';Assert-StrictPosixRelativePath $directory.relativePath;Assert-True ($paths.Add($directory.relativePath)) 'candidate-path-duplicate';foreach($name in @('owner','group','mode','contentSource')){Assert-String $directory.$name "candidate-directory-$name"};Assert-True ($directory.owner-ceq'dsh' -and $directory.group-ceq'dsh' -and $directory.mode-ceq'0700' -and @('installed-default','approved-setting')-ccontains$directory.contentSource) 'candidate-directory';Assert-Array $directory.sourceRefs 'candidate-directory-sourceRefs';Assert-True (@($directory.sourceRefs).Count-gt0) 'candidate-source-empty';foreach($ref in @($directory.sourceRefs)){Assert-InstalledSourceRef $ref $PackageRoot}}
+    foreach($file in @($Blueprint.files)){Assert-ExactKeys $file @('relativePath','owner','group','mode','contentLines','contentSha256','contentSource','sourceRefs') 'candidateFile';Assert-StrictPosixRelativePath $file.relativePath;Assert-True ($paths.Add($file.relativePath)) 'candidate-path-duplicate';foreach($name in @('owner','group','mode','contentSource')){Assert-String $file.$name "candidate-file-$name"};Assert-True ($file.owner-ceq'dsh' -and $file.group-ceq'dsh' -and ([Convert]::ToInt32($file.mode,8)-band63)-eq0 -and @('installed-default','approved-setting')-ccontains$file.contentSource) 'candidate-file';Assert-StringArray $file.contentLines 'candidate-contentLines';Assert-Digest $file.contentSha256 'candidate-contentSha256';$bytes=[Text.Encoding]::UTF8.GetBytes((@($file.contentLines)-join"`n")+"`n");Assert-True ((Get-UpperSha256 $bytes)-ceq$file.contentSha256) 'candidate-content-digest';Assert-Array $file.sourceRefs 'candidate-file-sourceRefs';Assert-True (@($file.sourceRefs).Count-gt0) 'candidate-source-empty';foreach($ref in @($file.sourceRefs)){Assert-InstalledSourceRef $ref $PackageRoot}}
+    $static=$Blueprint.staticValidation;Assert-ExactKeys $static @('supported','executable','argv','timeoutSeconds','parser','acceptedResults','sourceRefs') 'staticValidation';Assert-Bool $static.supported 'static-supported';Assert-Int $static.timeoutSeconds 'static-timeout' 1 60;Assert-String $static.parser 'static-parser';Assert-Array $static.argv 'static-argv';Assert-Array $static.acceptedResults 'static-results';Assert-Array $static.sourceRefs 'static-sourceRefs';foreach($ref in @($static.sourceRefs)){Assert-InstalledSourceRef $ref $PackageRoot}
+    if($static.supported){Assert-String $static.executable 'static-executable';Assert-StrictPosixPath $static.executable $PackageRoot;Assert-StringArray $static.argv 'static-argv' -RequireAny;Assert-StringArray $static.acceptedResults 'static-results' -RequireAny;Assert-True (@($static.argv|Where-Object{$_-ceq$CandidateRoot}).Count-eq1) 'static-candidate-argv';Assert-True ($static.parser-cmatch'^[A-Za-z][A-Za-z0-9]{1,31}V1$' -and $static.parser-cne'NoneV1') 'static-parser-value'}else{Assert-True ($null-eq$static.executable -and @($static.argv).Count-eq0 -and $static.parser-ceq'NoneV1' -and @($static.acceptedResults).Count-eq0) 'static-disabled-contract'}
+    $policy=$Blueprint.policyAssertions;Assert-ExactKeys $policy @('bindHost','port','activeProviderRoutes','automaticFallback','providerSelectionConfigured','oauthStateConfigured','hermesReferences') 'policyAssertions';Assert-String $policy.bindHost 'policy-bindHost';Assert-Int $policy.port 'policy-port' 3080 3080;Assert-Int $policy.activeProviderRoutes 'policy-routes' 0 0;foreach($name in @('automaticFallback','providerSelectionConfigured','oauthStateConfigured','hermesReferences')){Assert-Bool $policy.$name "policy-$name"};Assert-True ($policy.bindHost-ceq'127.0.0.1' -and -not$policy.automaticFallback -and -not$policy.providerSelectionConfigured -and -not$policy.oauthStateConfigured -and -not$policy.hermesReferences) 'candidate-policy'
+}
+
+function Assert-SelectorDiscovery {
+    param([object]$Discovery,[string]$CandidateRoot)
+    Assert-ExactKeys $Discovery @('capturedAt','installedVersion','verdict','blockers','installedEntrypoint','baseline','selector','candidateBlueprint','selectorDigest','review') 'selectorDiscovery';Assert-IsoTime $Discovery.capturedAt 'selector-capturedAt';Assert-String $Discovery.installedVersion 'selector-version';Assert-String $Discovery.verdict 'selector-verdict';Assert-True (@('PASS','BLOCKED')-ccontains$Discovery.verdict) 'selector-verdict-value';Assert-Blockers $Discovery.blockers ($Discovery.verdict-ceq'BLOCKED') 'selector-blockers';Assert-Digest $Discovery.selectorDigest 'selectorDigest'
+    $selectorKey=if($null-ne$Discovery.selector){[string]$Discovery.selector.name}else{''};Assert-Baseline $Discovery.baseline $selectorKey
+    if($Discovery.verdict-ceq'BLOCKED'){if($null-ne$Discovery.installedEntrypoint){Assert-InstalledEntrypoint $Discovery.installedEntrypoint};Assert-True ($null-eq$Discovery.selector -and $null-eq$Discovery.candidateBlueprint) 'blocked-selector-artifacts'}
+    else {
+        Assert-True ($null-ne$Discovery.installedEntrypoint -and $null-ne$Discovery.selector -and $null-ne$Discovery.candidateBlueprint) 'pass-selector-artifacts';Assert-InstalledEntrypoint $Discovery.installedEntrypoint;$packageRoot=$Discovery.installedEntrypoint.packageRoot
+        $selector=$Discovery.selector;Assert-ExactKeys $selector @('name','precedence','absoluteCandidateValue','futureUnitSelectorLines','effectiveProfileProbe','proof') 'selector';Assert-String $selector.name 'selector-name';Assert-True ($selector.name-cmatch'^[A-Z][A-Z0-9_]{1,63}$') 'selector-name-value';Assert-String $selector.precedence 'selector-precedence';Assert-String $selector.absoluteCandidateValue 'selector-value';Assert-True ($selector.absoluteCandidateValue-ceq$CandidateRoot) 'selector-candidate-value';Assert-StringArray $selector.futureUnitSelectorLines 'selector-unit-lines' -RequireAny
+        Assert-ExactKeys $selector.effectiveProfileProbe @('executable','argv') 'effectiveProfileProbe';Assert-String $selector.effectiveProfileProbe.executable 'probe-executable';Assert-StrictPosixPath $selector.effectiveProfileProbe.executable $packageRoot;Assert-StringArray $selector.effectiveProfileProbe.argv 'probe-argv' -RequireAny;Assert-True (@($selector.effectiveProfileProbe.argv|Where-Object{$_-ceq$CandidateRoot}).Count-eq1) 'probe-candidate-argv'
+        $proof=$selector.proof;Assert-ExactKeys $proof @('absolutePath','precedence','fullProfileScope','nonMerge','serviceCompatibility') 'selectorProof';foreach($name in @('absolutePath','precedence','nonMerge')){Assert-Array $proof.$name "proof-$name";Assert-True (@($proof.$name).Count-gt0) "missing-$name";foreach($ref in @($proof.$name)){Assert-InstalledSourceRef $ref $packageRoot}}
+        Assert-ExactKeys $proof.fullProfileScope @('credentials','settings','plugins','sessionsState','otherMutableStores') 'fullProfileScope';foreach($store in @('credentials','settings','plugins','sessionsState','otherMutableStores')){Assert-Array $proof.fullProfileScope.$store "scope-$store";Assert-True (@($proof.fullProfileScope.$store).Count-gt0) "missing-$store";foreach($ref in @($proof.fullProfileScope.$store)){Assert-InstalledSourceRef $ref $packageRoot}}
+        Assert-ExactKeys $proof.serviceCompatibility @('installed','unit') 'serviceCompatibility';Assert-Array $proof.serviceCompatibility.installed 'compat-installed';Assert-Array $proof.serviceCompatibility.unit 'compat-unit';Assert-True (@($proof.serviceCompatibility.installed).Count-gt0 -and @($proof.serviceCompatibility.unit).Count-gt0) 'missing-service-compatibility';foreach($ref in @($proof.serviceCompatibility.installed)){Assert-InstalledSourceRef $ref $packageRoot};foreach($ref in @($proof.serviceCompatibility.unit)){Assert-SanitizedUnitRef $ref $selector.name}
+        Assert-CandidateBlueprint $Discovery.candidateBlueprint $packageRoot $CandidateRoot
     }
-    foreach($file in @($blueprint.files)){
-        Assert-ExactKeys $file @('relativePath','owner','group','mode','contentLines','contentSha256','contentSource','sourceRefs') 'candidateFile'
-        Assert-StrictPosixRelativePath $file.relativePath; Assert-True ($paths.Add([string]$file.relativePath)) 'candidate-path-duplicate'
-        Assert-True ($file.owner -ceq 'dsh' -and $file.group -ceq 'dsh' -and ([Convert]::ToInt32($file.mode,8) -band 63) -eq 0 -and @('installed-default','approved-setting')-ccontains[string]$file.contentSource) 'candidate-file'
-        $bytes=[Text.Encoding]::UTF8.GetBytes((@($file.contentLines)-join "`n")+"`n"); Assert-True ((Get-UpperSha256 $bytes) -ceq $file.contentSha256) 'candidate-content-digest'
-        Assert-True (@($file.sourceRefs).Count -gt 0) 'candidate-source-empty'; foreach($ref in @($file.sourceRefs)){Assert-InstalledSourceRef $ref $packageRoot}
+    $expected=Get-CanonicalStageDigest $Discovery @('selectorDigest','review');Assert-True ($Discovery.selectorDigest-ceq$expected) 'selector-stage-digest';Assert-Review $Discovery.review $Discovery.selectorDigest @('ACCEPTED','REJECTED');Assert-True ($Discovery.review.status-ceq'ACCEPTED') 'selector-review-not-accepted'
+}
+
+function Assert-CutoverPrerequisites {
+    param([object]$Value,[string]$FutureFile)
+    Assert-ExactKeys $Value @('observedAt','verdict','privilegeSeam','dropInDirectory','blockers') 'cutoverPrerequisites';Assert-IsoTime $Value.observedAt 'prerequisite-observedAt';Assert-String $Value.verdict 'prerequisite-verdict';Assert-True (@('PASS','BLOCKED')-ccontains$Value.verdict) 'prerequisite-verdict-value';Assert-Blockers $Value.blockers ($Value.verdict-ceq'BLOCKED') 'prerequisite-blockers'
+    Assert-ExactKeys $Value.privilegeSeam @('verdict','receipts') 'privilegeSeam';Assert-String $Value.privilegeSeam.verdict 'privilege-seam-verdict';Assert-True (@('PASS','BLOCKED')-ccontains$Value.privilegeSeam.verdict) 'privilege-seam-verdict-value';Assert-Array $Value.privilegeSeam.receipts 'privilege-receipts';Assert-PrivilegeSeam @($Value.privilegeSeam.receipts) $FutureFile;$allAllowed=@($Value.privilegeSeam.receipts|Where-Object{$_.result-cne'ALLOWED'}).Count-eq0;Assert-True (($Value.privilegeSeam.verdict-ceq'PASS')-eq$allAllowed) 'privilege-seam-consistency'
+    $drop=$Value.dropInDirectory;Assert-ExactKeys $drop @('path','exists','realDirectory','owner','group','mode','linkStatus','broadAcl','unexpectedMount','verdict') 'dropInDirectory';Assert-String $drop.path 'dropin-path';Assert-True ($drop.path-ceq'/etc/systemd/system/deepseek-harness.service.d') 'dropin-path-value';Assert-Bool $drop.exists 'dropin-exists';Assert-Bool $drop.realDirectory 'dropin-real';Assert-String $drop.linkStatus 'dropin-linkStatus';Assert-String $drop.verdict 'dropin-verdict';Assert-True (@('PASS','BLOCKED')-ccontains$drop.verdict) 'dropin-verdict-value'
+    if($drop.exists){Assert-String $drop.owner 'dropin-owner';Assert-String $drop.group 'dropin-group';Assert-String $drop.mode 'dropin-mode';Assert-Bool $drop.broadAcl 'dropin-acl';Assert-Bool $drop.unexpectedMount 'dropin-mount';$safe=$drop.realDirectory-and$drop.owner-ceq'root'-and$drop.group-ceq'root'-and$drop.mode-ceq'0755'-and$drop.linkStatus-ceq'not-link'-and-not$drop.broadAcl-and-not$drop.unexpectedMount}else{Assert-True (-not$drop.realDirectory -and $null-eq$drop.owner -and $null-eq$drop.group -and $null-eq$drop.mode -and $drop.linkStatus-ceq'absent' -and $null-eq$drop.broadAcl -and $null-eq$drop.unexpectedMount) 'dropin-absent-fields';$safe=$false};Assert-True (($drop.verdict-ceq'PASS')-eq$safe) 'dropin-consistency';Assert-True (($Value.verdict-ceq'PASS')-eq($allAllowed-and$safe)) 'prerequisite-consistency'
+}
+
+function Assert-DirectoryMetadata { param([object]$Value,[string]$ExpectedPath) Assert-ExactKeys $Value @('path','objectType','symlink','owner','group','mode','aclBroad','unexpectedMount') 'CandidateDirectoryMetadataV1';foreach($name in @('path','objectType','owner','group','mode')){Assert-String $Value.$name "directory-$name"};foreach($name in @('symlink','aclBroad','unexpectedMount')){Assert-Bool $Value.$name "directory-$name"};Assert-True ($Value.path-ceq$ExpectedPath -and $Value.objectType-ceq'directory' -and -not$Value.symlink -and $Value.owner-ceq'dsh' -and $Value.group-ceq'dsh' -and $Value.mode-ceq'0700' -and -not$Value.aclBroad -and -not$Value.unexpectedMount) 'directory-metadata-values' }
+function Assert-FileMetadata { param([object]$Value,[hashtable]$Expected) Assert-ExactKeys $Value @('path','objectType','symlink','owner','group','mode','linkCount','aclBroad','unexpectedMount','contentSha256') 'CandidateFileMetadataV1';foreach($name in @('path','objectType','owner','group','mode')){Assert-String $Value.$name "file-$name"};foreach($name in @('symlink','aclBroad','unexpectedMount')){Assert-Bool $Value.$name "file-$name"};Assert-Int $Value.linkCount 'file-linkCount' 1 1;Assert-Digest $Value.contentSha256 'file-contentSha256';Assert-True ($Expected.ContainsKey($Value.path) -and $Value.objectType-ceq'regular file' -and -not$Value.symlink -and $Value.owner-ceq'dsh' -and $Value.group-ceq'dsh' -and ([Convert]::ToInt32($Value.mode,8)-band63)-eq0 -and -not$Value.aclBroad -and -not$Value.unexpectedMount -and $Value.contentSha256-ceq$Expected[$Value.path]) 'file-metadata-values' }
+
+function Assert-SafeObservation {
+    param([object]$Check,[object]$Evidence)
+    $o=$Check.safeObservation;$id=$Check.id;$root=$Evidence.target.candidateRoot;$blueprint=$Evidence.selectorDiscovery.candidateBlueprint
+    switch($id){
+        'selector-gate'{Assert-True ($Check.parser-ceq'SelectorGateV1') 'check-parser';Assert-ExactKeys $o @('selectorDigest','selectorVerdict','reviewStatus','reviewedDigest') 'SelectorGateV1';Assert-Digest $o.selectorDigest 'gate-selectorDigest';Assert-String $o.selectorVerdict 'gate-verdict';Assert-String $o.reviewStatus 'gate-review';Assert-Digest $o.reviewedDigest 'gate-reviewedDigest';if($Check.result-ceq'PASS'){Assert-True ($o.selectorDigest-ceq$Evidence.selectorDiscovery.selectorDigest -and $o.selectorVerdict-ceq'PASS' -and $o.reviewStatus-ceq'ACCEPTED' -and $o.reviewedDigest-ceq$o.selectorDigest) 'selector-gate-values'}}
+        'target-preflight'{Assert-True ($Check.parser-ceq'TargetPreflightV1') 'check-parser';Assert-ExactKeys $o @('parentAbsent','rootAbsent','ancestorsSafe') 'TargetPreflightV1';foreach($name in @('parentAbsent','rootAbsent','ancestorsSafe')){Assert-Bool $o.$name "preflight-$name"};if($Check.result-ceq'PASS'){Assert-True ($o.parentAbsent-and$o.rootAbsent-and$o.ancestorsSafe) 'preflight-values'}}
+        {$_-in@('create-parent','create-root')}{Assert-True ($Check.parser-ceq'CandidateDirectoryMutationV1') 'check-parser';Assert-ExactKeys $o @('path','attempted','completed','metadata') 'CandidateDirectoryMutationV1';Assert-String $o.path 'directory-mutation-path';Assert-Bool $o.attempted 'directory-attempted';Assert-Bool $o.completed 'directory-completed';$expected=if($id-ceq'create-parent'){'/home/dsh/.dsh-profiles'}else{$root};Assert-True ($o.path-ceq$expected) 'directory-mutation-path-value';if($null-ne$o.metadata){Assert-DirectoryMetadata $o.metadata $expected};if($Check.result-ceq'PASS'){Assert-True ($o.attempted-and$o.completed-and$null-ne$o.metadata) 'directory-mutation-values'}}
+        'write-blueprint'{Assert-True ($Check.parser-ceq'BlueprintWriteV1') 'check-parser';Assert-ExactKeys $o @('plannedWrites','completedWrites','lastOperationOrder') 'BlueprintWriteV1';Assert-Int $o.plannedWrites 'planned-writes' 0;Assert-Int $o.completedWrites 'completed-writes' 0 $o.plannedWrites;Assert-Int $o.lastOperationOrder 'last-operation-order' 0;Assert-True ($o.plannedWrites-eq(@($blueprint.directories).Count+@($blueprint.files).Count)) 'planned-write-count';if($Check.result-ceq'PASS'){Assert-True ($o.completedWrites-eq$o.plannedWrites) 'completed-write-count'}}
+        'metadata'{Assert-True ($Check.parser-ceq'CandidateMetadataSetV1') 'check-parser';Assert-ExactKeys $o @('available','directories','files','allSafe','allDigestsMatch') 'CandidateMetadataSetV1';Assert-Bool $o.available 'metadata-available';Assert-Array $o.directories 'metadata-directories';Assert-Array $o.files 'metadata-files';Assert-Bool $o.allSafe 'metadata-safe';Assert-Bool $o.allDigestsMatch 'metadata-digests';$expectedFiles=@{};foreach($f in @($blueprint.files)){$expectedFiles["$root/$($f.relativePath)"]=$f.contentSha256};foreach($d in @($o.directories)){Assert-DirectoryMetadata $d $d.path;Assert-True ($d.path-ceq'/home/dsh/.dsh-profiles' -or $d.path-ceq$root -or $d.path.StartsWith("$root/",[StringComparison]::Ordinal)) 'metadata-directory-path'};foreach($f in @($o.files)){Assert-FileMetadata $f $expectedFiles};if($Check.result-ceq'PASS'){Assert-True ($o.available-and$o.allSafe-and$o.allDigestsMatch -and @($o.files).Count-eq@($blueprint.files).Count) 'metadata-values'}}
+        'static-validation'{Assert-True ($Check.parser-ceq'StaticValidationV1') 'check-parser';Assert-ExactKeys $o @('supported','exitCode','parsedResult') 'StaticValidationV1';Assert-Bool $o.supported 'static-observation-supported';Assert-String $o.parsedResult 'static-observation-result';if($null-ne$o.exitCode){Assert-Int $o.exitCode 'static-observation-exit'};if($Check.result-ceq'NOT PROVEN'){Assert-True (-not$o.supported -and $null-eq$o.exitCode -and $o.parsedResult-ceq'NOT PROVEN' -and -not$blueprint.staticValidation.supported) 'static-not-proven-contract'}elseif($Check.result-ceq'PASS'){Assert-True ($o.supported -and $o.exitCode-eq0 -and @($blueprint.staticValidation.acceptedResults)-ccontains$o.parsedResult) 'static-pass-values'}}
+        'secret-scan'{Assert-True ($Check.parser-ceq'SecretScanV1') 'check-parser';Assert-ExactKeys $o @('available','filesScanned','findingCount','categories') 'SecretScanV1';Assert-Bool $o.available 'scan-available';Assert-Int $o.filesScanned 'scan-files' 0;Assert-Int $o.findingCount 'scan-findings' 0;Assert-StringArray $o.categories 'scan-categories';if($Check.result-ceq'PASS'){Assert-True ($o.available-and$o.filesScanned-eq@($blueprint.files).Count-and$o.findingCount-eq0-and@($o.categories).Count-eq0) 'scan-values'}}
+        'service-unchanged'{Assert-True ($Check.parser-ceq'ServiceBaselineV1') 'check-parser';Assert-ExactKeys $o @('available','activeState','subState','user','group','execStart','workingDirectory','umask','result','nRestarts','matchesBaseline') 'ServiceBaselineV1';Assert-Bool $o.available 'service-available';foreach($name in @('activeState','subState','user','group','execStart','workingDirectory','umask','result')){Assert-String $o.$name "service-$name" -AllowEmpty};Assert-Int $o.nRestarts 'service-restarts' 0;Assert-Bool $o.matchesBaseline 'service-match';if($Check.result-ceq'PASS'){Assert-True ($o.available-and$o.activeState-ceq'active'-and$o.subState-ceq'running'-and$o.user-ceq'dsh'-and$o.group-ceq'dsh'-and$o.matchesBaseline) 'service-values'}}
+        'network-unchanged'{Assert-True ($Check.parser-ceq'NetworkBaselineV1') 'check-parser';Assert-ExactKeys $o @('available','listeners','localHttpStatus','ufwActive','tcp3080Allowed','directLanDenied','matchesBaseline') 'NetworkBaselineV1';Assert-Bool $o.available 'network-available';Assert-Array $o.listeners 'network-listeners';foreach($listener in @($o.listeners)){Assert-ExactKeys $listener @('address','port','protocol') 'network-listener'};Assert-Int $o.localHttpStatus 'network-http' 0 599;foreach($name in @('ufwActive','tcp3080Allowed','directLanDenied','matchesBaseline')){Assert-Bool $o.$name "network-$name"};if($Check.result-ceq'PASS'){Assert-True ($o.available-and$o.localHttpStatus-eq200-and$o.ufwActive-and-not$o.tcp3080Allowed-and$o.directLanDenied-and$o.matchesBaseline) 'network-values'}}
+        default{throw 'unknown-check-id'}
     }
-    $static=$blueprint.staticValidation
-    Assert-ExactKeys $static @('supported','executable','argv','timeoutSeconds','parser','acceptedResults','sourceRefs') 'staticValidation'
-    Assert-True ($static.timeoutSeconds -ge 1 -and $static.timeoutSeconds -le 30) 'static-timeout'
-    if($static.supported){Assert-StrictPosixPath $static.executable $packageRoot; Assert-True (@($static.argv).Count -gt 0 -and @($static.acceptedResults).Count -gt 0) 'static-contract'}
-    else {Assert-True ($null -eq $static.executable -and @($static.argv).Count -eq 0 -and $static.parser -ceq 'NoneV1' -and @($static.acceptedResults).Count -eq 0) 'static-disabled-contract'}
-    foreach($ref in @($static.sourceRefs)){Assert-InstalledSourceRef $ref $packageRoot}
-    $selectorExpected=Get-CanonicalStageDigest $Evidence.selectorDiscovery @('selectorDigest','review')
-    Assert-True ($Evidence.selectorDiscovery.selectorDigest -ceq $selectorExpected) 'selector-stage-digest'
-    Assert-True ($Evidence.selectorDiscovery.selectorDigest -ceq $Evidence.selectorDiscovery.review.reviewedDigest) 'selector-review-digest'
-    Assert-PrivilegeSeam @($Evidence.cutoverPrerequisites.privilegeSeam.receipts) ([string]$Evidence.target.futureDropInFile)
-    if ($Stage -in @('Candidate','Closeout')) {
-        Assert-ExactKeys $Evidence.candidatePreparation @('selectorDigest','candidateDigest','startedAt','finishedAt','verdict','checks','mutationLedger','runtimeVerdict','blockers','review') 'candidatePreparation'
-        Assert-True ($Evidence.candidatePreparation.selectorDigest -ceq $Evidence.selectorDiscovery.selectorDigest) 'candidate-selector-digest'
-        Assert-True ($Evidence.candidatePreparation.runtimeVerdict -ceq 'NOT PROVEN') 'runtime-verdict'
-        Assert-True ($Evidence.candidatePreparation.candidateDigest -ceq (Get-CanonicalStageDigest $Evidence.candidatePreparation @('candidateDigest','review'))) 'candidate-stage-digest'
-        $blocked=$false
-        $expectedCheckIds=@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')
-        $checkIndex=0
-        foreach($check in @($Evidence.candidatePreparation.checks)){
-            Assert-ExactKeys $check @('order','id','result','observedAt','parser','safeObservation','failureState') 'candidateCheck'
-            Assert-True ($check.order -eq $checkIndex+1 -and $check.id -ceq $expectedCheckIds[$checkIndex] -and @('PASS','BLOCKED')-ccontains[string]$check.result -and -not[string]::IsNullOrWhiteSpace([string]$check.parser) -and $check.failureState-ceq'BLOCKED') 'candidate-check-fields'
-            if($blocked){throw 'continued-after-block'}
-            if($check.result -ceq 'BLOCKED'){$blocked=$true}
-            $checkIndex++
-        }
-        if($Evidence.candidatePreparation.verdict-ceq'PASS'){Assert-True ($checkIndex-eq10) 'candidate-check-count'}
-        $last=0
-        foreach($entry in @($Evidence.candidatePreparation.mutationLedger)){
-            Assert-ExactKeys $entry @('order','operation','path','contentSha256','result','at','secretObserved') 'mutationLedgerEntry'
-            Assert-True ($entry.order -eq ++$last -and @('CREATE_DIRECTORY','WRITE_FILE') -ccontains [string]$entry.operation -and @('PASS','BLOCKED') -ccontains [string]$entry.result -and -not $entry.secretObserved) 'mutation-ledger-fields'
-            if($entry.path -ceq '/home/dsh/.dsh-profiles'){Assert-True ($entry.operation -ceq 'CREATE_DIRECTORY' -and $null -eq $entry.contentSha256) 'mutation-ledger-parent'}
-            elseif($entry.path -ceq $Evidence.target.candidateRoot){Assert-True ($entry.operation -ceq 'CREATE_DIRECTORY' -and $null -eq $entry.contentSha256) 'mutation-ledger-root'}
-            else {Assert-StrictPosixPath $entry.path $Evidence.target.candidateRoot; if($entry.operation -ceq 'CREATE_DIRECTORY'){Assert-True ($null -eq $entry.contentSha256) 'mutation-ledger-directory'}else{Assert-True ($entry.contentSha256 -match '^[A-F0-9]{64}$') 'mutation-ledger-file'}}
-        }
+}
+
+function Assert-CandidatePreparation {
+    param([object]$Candidate,[object]$Evidence,[string[]]$ReviewStatuses)
+    Assert-ExactKeys $Candidate @('selectorDigest','candidateDigest','startedAt','finishedAt','verdict','checks','mutationLedger','runtimeVerdict','blockers','review') 'candidatePreparation';Assert-Digest $Candidate.selectorDigest 'candidate-selectorDigest';Assert-Digest $Candidate.candidateDigest 'candidateDigest';Assert-IsoTime $Candidate.startedAt 'candidate-startedAt';Assert-IsoTime $Candidate.finishedAt 'candidate-finishedAt';Assert-String $Candidate.verdict 'candidate-verdict';Assert-True (@('PASS','BLOCKED')-ccontains$Candidate.verdict) 'candidate-verdict-value';Assert-True ($Candidate.runtimeVerdict-ceq'NOT PROVEN') 'runtime-verdict';Assert-Blockers $Candidate.blockers ($Candidate.verdict-ceq'BLOCKED') 'candidate-blockers';Assert-Array $Candidate.checks 'candidate-checks';Assert-Array $Candidate.mutationLedger 'mutationLedger';Assert-True ($Candidate.selectorDigest-ceq$Evidence.selectorDiscovery.selectorDigest) 'candidate-selector-digest'
+    $ids=@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged');$blocked=$false;$index=0
+    foreach($check in @($Candidate.checks)){if($blocked){throw 'continued-after-block'};Assert-ExactKeys $check @('order','id','result','observedAt','parser','safeObservation','failureState') 'candidateCheck';Assert-Int $check.order 'check-order' 1 10;Assert-String $check.id 'check-id';Assert-String $check.result 'check-result';Assert-IsoTime $check.observedAt 'check-observedAt';Assert-String $check.parser 'check-parser';Assert-String $check.failureState 'check-failureState';Assert-True ($check.order-eq$index+1 -and $check.id-ceq$ids[$index] -and @('PASS','BLOCKED','NOT PROVEN')-ccontains$check.result -and $check.failureState-ceq'BLOCKED') 'candidate-check-fields';Assert-True ($check.result-cne'NOT PROVEN' -or $check.id-ceq'static-validation') 'not-proven-check';Assert-SafeObservation $check $Evidence;if($check.result-ceq'BLOCKED'){$blocked=$true};$index++}
+    if($Candidate.verdict-ceq'PASS'){Assert-True (-not$blocked -and $index-eq10) 'candidate-check-count'}else{Assert-True ($blocked -and @($Candidate.checks)[-1].result-ceq'BLOCKED') 'candidate-blocked-check'}
+    $last=0;$ledgerBlocked=$false;foreach($entry in @($Candidate.mutationLedger)){Assert-ExactKeys $entry @('order','operation','path','contentSha256','result','at','secretObserved') 'mutationLedgerEntry';Assert-Int $entry.order 'mutation-order' 1;Assert-String $entry.operation 'mutation-operation';Assert-String $entry.path 'mutation-path';Assert-String $entry.result 'mutation-result';Assert-IsoTime $entry.at 'mutation-at';Assert-Bool $entry.secretObserved 'mutation-secret';Assert-True ($entry.order-eq++$last -and @('CREATE_DIRECTORY','WRITE_FILE')-ccontains$entry.operation -and @('PASS','BLOCKED')-ccontains$entry.result -and -not$entry.secretObserved) 'mutation-ledger-fields';if($ledgerBlocked){throw 'mutation-after-block'};if($entry.result-ceq'BLOCKED'){$ledgerBlocked=$true};if($entry.path-ceq'/home/dsh/.dsh-profiles'){Assert-True ($entry.operation-ceq'CREATE_DIRECTORY' -and $null-eq$entry.contentSha256) 'mutation-parent'}elseif($entry.path-ceq$Evidence.target.candidateRoot){Assert-True ($entry.operation-ceq'CREATE_DIRECTORY' -and $null-eq$entry.contentSha256) 'mutation-root'}else{Assert-StrictPosixPath $entry.path $Evidence.target.candidateRoot;if($entry.operation-ceq'CREATE_DIRECTORY'){Assert-True ($null-eq$entry.contentSha256) 'mutation-directory'}else{Assert-Digest $entry.contentSha256 'mutation-file'}}}
+    if($Candidate.verdict-ceq'PASS'){Assert-True (@($Candidate.mutationLedger).Count-eq(2+@($Evidence.selectorDiscovery.candidateBlueprint.directories).Count+@($Evidence.selectorDiscovery.candidateBlueprint.files).Count) -and @($Candidate.mutationLedger|Where-Object{$_.result-cne'PASS'}).Count-eq0) 'mutation-ledger-complete'}
+    $expected=Get-CanonicalStageDigest $Candidate @('candidateDigest','review');Assert-True ($Candidate.candidateDigest-ceq$expected) 'candidate-stage-digest';Assert-Review $Candidate.review $Candidate.candidateDigest $ReviewStatuses
+}
+
+function Assert-OperationLedger {
+    param([object]$Entries,[object]$Evidence)
+    Assert-Array $Entries 'operationLedger';$blocked=$false
+    foreach($entry in @($Entries)){Assert-ExactKeys $entry @('at','actor','operation','target','result','secretObserved') 'operationLedgerEntry';Assert-IsoTime $entry.at 'operation-at';Assert-String $entry.actor 'operation-actor';Assert-String $entry.operation 'operation-name';Assert-String $entry.target 'operation-target';Assert-String $entry.result 'operation-result';Assert-Bool $entry.secretObserved 'operation-secret';Assert-True (@('controller','dsh')-ccontains$entry.actor -and @('READ_INSTALLED','READ_BASELINE','READ_PREREQUISITE','CREATE_DIRECTORY','WRITE_FILE','STATIC_VALIDATE','SCAN_CANDIDATE','WRITE_EVIDENCE','WRITE_HANDOFF')-ccontains$entry.operation -and @('PASS','BLOCKED')-ccontains$entry.result -and -not$entry.secretObserved) 'operation-ledger-values';Assert-True ($entry.operation-notmatch'SERVICE|SYSTEMD|DROPIN|CREDENTIAL|OAUTH|FIREWALL|POWER|ROUTE') 'operation-forbidden';if($entry.operation-in@('CREATE_DIRECTORY','WRITE_FILE','STATIC_VALIDATE','SCAN_CANDIDATE')){Assert-True ($entry.target-ceq'/home/dsh/.dsh-profiles' -or $entry.target-ceq$Evidence.target.candidateRoot -or $entry.target.StartsWith("$($Evidence.target.candidateRoot)/",[StringComparison]::Ordinal)) 'operation-target-scope'}elseif($entry.operation-ceq'WRITE_EVIDENCE'){Assert-True ($entry.target-ceq'docs/evidence/vm105-profile-pointer-preparation.json') 'operation-evidence-target'}elseif($entry.operation-ceq'WRITE_HANDOFF'){Assert-True ($entry.target-ceq'docs/handoffs/2026-09-08-vm105-profile-cutover-requirements.md') 'operation-handoff-target'}}
+}
+
+function Assert-Closeout {
+    param([object]$Closeout,[object]$Evidence)
+    Assert-ExactKeys $Closeout @('closedAt','verdict','selectorDigest','candidateDigest','cutoverPrerequisiteVerdict','handoffPath','handoffSha256','review') 'closeout';Assert-IsoTime $Closeout.closedAt 'closeout-closedAt';Assert-String $Closeout.verdict 'closeout-verdict';Assert-True (@('PREPARATION_READY','BLOCKED')-ccontains$Closeout.verdict) 'closeout-verdict-value';Assert-Digest $Closeout.selectorDigest 'closeout-selectorDigest';Assert-Digest $Closeout.candidateDigest 'closeout-candidateDigest';Assert-String $Closeout.cutoverPrerequisiteVerdict 'closeout-prerequisite';Assert-True (@('PASS','BLOCKED')-ccontains$Closeout.cutoverPrerequisiteVerdict) 'closeout-prerequisite-value';Assert-String $Closeout.handoffPath 'closeout-handoffPath';Assert-True ($Closeout.handoffPath-ceq'docs/handoffs/2026-09-08-vm105-profile-cutover-requirements.md') 'closeout-handoff-path';Assert-Digest $Closeout.handoffSha256 'closeout-handoffSha256';Assert-True ($Closeout.selectorDigest-ceq$Evidence.selectorDiscovery.selectorDigest -and $Closeout.candidateDigest-ceq$Evidence.candidatePreparation.candidateDigest -and $Closeout.cutoverPrerequisiteVerdict-ceq$Evidence.cutoverPrerequisites.verdict) 'closeout-digest-link'
+    $ready=$Evidence.selectorDiscovery.verdict-ceq'PASS'-and$Evidence.selectorDiscovery.review.status-ceq'ACCEPTED'-and$Evidence.candidatePreparation.verdict-ceq'PASS'-and$Evidence.candidatePreparation.review.status-ceq'ACCEPTED';Assert-True (($Closeout.verdict-ceq'PREPARATION_READY')-eq$ready) 'closeout-readiness';$digest=Get-CanonicalStageDigest $Closeout @('review');Assert-Review $Closeout.review $digest @('PENDING','ACCEPTED','REJECTED')
+    Assert-True (Test-Path -LiteralPath $Closeout.handoffPath -PathType Leaf) 'Missing closeout handoff';$bytes=[IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Closeout.handoffPath));Assert-True ((Get-UpperSha256 $bytes)-ceq$Closeout.handoffSha256) 'handoff-digest';Test-NonExecutableHandoff ([Text.Encoding]::UTF8.GetString($bytes))
+}
+
+function Test-NoSecretShapedData {
+    param([object]$Value)
+    $json=$Value|ConvertTo-Json -Depth 100 -Compress
+    Assert-True ($json -notmatch '(?i)(sk-(?:or-)?[A-Za-z0-9_-]{8,}|sess-[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[_-]?key|token|secret|password|client[_-]?secret|authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|oauth[_-]?(?:code|state))\s*[:=]\s*[^\s,}\]]{4,})') 'secret-shaped-value'
+}
+
+function Test-PreparationEvidence {
+    param([object]$Evidence,[ValidateSet('Selector','Candidate','Closeout')][string]$Stage)
+    Assert-ExactKeys $Evidence @('schemaVersion','workflowId','target','overallVerdict','selectorDiscovery','cutoverPrerequisites','candidatePreparation','closeout','operationLedger') 'root';Assert-Int $Evidence.schemaVersion 'schemaVersion' 1 1;Assert-True ($Evidence.workflowId-ceq'vm105-profile-preparation') 'workflow-id';Assert-Target $Evidence.target;Assert-SelectorDiscovery $Evidence.selectorDiscovery $Evidence.target.candidateRoot;Assert-CutoverPrerequisites $Evidence.cutoverPrerequisites $Evidence.target.futureDropInFile;Assert-OperationLedger $Evidence.operationLedger $Evidence
+    switch($Stage){
+        'Selector'{Assert-True ($null-eq$Evidence.candidatePreparation -and $null-eq$Evidence.closeout) 'selector-stage-artifacts';$expected=if($Evidence.selectorDiscovery.verdict-ceq'PASS'){'SELECTOR_PASS'}else{'BLOCKED'};Assert-True ($Evidence.overallVerdict-ceq$expected) 'selector-overall-verdict'}
+        'Candidate'{Assert-True ($Evidence.selectorDiscovery.verdict-ceq'PASS') 'candidate-stage-selector';Assert-True ($null-ne$Evidence.candidatePreparation -and $null-eq$Evidence.closeout) 'candidate-stage-artifacts';Assert-CandidatePreparation $Evidence.candidatePreparation $Evidence @('PENDING','ACCEPTED','REJECTED');$expected=if($Evidence.candidatePreparation.verdict-ceq'PASS'){'CANDIDATE_STATIC_PASS'}else{'BLOCKED'};Assert-True ($Evidence.overallVerdict-ceq$expected) 'candidate-overall-verdict'}
+        'Closeout'{Assert-True ($Evidence.selectorDiscovery.verdict-ceq'PASS' -and $null-ne$Evidence.candidatePreparation -and $null-ne$Evidence.closeout) 'closeout-stage-artifacts';Assert-CandidatePreparation $Evidence.candidatePreparation $Evidence @('ACCEPTED');Assert-Closeout $Evidence.closeout $Evidence;$expected=if($Evidence.closeout.verdict-ceq'PREPARATION_READY'){'PREPARATION_READY'}else{'BLOCKED'};Assert-True ($Evidence.overallVerdict-ceq$expected) 'closeout-overall-verdict'}
     }
+    Test-NoSecretShapedData $Evidence
 }
 
 function Test-NonExecutableHandoff {
@@ -377,7 +440,7 @@ Use this complete positive-record factory; its selector name is explicitly synth
 
 ```powershell
 function New-SyntheticPreparationRecord {
-    $time = '2026-09-08T00:00:00Z'
+    $time = '2026-09-08T00:00:00.0000000Z'
     $digest = 'A' * 64
     $source = [pscustomobject]@{
         sourceClass = 'installed-source'; path = '/opt/deepseek-harness/package/index.js'
@@ -410,7 +473,7 @@ function New-SyntheticPreparationRecord {
     $record=[pscustomobject]@{
         schemaVersion = 1; workflowId = 'vm105-profile-preparation'
         target = [pscustomobject]@{
-            hostname='deepseek-harness-01';address='192.0.2.105';sshHostKeyIdentity='SHA256:synthetic'
+            hostname='deepseek-harness-01';address='192.168.1.139';sshHostKeyIdentity='SHA256:synthetic-host-key'
             service='deepseek-harness.service';serviceUser='dsh';serviceGroup='dsh'
             candidateRoot='/home/dsh/.dsh-profiles/vm105-provider-v1';listenerHost='127.0.0.1';listenerPort=3080
             futureDropInDirectory='/etc/systemd/system/deepseek-harness.service.d'
@@ -429,15 +492,15 @@ function New-SyntheticPreparationRecord {
             baseline=[pscustomobject]@{
                 repositoryOrigin='https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git'
                 branch='codex/vm105-authoritative-roadmap';capturedAt=$time;hostname='deepseek-harness-01'
-                address='192.0.2.105';sshHostKeyIdentity='SHA256:synthetic';installedVersion='0.1.1-rc.2'
+                address='192.168.1.139';sshHostKeyIdentity='SHA256:synthetic-host-key';installedVersion='0.1.1-rc.2'
                 service=$unit;listeners=@([pscustomobject]@{address='127.0.0.1';port=3080;protocol='tcp'})
                 localHttp=[pscustomobject]@{url='http://127.0.0.1:3080/';statusCode=200;exitCode=0}
                 ufw=[pscustomobject]@{active=$true;defaults='deny-in-allow-out';ruleIds=@('synthetic-ssh');tcp3080Allowed=$false}
-                directLanDenied=[pscustomobject]@{source='192.0.2.10';destination='192.0.2.105';port=3080;denied=$true;timeoutMs=1000}
+                directLanDenied=[pscustomobject]@{source='controller-lan';destination='192.168.1.139';port=3080;denied=$true;timeoutMs=1000}
             }
             selector=[pscustomobject]@{
                 name='SYNTHETIC_PROFILE_ROOT';precedence='synthetic installed proof';absoluteCandidateValue='/home/dsh/.dsh-profiles/vm105-provider-v1'
-                futureUnitSelectorLines=@('synthetic selector line');effectiveProfileProbe=[pscustomobject]@{executable='/opt/deepseek-harness/package/index.js';argv=@('synthetic-safe-paths')}
+                futureUnitSelectorLines=@('synthetic selector line');effectiveProfileProbe=[pscustomobject]@{executable='/opt/deepseek-harness/package/index.js';argv=@('synthetic-safe-paths','/home/dsh/.dsh-profiles/vm105-provider-v1')}
                 proof=[pscustomobject]@{
                     absolutePath=@($source);precedence=@($source);nonMerge=@($source)
                     fullProfileScope=[pscustomobject]@{credentials=@($source);settings=@($source);plugins=@($source);sessionsState=@($source);otherMutableStores=@($source)}
@@ -465,141 +528,136 @@ function New-SyntheticPreparationRecord {
 }
 
 function New-SyntheticCandidateResult {
-    param([string]$FailAt, [switch]$ContinueAfterFailure)
+    param([object]$Evidence,[string]$FailAt,[switch]$ContinueAfterFailure)
     $ids = @('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')
+    $root=$Evidence.target.candidateRoot;$file=$Evidence.selectorDiscovery.candidateBlueprint.files[0];$time='2026-09-08T00:00:00.0000000Z'
+    $dir={param($path)[pscustomobject]@{path=$path;objectType='directory';symlink=$false;owner='dsh';group='dsh';mode='0700';aclBroad=$false;unexpectedMount=$false}}
+    $observations=@(
+        [pscustomobject]@{parser='SelectorGateV1';value=[pscustomobject]@{selectorDigest=$Evidence.selectorDiscovery.selectorDigest;selectorVerdict='PASS';reviewStatus='ACCEPTED';reviewedDigest=$Evidence.selectorDiscovery.selectorDigest}},
+        [pscustomobject]@{parser='TargetPreflightV1';value=[pscustomobject]@{parentAbsent=$true;rootAbsent=$true;ancestorsSafe=$true}},
+        [pscustomobject]@{parser='CandidateDirectoryMutationV1';value=[pscustomobject]@{path='/home/dsh/.dsh-profiles';attempted=$true;completed=$true;metadata=(& $dir '/home/dsh/.dsh-profiles')}},
+        [pscustomobject]@{parser='CandidateDirectoryMutationV1';value=[pscustomobject]@{path=$root;attempted=$true;completed=$true;metadata=(& $dir $root)}},
+        [pscustomobject]@{parser='BlueprintWriteV1';value=[pscustomobject]@{plannedWrites=2;completedWrites=2;lastOperationOrder=4}},
+        [pscustomobject]@{parser='CandidateMetadataSetV1';value=[pscustomobject]@{available=$true;directories=@((& $dir '/home/dsh/.dsh-profiles'),(& $dir $root),(& $dir "$root/state"));files=@([pscustomobject]@{path="$root/settings.yaml";objectType='regular file';symlink=$false;owner='dsh';group='dsh';mode='0600';linkCount=1;aclBroad=$false;unexpectedMount=$false;contentSha256=$file.contentSha256});allSafe=$true;allDigestsMatch=$true}},
+        [pscustomobject]@{parser='StaticValidationV1';value=[pscustomobject]@{supported=$false;exitCode=$null;parsedResult='NOT PROVEN'}},
+        [pscustomobject]@{parser='SecretScanV1';value=[pscustomobject]@{available=$true;filesScanned=1;findingCount=0;categories=@()}},
+        [pscustomobject]@{parser='ServiceBaselineV1';value=[pscustomobject]@{available=$true;activeState='active';subState='running';user='dsh';group='dsh';execStart='/usr/local/bin/dsh';workingDirectory='/opt/deepseek-harness';umask='0077';result='success';nRestarts=0;matchesBaseline=$true}},
+        [pscustomobject]@{parser='NetworkBaselineV1';value=[pscustomobject]@{available=$true;listeners=@([pscustomobject]@{address='127.0.0.1';port=3080;protocol='tcp'});localHttpStatus=200;ufwActive=$true;tcp3080Allowed=$false;directLanDenied=$true;matchesBaseline=$true}}
+    )
     $checks = [Collections.Generic.List[object]]::new()
     $blocked = $false
     for ($i = 0; $i -lt $ids.Count; $i++) {
         if ($blocked -and -not $ContinueAfterFailure) { break }
-        $result = if ($ids[$i] -ceq $FailAt) { 'BLOCKED' } else { 'PASS' }
-        $checks.Add([pscustomobject]@{order=$i+1;id=$ids[$i];result=$result;observedAt='2026-09-08T00:00:00Z';parser='SyntheticV1';safeObservation=[pscustomobject]@{};failureState='BLOCKED'})
+        $result = if ($ids[$i] -ceq $FailAt) { 'BLOCKED' } elseif($ids[$i]-ceq'static-validation'){'NOT PROVEN'} else { 'PASS' }
+        $checks.Add([pscustomobject]@{order=$i+1;id=$ids[$i];result=$result;observedAt=$time;parser=$observations[$i].parser;safeObservation=$observations[$i].value;failureState='BLOCKED'})
         if ($result -ceq 'BLOCKED') { $blocked = $true }
     }
     $verdict = if ($blocked) { 'BLOCKED' } else { 'PASS' }
-    $candidate=[pscustomobject]@{selectorDigest=('A'*64);candidateDigest=$null;startedAt='2026-09-08T00:00:00Z';finishedAt='2026-09-08T00:00:01Z';verdict=$verdict;checks=@($checks);mutationLedger=@();runtimeVerdict='NOT PROVEN';blockers=@();review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()}}
+    $ledger=if($blocked){@()}else{@(
+        [pscustomobject]@{order=1;operation='CREATE_DIRECTORY';path='/home/dsh/.dsh-profiles';contentSha256=$null;result='PASS';at=$time;secretObserved=$false},
+        [pscustomobject]@{order=2;operation='CREATE_DIRECTORY';path=$root;contentSha256=$null;result='PASS';at=$time;secretObserved=$false},
+        [pscustomobject]@{order=3;operation='CREATE_DIRECTORY';path="$root/state";contentSha256=$null;result='PASS';at=$time;secretObserved=$false},
+        [pscustomobject]@{order=4;operation='WRITE_FILE';path="$root/settings.yaml";contentSha256=$file.contentSha256;result='PASS';at=$time;secretObserved=$false}
+    )}
+    $candidate=[pscustomobject]@{selectorDigest=$Evidence.selectorDiscovery.selectorDigest;candidateDigest=$null;startedAt=$time;finishedAt='2026-09-08T00:00:01.0000000Z';verdict=$verdict;checks=@($checks);mutationLedger=$ledger;runtimeVerdict='NOT PROVEN';blockers=$(if($blocked){@("synthetic failure at $FailAt")}else{@()});review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()}}
     $candidate.candidateDigest=Get-CanonicalStageDigest $candidate @('candidateDigest','review')
     return $candidate
+}
+
+function New-SyntheticBlockedSelectorRecord {
+    $record=New-SyntheticPreparationRecord;$record.overallVerdict='BLOCKED';$record.selectorDiscovery.verdict='BLOCKED';$record.selectorDiscovery.blockers=@('Synthetic selector proof unavailable');$record.selectorDiscovery.installedEntrypoint=$null;$record.selectorDiscovery.selector=$null;$record.selectorDiscovery.candidateBlueprint=$null;$record.selectorDiscovery.selectorDigest=Get-CanonicalStageDigest $record.selectorDiscovery @('selectorDigest','review');$record.selectorDiscovery.review.reviewedDigest=$record.selectorDiscovery.selectorDigest;return $record
 }
 ```
 
 The self-test body uses only synthetic values and must include concrete cross-class and continuation assertions:
 
 ```powershell
-$script:NegativeTestCount=0;$positiveCount=0
-$good = New-SyntheticPreparationRecord
-Test-PreparationEvidence $good 'Selector'
-$positiveCount++
-Assert-StrictPosixPath '/opt/deepseek-harness/package/index.js' '/opt/deepseek-harness'
-Assert-Throws { Assert-StrictPosixPath 'opt/deepseek-harness/x' '/opt/deepseek-harness' } 'posix-path-relative'
-Assert-Throws { Assert-StrictPosixPath '/opt/deepseek-harness/../etc' '/opt/deepseek-harness' } 'posix-path-shape'
-Assert-Throws { Assert-StrictPosixPath '/opt//deepseek-harness/x' '/opt/deepseek-harness' } 'posix-path-shape'
-Assert-Throws { Assert-StrictPosixPath '/opt/deepseek-harness\x' '/opt/deepseek-harness' } 'posix-path-shape'
-Assert-Throws { Assert-StrictPosixPath '/tmp/x' '/opt/deepseek-harness' } 'posix-path-root'
+$script:NegativeTestCount=0;$positiveCount=0;$good=New-SyntheticPreparationRecord
+function Sync-SelectorDigest { param([object]$Record) $Record.selectorDiscovery.selectorDigest=Get-CanonicalStageDigest $Record.selectorDiscovery @('selectorDigest','review');$Record.selectorDiscovery.review.reviewedDigest=$Record.selectorDiscovery.selectorDigest }
+function Attach-Candidate { param([object]$Record,[string]$FailAt='',[switch]$Continue) $Record.candidatePreparation=New-SyntheticCandidateResult $Record $FailAt -ContinueAfterFailure:$Continue;$Record.overallVerdict=if($Record.candidatePreparation.verdict-ceq'PASS'){'CANDIDATE_STATIC_PASS'}else{'BLOCKED'} }
 
-$missingAbsolute=Copy-SyntheticRecord $good; $missingAbsolute.selectorDiscovery.selector.proof.absolutePath=@()
-Assert-Throws { Test-PreparationEvidence $missingAbsolute 'Selector' } 'absolutePath'
-$missingPrecedence=Copy-SyntheticRecord $good; $missingPrecedence.selectorDiscovery.selector.proof.precedence=@()
-Assert-Throws { Test-PreparationEvidence $missingPrecedence 'Selector' } 'precedence'
-$missingNonMerge=Copy-SyntheticRecord $good; $missingNonMerge.selectorDiscovery.selector.proof.nonMerge=@()
-Assert-Throws { Test-PreparationEvidence $missingNonMerge 'Selector' } 'nonMerge'
-$missingCompatibility=Copy-SyntheticRecord $good; $missingCompatibility.selectorDiscovery.selector.proof.serviceCompatibility.installed=@()
-Assert-Throws { Test-PreparationEvidence $missingCompatibility 'Selector' } 'service-compatibility'
+Test-PreparationEvidence $good 'Selector';$positiveCount++
+$blocked=New-SyntheticBlockedSelectorRecord;Test-PreparationEvidence $blocked 'Selector';$positiveCount++
+$candidate=Copy-SyntheticRecord $good;Attach-Candidate $candidate;Test-PreparationEvidence $candidate 'Candidate';$positiveCount++
+$candidateBlocked=Copy-SyntheticRecord $good;Attach-Candidate $candidateBlocked 'metadata';Test-PreparationEvidence $candidateBlocked 'Candidate';$positiveCount++
 
-$wrongSelectorClass = Copy-SyntheticRecord $good
-$wrongSelectorClass.selectorDiscovery.selector.proof.nonMerge[0] = $wrongSelectorClass.cutoverPrerequisites.privilegeSeam.receipts[0]
-Assert-Throws { Test-PreparationEvidence $wrongSelectorClass 'Selector' } 'proof-source-class'
+$negativeCases=[Collections.Generic.List[object]]::new()
+function Add-NegativeCase { param([string]$Name,[scriptblock]$Action,[string]$Pattern) $negativeCases.Add([pscustomobject]@{name=$Name;action=$Action;pattern=$Pattern}) }
+Add-NegativeCase 'root allowlist' { $r=Copy-SyntheticRecord $good;$r|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'root keys differ'
+Add-NegativeCase 'target allowlist' { $r=Copy-SyntheticRecord $good;$r.target|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'target keys differ'
+Add-NegativeCase 'target value' { $r=Copy-SyntheticRecord $good;$r.target.address='192.0.2.105';Test-PreparationEvidence $r Selector } 'target-values'
+Add-NegativeCase 'selectorDiscovery allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'selectorDiscovery keys differ'
+Add-NegativeCase 'blocked selector artifacts' { $r=New-SyntheticBlockedSelectorRecord;$r.selectorDiscovery.selector=$good.selectorDiscovery.selector;Test-PreparationEvidence $r Selector } 'blocked-selector-artifacts'
+Add-NegativeCase 'pass selector null installed' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.installedEntrypoint=$null;Test-PreparationEvidence $r Selector } 'pass-selector-artifacts'
+Add-NegativeCase 'installed allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.installedEntrypoint|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'installedEntrypoint keys differ'
+Add-NegativeCase 'installed symlink' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.installedEntrypoint.wrapperSymlink=$true;Test-PreparationEvidence $r Selector } 'installed-entrypoint-fields'
+Add-NegativeCase 'installed ownership' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.installedEntrypoint.entrypointOwner='dsh';Test-PreparationEvidence $r Selector } 'installed-entrypoint-fields'
+Add-NegativeCase 'installedSource allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.installedEntrypoint.proofRefs[0]|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'installedSourceRef keys differ'
+Add-NegativeCase 'installedSource class' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.nonMerge[0].sourceClass='unknown';Test-PreparationEvidence $r Selector } 'proof-source-class'
+Add-NegativeCase 'installedSource path' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.absolutePath[0].path='/tmp/x';Test-PreparationEvidence $r Selector } 'posix-path-root|installed-source-root'
+Add-NegativeCase 'installedSource lines' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.precedence[0].lineStart=0;Test-PreparationEvidence $r Selector } 'installed-source-lineStart'
+Add-NegativeCase 'sanitizedUnit allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.service|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'sanitizedUnitRef keys differ'
+Add-NegativeCase 'sanitizedUnit property' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.service.propertyAllowlist[0]='Environment';Test-PreparationEvidence $r Selector } 'unit-property-allowlist'
+Add-NegativeCase 'sanitizedUnit duplicate' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.service.observations[1].name='User';Test-PreparationEvidence $r Selector } 'unit-property-duplicate'
+Add-NegativeCase 'baseline allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'selectorBaseline keys differ'
+Add-NegativeCase 'listener allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.listeners[0]|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'baselineListener keys differ'
+Add-NegativeCase 'http value' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.localHttp.statusCode=503;Test-PreparationEvidence $r Selector } 'http-status'
+Add-NegativeCase 'ufw value' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.ufw.tcp3080Allowed=$true;Test-PreparationEvidence $r Selector } 'baseline-ufw'
+Add-NegativeCase 'direct denial' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.baseline.directLanDenied.denied=$false;Test-PreparationEvidence $r Selector } 'baseline-direct-denial'
+Add-NegativeCase 'selector allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'selector keys differ'
+Add-NegativeCase 'selector proof allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'selectorProof keys differ'
+Add-NegativeCase 'missing absolute path' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.absolutePath=@();Test-PreparationEvidence $r Selector } 'missing-absolutePath'
+Add-NegativeCase 'missing precedence' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.precedence=@();Test-PreparationEvidence $r Selector } 'missing-precedence'
+Add-NegativeCase 'missing nonMerge' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.nonMerge=@();Test-PreparationEvidence $r Selector } 'missing-nonMerge'
+Add-NegativeCase 'fullProfileScope allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.fullProfileScope|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'fullProfileScope keys differ'
+Add-NegativeCase 'missing credentials scope' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.fullProfileScope.credentials=@();Test-PreparationEvidence $r Selector } 'missing-credentials'
+Add-NegativeCase 'missing settings scope' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.fullProfileScope.settings=@();Test-PreparationEvidence $r Selector } 'missing-settings'
+Add-NegativeCase 'missing plugins scope' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.fullProfileScope.plugins=@();Test-PreparationEvidence $r Selector } 'missing-plugins'
+Add-NegativeCase 'missing sessions scope' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.fullProfileScope.sessionsState=@();Test-PreparationEvidence $r Selector } 'missing-sessionsState'
+Add-NegativeCase 'missing other scope' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.fullProfileScope.otherMutableStores=@();Test-PreparationEvidence $r Selector } 'missing-otherMutableStores'
+Add-NegativeCase 'serviceCompatibility allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.proof.serviceCompatibility|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'serviceCompatibility keys differ'
+Add-NegativeCase 'blueprint allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'candidateBlueprint keys differ'
+Add-NegativeCase 'directory allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.directories[0]|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'candidateDirectory keys differ'
+Add-NegativeCase 'directory mode' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.directories[0].mode='0755';Test-PreparationEvidence $r Selector } 'candidate-directory'
+Add-NegativeCase 'file allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.files[0]|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'candidateFile keys differ'
+Add-NegativeCase 'file mode' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.files[0].mode='0644';Test-PreparationEvidence $r Selector } 'candidate-file'
+Add-NegativeCase 'file digest' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.files[0].contentSha256='B'*64;Test-PreparationEvidence $r Selector } 'candidate-content-digest'
+Add-NegativeCase 'static allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.staticValidation|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'staticValidation keys differ'
+Add-NegativeCase 'policy allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.policyAssertions|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'policyAssertions keys differ'
+Add-NegativeCase 'policy isolation' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.candidateBlueprint.policyAssertions.automaticFallback=$true;Test-PreparationEvidence $r Selector } 'candidate-policy'
+Add-NegativeCase 'prerequisite allowlist' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'cutoverPrerequisites keys differ'
+Add-NegativeCase 'privilegeSeam allowlist' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites.privilegeSeam|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'privilegeSeam keys differ'
+Add-NegativeCase 'privilege receipt allowlist' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites.privilegeSeam.receipts[0]|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'privilegeReceiptRef keys differ'
+Add-NegativeCase 'privilege argv' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites.privilegeSeam.receipts[0].targetArgv[1]='dsh';Test-PreparationEvidence $r Selector } 'privilege-receipt-argv'
+Add-NegativeCase 'dropIn allowlist' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites.dropInDirectory|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'dropInDirectory keys differ'
+Add-NegativeCase 'dropIn consistency' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites.dropInDirectory.verdict='PASS';Test-PreparationEvidence $r Selector } 'dropin-consistency'
+Add-NegativeCase 'selector digest' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selectorDigest='B'*64;Test-PreparationEvidence $r Selector } 'selector-stage-digest'
+Add-NegativeCase 'review allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.review|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'review keys differ'
+Add-NegativeCase 'candidate allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation|Add-Member extra 1;Test-PreparationEvidence $r Candidate } 'candidatePreparation keys differ'
+Add-NegativeCase 'check allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.checks[0]|Add-Member extra 1;Test-PreparationEvidence $r Candidate } 'candidateCheck keys differ'
+Add-NegativeCase 'opaque observation' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.checks[1].safeObservation|Add-Member extra 1;$r.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $r.candidatePreparation @('candidateDigest','review');Test-PreparationEvidence $r Candidate } 'TargetPreflightV1 keys differ'
+Add-NegativeCase 'wrong parser' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.checks[0].parser='OpaqueV1';$r.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $r.candidatePreparation @('candidateDigest','review');Test-PreparationEvidence $r Candidate } 'check-parser'
+Add-NegativeCase 'illegal not proven' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.checks[7].result='NOT PROVEN';$r.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $r.candidatePreparation @('candidateDigest','review');Test-PreparationEvidence $r Candidate } 'not-proven-check'
+Add-NegativeCase 'runtime verdict' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.runtimeVerdict='PASS';$r.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $r.candidatePreparation @('candidateDigest','review');Test-PreparationEvidence $r Candidate } 'runtime-verdict'
+Add-NegativeCase 'mutation allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.mutationLedger[0]|Add-Member extra 1;Test-PreparationEvidence $r Candidate } 'mutationLedgerEntry keys differ'
+Add-NegativeCase 'mutation operation' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.mutationLedger[0].operation='SYSTEMCTL';Test-PreparationEvidence $r Candidate } 'mutation-ledger-fields'
+Add-NegativeCase 'continued after block' { $r=Copy-SyntheticRecord $good;Attach-Candidate $r 'write-blueprint' -Continue;Test-PreparationEvidence $r Candidate } 'continued-after-block'
+Add-NegativeCase 'operationLedger allowlist' { $r=Copy-SyntheticRecord $good;$r.operationLedger=@([pscustomobject]@{at='2026-09-08T00:00:00.0000000Z';actor='controller';operation='READ_BASELINE';target='deepseek-harness.service';result='PASS';secretObserved=$false;extra=1});Test-PreparationEvidence $r Selector } 'operationLedgerEntry keys differ'
+Add-NegativeCase 'operationLedger forbidden' { $r=Copy-SyntheticRecord $good;$r.operationLedger=@([pscustomobject]@{at='2026-09-08T00:00:00.0000000Z';actor='controller';operation='SYSTEMCTL';target='deepseek-harness.service';result='PASS';secretObserved=$false});Test-PreparationEvidence $r Selector } 'operation-ledger-values'
+Add-NegativeCase 'secret shaped value' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.precedence='api_key=synthetic_nonempty_value';Sync-SelectorDigest $r;Test-PreparationEvidence $r Selector } 'secret-shaped-value'
+Add-NegativeCase 'closeout allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.review.status='ACCEPTED';$r.candidatePreparation.review.reviewedAt='2026-09-08T00:00:00.0000000Z';$r.candidatePreparation.review.reviewer='synthetic-reviewer';$r.candidatePreparation.review.reviewedDigest=$r.candidatePreparation.candidateDigest;$r.closeout=[pscustomobject]@{closedAt='2026-09-08T00:00:00.0000000Z';verdict='PREPARATION_READY';selectorDigest=$r.selectorDiscovery.selectorDigest;candidateDigest=$r.candidatePreparation.candidateDigest;cutoverPrerequisiteVerdict='BLOCKED';handoffPath='docs/handoffs/2026-09-08-vm105-profile-cutover-requirements.md';handoffSha256=('A'*64);review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()};extra=1};$r.overallVerdict='PREPARATION_READY';Test-PreparationEvidence $r Closeout } 'closeout keys differ'
 
-$wrongPrivilegeClass = Copy-SyntheticRecord $good
-$wrongPrivilegeClass.cutoverPrerequisites.privilegeSeam.receipts[0] = $wrongPrivilegeClass.selectorDiscovery.selector.proof.absolutePath[0]
-Assert-Throws { Test-PreparationEvidence $wrongPrivilegeClass 'Selector' } 'privilegeReceiptRef'
-
-$partialScope = Copy-SyntheticRecord $good
-$partialScope.selectorDiscovery.selector.proof.fullProfileScope.sessionsState = @()
-Assert-Throws { Test-PreparationEvidence $partialScope 'Selector' } 'sessionsState'
-
-$unsafeBlueprint = Copy-SyntheticRecord $good
-$unsafeBlueprint.selectorDiscovery.candidateBlueprint.policyAssertions.automaticFallback = $true
-Assert-Throws { Test-PreparationEvidence $unsafeBlueprint 'Selector' } 'candidate-policy'
-
-$continuedAfterFailure = Copy-SyntheticRecord $good
-$continuedAfterFailure.candidatePreparation = New-SyntheticCandidateResult -FailAt 'write-blueprint' -ContinueAfterFailure
-$continuedAfterFailure.candidatePreparation.selectorDigest=$continuedAfterFailure.selectorDiscovery.selectorDigest
-$continuedAfterFailure.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $continuedAfterFailure.candidatePreparation @('candidateDigest','review')
-Assert-Throws { Test-PreparationEvidence $continuedAfterFailure 'Candidate' } 'continued-after-block'
-
-$outsideSource = Copy-SyntheticRecord $good
-$outsideSource.selectorDiscovery.selector.proof.absolutePath[0].path = '/tmp/unowned.js'
-Assert-Throws { Test-PreparationEvidence $outsideSource 'Selector' } 'installed-source-root'
-
-$linkedWrapper = Copy-SyntheticRecord $good
-$linkedWrapper.selectorDiscovery.installedEntrypoint.wrapperSymlink = $true
-Assert-Throws { Test-PreparationEvidence $linkedWrapper 'Selector' } 'installed-wrapper-fields'
-
-$wrongInstalledFields=Copy-SyntheticRecord $good; $wrongInstalledFields.selectorDiscovery.installedEntrypoint.entrypointOwner='dsh'
-Assert-Throws { Test-PreparationEvidence $wrongInstalledFields 'Selector' } 'installed-entrypoint-fields'
-
-$duplicateUnit=Copy-SyntheticRecord $good; $duplicateUnit.selectorDiscovery.selector.proof.serviceCompatibility.unit[0].observations[1].name='User'
-Assert-Throws { Test-PreparationEvidence $duplicateUnit 'Selector' } 'unit-property-duplicate'
-
-$fivePrivileges=Copy-SyntheticRecord $good; $fivePrivileges.cutoverPrerequisites.privilegeSeam.receipts=@($fivePrivileges.cutoverPrerequisites.privilegeSeam.receipts[0..4])
-Assert-Throws { Test-PreparationEvidence $fivePrivileges 'Selector' } 'privilege-receipt-count'
-$wrongPrivilegeArgv=Copy-SyntheticRecord $good; $wrongPrivilegeArgv.cutoverPrerequisites.privilegeSeam.receipts[0].targetArgv[1]='dsh'
-Assert-Throws { Test-PreparationEvidence $wrongPrivilegeArgv 'Selector' } 'privilege-receipt-argv'
-$wrongPrivilegeResult=Copy-SyntheticRecord $good; $wrongPrivilegeResult.cutoverPrerequisites.privilegeSeam.receipts[0].result='ALLOWED'
-Assert-Throws { Test-PreparationEvidence $wrongPrivilegeResult 'Selector' } 'privilege-receipt-exit'
-
-$wrongRoot = Copy-SyntheticRecord $good
-$wrongRoot.target.candidateRoot = '/home/dsh/other'
-Assert-Throws { Test-PreparationEvidence $wrongRoot 'Selector' } 'candidate-root'
-
-$wideFile = Copy-SyntheticRecord $good
-$wideFile.selectorDiscovery.candidateBlueprint.files[0].mode = '0644'
-Assert-Throws { Test-PreparationEvidence $wideFile 'Selector' } 'candidate-file'
-
-$wrongChildKeys=Copy-SyntheticRecord $good; $wrongChildKeys.selectorDiscovery.candidateBlueprint.files[0] | Add-Member -NotePropertyName extra -NotePropertyValue 'x'
-Assert-Throws { Test-PreparationEvidence $wrongChildKeys 'Selector' } 'candidateFile keys'
-$duplicatePath=Copy-SyntheticRecord $good; $duplicatePath.selectorDiscovery.candidateBlueprint.files[0].relativePath='state'
-Assert-Throws { Test-PreparationEvidence $duplicatePath 'Selector' } 'candidate-path-duplicate'
-$contentMismatch=Copy-SyntheticRecord $good; $contentMismatch.selectorDiscovery.candidateBlueprint.files[0].contentSha256='B'*64
-Assert-Throws { Test-PreparationEvidence $contentMismatch 'Selector' } 'candidate-content-digest'
-$wrongCandidateSource=Copy-SyntheticRecord $good; $wrongCandidateSource.selectorDiscovery.candidateBlueprint.files[0].sourceRefs[0]=$wrongCandidateSource.cutoverPrerequisites.privilegeSeam.receipts[0]
-Assert-Throws { Test-PreparationEvidence $wrongCandidateSource 'Selector' } 'installedSourceRef'
-
-$stageDrift=Copy-SyntheticRecord $good; $stageDrift.selectorDiscovery.installedVersion='drift'
-Assert-Throws { Test-PreparationEvidence $stageDrift 'Selector' } 'selector-stage-digest'
-
-$digestDrift = Copy-SyntheticRecord $good
-$digestDrift.selectorDiscovery.review.reviewedDigest = 'B' * 64
-Assert-Throws { Test-PreparationEvidence $digestDrift 'Selector' } 'selector-review-digest'
-
-$runtimeClaim = Copy-SyntheticRecord $good
-$runtimeClaim.candidatePreparation = New-SyntheticCandidateResult -FailAt ''
-$runtimeClaim.candidatePreparation.selectorDigest=$runtimeClaim.selectorDiscovery.selectorDigest
-$runtimeClaim.candidatePreparation.runtimeVerdict = 'PASS'
-$runtimeClaim.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $runtimeClaim.candidatePreparation @('candidateDigest','review')
-Assert-Throws { Test-PreparationEvidence $runtimeClaim 'Candidate' } 'runtime-verdict'
-
-$badLedger=Copy-SyntheticRecord $good; $badLedger.candidatePreparation=New-SyntheticCandidateResult -FailAt ''; $badLedger.candidatePreparation.selectorDigest=$badLedger.selectorDiscovery.selectorDigest
-$badLedger.candidatePreparation.mutationLedger=@([pscustomobject]@{order=1;operation='SYSTEMCTL';path='/home/dsh/.dsh-profiles/vm105-provider-v1';contentSha256=$null;result='PASS';at='2026-09-08T00:00:00Z';secretObserved=$false})
-$badLedger.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $badLedger.candidatePreparation @('candidateDigest','review')
-Assert-Throws { Test-PreparationEvidence $badLedger 'Candidate' } 'mutation-ledger-fields'
-
-Assert-Throws { Test-NonExecutableHandoff "systemctl stop deepseek-harness.service`nNOT PROVEN`nno authority" } 'executable-handoff'
-$safeHandoff = "Preparation ready; no authority granted.`nRuntime remains NOT PROVEN."
-Test-NonExecutableHandoff $safeHandoff
-$positiveCount++
-
-$captured = & { Test-SyntheticSecretScanner 'api_key: synthetic_nonempty_value' } 2>&1 | Out-String
-Assert-True ($captured -notmatch 'synthetic_nonempty_value') 'secret-output-suppression'
-Assert-True ($positiveCount -eq 2 -and $script:NegativeTestCount -eq 32) 'self-test-count-drift'
+foreach($case in $negativeCases){Assert-Throws $case.action $case.pattern}
+$captured=&{Test-SyntheticSecretScanner 'api_key: synthetic_nonempty_value'}2>&1|Out-String;Assert-True ($captured-notmatch'synthetic_nonempty_value') 'secret-output-suppression'
+Assert-True ($positiveCount-eq4 -and $negativeCases.Count-eq63 -and $script:NegativeTestCount-eq$negativeCases.Count) 'self-test-count-drift'
 "SELF_TEST_PASS positive=$positiveCount negative=$script:NegativeTestCount"
 ```
 
-`New-SyntheticPreparationRecord`, `New-SyntheticCandidateResult`, and `Test-SyntheticSecretScanner` are private functions in the same script. The record factory must populate every Shared Preparation Contract field with the fixed synthetic hostname `deepseek-harness-01`, documentation address `192.0.2.105`, `/opt/deepseek-harness/package/index.js`, all five installed-source store proofs, zero routes, fallback false, one denied privilege receipt, and no secret-shaped data; the candidate-result factory emits the ten ordered check IDs and stops its ledger at the requested failed check.
+`New-SyntheticPreparationRecord`, `New-SyntheticBlockedSelectorRecord`, `New-SyntheticCandidateResult`, and `Test-SyntheticSecretScanner` are private functions in the same script. The record factory populates every Shared Preparation Contract field with the fixed hostname/address `deepseek-harness-01`/`192.168.1.139`, a synthetic host-key identity, `/opt/deepseek-harness/package/index.js`, all five installed-source store proofs, zero routes, fallback false, six denied privilege receipts, and no secret-shaped data. The candidate-result factory emits the ten ordered parser-specific check records and a complete success ledger, or stops at the requested failed check.
 
 Implement canonical JSON, uppercase SHA-256, exact schema checks, and a value-suppressing scanner. The scanner reports only relative filename, one-based line, and category; it never emits matching text. Reject nonempty assignments for `key`, `api_key`, `token`, `secret`, `password`, `client_secret`, authorization headers, PEM private keys, `sk-`, `sk-or-`, `sess-`, and raw or encoded OAuth `code`, `state`, `access_token`, `refresh_token`, and `id_token` values. Empty values and prose naming a field are allowed.
 
-`-SelfTest` must cover one positive synthetic record and these exact rejections:
+`-SelfTest` must cover four positive records (selector `PASS`, selector `BLOCKED`, candidate `PASS` with the one allowed static `NOT PROVEN`, and candidate `BLOCKED`) and these rejection classes:
 
 1. Selector `PASS` with missing absolute-path, precedence, non-merge, service-compatibility, or any of the five full-profile store proofs.
 2. Selector semantic proof containing `sanitized-unit`, `privilege-receipt`, unknown, or structurally mixed reference data.
@@ -613,7 +671,7 @@ Implement canonical JSON, uppercase SHA-256, exact schema checks, and a value-su
 10. Closeout handoff containing executable/argv/command/script fields or implying cutover/credential authority.
 11. Suppressed scanner output accidentally containing the synthetic secret value.
 
-Run `./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest` before completing validator logic. Expected RED: nonzero exit with `Expected rejection was not raised`. After implementing the private factories plus all assertions, expected GREEN: exit 0 with `SELF_TEST_PASS positive=2 negative=32`, matching the 32 explicit `Assert-Throws` calls above, and no synthetic value in output.
+Run `./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest` before completing validator logic. Expected RED: nonzero exit with `Expected rejection was not raised`. After implementing the private factories plus all assertions, expected GREEN: exit 0 with `SELF_TEST_PASS positive=4 negative=63`, matching the 63 explicit named negative cases above, and no synthetic secret-shaped value in output.
 
 - [ ] **Step 2: Revalidate repository, VM, service, listener, and wrapper metadata read-only**
 
@@ -930,33 +988,72 @@ function Assert-Initializer {
     if(-not $Condition){throw $Message}
 }
 
-function Invoke-Preparation {
-    param([object]$Evidence,[scriptblock]$Adapter,[string]$FailAt)
-    $operations=[Collections.Generic.List[string]]::new()
-    $ids=@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')
-    foreach($id in $ids){
-        if($id -ceq $FailAt){return [pscustomobject]@{verdict='BLOCKED';checks=@($operations);failedAt=$id}}
-        & $Adapter $id $Evidence
-        $operations.Add($id)
+function New-SyntheticInitializerRecord {
+    [pscustomobject]@{target=[pscustomobject]@{candidateRoot='/home/dsh/.dsh-profiles/vm105-provider-v1'};candidatePreparation=[pscustomobject]@{verdict='RUNNING';checks=@();mutationLedger=@();blockers=@();finishedAt=$null};operationLedger=@();overallVerdict='RUNNING'}
+}
+
+function New-SyntheticStepObservation {
+    param([string]$Id,[switch]$Blocked)
+    [pscustomobject]@{id=$Id;available=(-not$Blocked)}
+}
+
+function Invoke-PreparationStep {
+    param(
+        [object]$Record,
+        [ValidateSet('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')][string]$Id,
+        [string]$Parser,
+        [object[]]$WriteOperations,
+        [scriptblock]$Action,
+        [scriptblock]$Persist,
+        [scriptblock]$Adapter
+    )
+    if($Record.candidatePreparation.verdict-ceq'BLOCKED'){return $false}
+    $expectedIds=@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')
+    $order=@($Record.candidatePreparation.checks).Count+1
+    Assert-Initializer ($Id-ceq$expectedIds[$order-1]) 'step order mismatch'
+    try {
+        foreach($operation in @($WriteOperations)){
+            Assert-Initializer (@('CREATE_DIRECTORY','WRITE_FILE')-ccontains$operation.operation) 'write operation forbidden'
+            Assert-Initializer ($operation.path-ceq'/home/dsh/.dsh-profiles' -or $operation.path-ceq$Record.target.candidateRoot -or $operation.path.StartsWith("$($Record.target.candidateRoot)/",[StringComparison]::Ordinal)) 'write target forbidden'
+            $receipt=[pscustomobject]@{order=@($Record.candidatePreparation.mutationLedger).Count+1;operation=$operation.operation;path=$operation.path;contentSha256=$operation.contentSha256;result='BLOCKED';at=(Get-Date).ToUniversalTime().ToString('o');secretObserved=$false}
+            $Record.candidatePreparation.mutationLedger=@($Record.candidatePreparation.mutationLedger)+$receipt
+            $opReceipt=[pscustomobject]@{at=$receipt.at;actor='dsh';operation=$operation.operation;target=$operation.path;result='BLOCKED';secretObserved=$false}
+            $Record.operationLedger=@($Record.operationLedger)+$opReceipt
+            & $Persist $Record
+            & $Adapter $operation.argv $operation.stdin
+            $receipt.result='PASS';$opReceipt.result='PASS'; & $Persist $Record
+        }
+        $parsed=& $Action
+        Assert-Initializer ($null-ne$parsed -and @('PASS','NOT PROVEN')-ccontains$parsed.result) 'step parser result'
+        Assert-Initializer ($parsed.result-cne'NOT PROVEN' -or $Id-ceq'static-validation') 'NOT PROVEN outside static validation'
+        $Record.candidatePreparation.checks=@($Record.candidatePreparation.checks)+[pscustomobject]@{order=$order;id=$Id;result=$parsed.result;observedAt=(Get-Date).ToUniversalTime().ToString('o');parser=$Parser;safeObservation=$parsed.safeObservation;failureState='BLOCKED'}
+        & $Persist $Record
+        return $true
+    } catch {
+        $Record.candidatePreparation.verdict='BLOCKED';$Record.candidatePreparation.finishedAt=(Get-Date).ToUniversalTime().ToString('o');$Record.overallVerdict='BLOCKED';$Record.candidatePreparation.blockers=@("$Id failed; inspect nonsecret receipt metadata")
+        $Record.candidatePreparation.checks=@($Record.candidatePreparation.checks)+[pscustomobject]@{order=$order;id=$Id;result='BLOCKED';observedAt=(Get-Date).ToUniversalTime().ToString('o');parser=$Parser;safeObservation=(& $Action -Blocked);failureState='BLOCKED'}
+        & $Persist $Record
+        return $false
     }
-    return [pscustomobject]@{verdict='PASS';checks=@($operations);failedAt=$null}
 }
 
 function Invoke-InitializerSelfTest {
-    $evidence=[pscustomobject]@{selectorDiscovery=[pscustomobject]@{verdict='PASS';selectorDigest=('A'*64);candidateBlueprint=[pscustomobject]@{directories=@();files=@();policyAssertions=[pscustomobject]@{activeProviderRoutes=0;automaticFallback=$false}}}}
-    foreach($failAt in @('create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')){
-        $calls=[Collections.Generic.List[string]]::new()
-        $fake={param($id,$record)$calls.Add($id)}
-        $result=Invoke-Preparation $evidence $fake $failAt
-        Assert-Initializer ($result.verdict -ceq 'BLOCKED') 'failure must block'
-        Assert-Initializer ($calls -cnotcontains 'cleanup') 'cleanup forbidden'
-        Assert-Initializer (@($calls | Where-Object {$_ -match 'service-(stop|start|restart)|daemon-reload|systemd'}).Count -eq 0) 'service command forbidden'
-        $index=[Array]::IndexOf(@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged'),$failAt)
-        Assert-Initializer ($calls.Count -eq $index) 'continued after failure'
+    $ids=@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')
+    foreach($failAt in $ids){
+        $record=New-SyntheticInitializerRecord;$persisted=[Collections.Generic.List[object]]::new();$calls=[Collections.Generic.List[string]]::new()
+        foreach($id in $ids){
+            $writes=if($id-ceq$failAt){@([pscustomobject]@{operation='WRITE_FILE';path='/home/dsh/.dsh-profiles/vm105-provider-v1/settings.yaml';contentSha256=('A'*64);argv=@('synthetic-write');stdin=[byte[]]@(1)})}else{@()}
+            $adapter={param($argv,$stdin)$calls.Add($id);if($id-ceq$failAt){throw 'synthetic failure'}}
+            $action={param([switch]$Blocked)[pscustomobject]@{result=$(if($Blocked){'BLOCKED'}else{'PASS'});safeObservation=(New-SyntheticStepObservation $id -Blocked:$Blocked)}}
+            if(-not(Invoke-PreparationStep $record $id 'SyntheticV1' $writes $action {$persisted.Add(($args[0]|ConvertTo-Json -Depth 100|ConvertFrom-Json))} $adapter)){break}
+        }
+        Assert-Initializer ($record.candidatePreparation.verdict-ceq'BLOCKED' -and $record.candidatePreparation.mutationLedger[-1].result-ceq'BLOCKED') 'failed receipt not persisted'
+        Assert-Initializer (@($persisted[-1].candidatePreparation.checks)[-1].id-ceq$failAt -and $calls.Count-eq1) 'continued after failure'
+        Assert-Initializer (@($calls|Where-Object{$_-match'cleanup|repair|service|systemd'}).Count-eq0) 'forbidden recovery call'
     }
-    $positiveCalls=[Collections.Generic.List[string]]::new()
-    $positive=Invoke-Preparation $evidence {param($id,$record)$positiveCalls.Add($id)} ''
-    Assert-Initializer ($positive.verdict -ceq 'PASS' -and $positiveCalls.Count -eq 10) 'positive sequence incomplete'
+    $record=New-SyntheticInitializerRecord;foreach($id in $ids){if(-not(Invoke-PreparationStep $record $id 'SyntheticV1' @() { [pscustomobject]@{result='PASS';safeObservation=(New-SyntheticStepObservation $id)} } {} {})){throw 'positive sequence stopped'}}
+    Assert-Initializer (@($record.candidatePreparation.checks).Count-eq10) 'positive sequence incomplete'
+    'SELF_TEST_PASS failures=10 positive=1'
 }
 ```
 
@@ -964,7 +1061,7 @@ Require exactly one mode. Before constructing SSH, reject a non-`PASS`/unaccepte
 
 Fail each post-create operation in turn: parent creation, candidate-root creation, each directory/file write, metadata verification, static validation, secret scan, and unchanged-service/network check. After the first failure, assert `candidatePreparation.verdict: BLOCKED`, no later write, no cleanup/remove/repair, no service lifecycle or privileged mutation, and no old-profile operation. Preserve candidate paths already created before failure for review. The positive synthetic run executes every planned candidate write once and only the two exact read-only baseline queries.
 
-Expected RED from `./scripts/Initialize-VM105ProviderProfile.ps1 -AcceptedSelectorDigest ('A'*64) -SelfTest`: nonzero exit with `continued after failure` until stop-on-first-failure is implemented. Expected GREEN: exit 0 with `SELF_TEST_PASS failures=8 positive=1` and zero SSH calls.
+Expected RED from `./scripts/Initialize-VM105ProviderProfile.ps1 -AcceptedSelectorDigest ('A'*64) -SelfTest`: nonzero exit with `continued after failure` until stop-on-first-failure is implemented. Expected GREEN: exit 0 with `SELF_TEST_PASS failures=10 positive=1` and zero SSH calls.
 
 - [ ] **Step 2: Implement the fixed-path preparation lane**
 
@@ -1009,14 +1106,6 @@ function ConvertFrom-CandidateMetadata {
     return [pscustomobject]@{path=$ExpectedPath;objectType='regular file';symlink=$false;owner='dsh';group='dsh';mode=('0'+$parts[4]);linkCount=1;aclBroad=$false;unexpectedMount=$false;contentSha256=$ContentSha256}
 }
 
-function Add-MutationLedgerEntry {
-    param([Collections.Generic.List[object]]$Ledger,[ValidateSet('CREATE_DIRECTORY','WRITE_FILE')][string]$Operation,[string]$Path,[string]$ContentSha256,[ValidateSet('PASS','BLOCKED')][string]$Result)
-    if($Path-cne'/home/dsh/.dsh-profiles'){Assert-StrictPosixPath $Path $candidateRoot -AllowRoot}
-    if($Operation-ceq'CREATE_DIRECTORY' -and $null-ne$ContentSha256){throw 'directory digest forbidden'}
-    if($Operation-ceq'WRITE_FILE' -and $ContentSha256-notmatch'^[A-F0-9]{64}$'){throw 'file digest required'}
-    $Ledger.Add([pscustomobject]@{order=$Ledger.Count+1;operation=$Operation;path=$Path;contentSha256=$ContentSha256;result=$Result;at=(Get-Date).ToUniversalTime().ToString('o');secretObserved=$false})
-}
-
 function Invoke-SshProcess {
     param([string[]]$RemoteArgv,[byte[]]$StandardInput,[int]$TimeoutSeconds=30)
     $joined=@($RemoteArgv)-join "`0"
@@ -1036,56 +1125,38 @@ function Invoke-SshProcess {
     return @($stdout -split "`r?`n"|Where-Object Length)
 }
 
-function Write-CandidateFile {
-    param([object]$File,[Collections.Generic.List[object]]$Ledger)
-    $path=Resolve-CandidatePath $File.relativePath
-    $bytes=[Text.Encoding]::UTF8.GetBytes((@($File.contentLines)-join "`n")+"`n")
-    $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
-    if($digest -cne $File.contentSha256){throw 'candidate content digest mismatch'}
-    [void](Invoke-SshProcess @('/usr/bin/install','-m',[string]$File.mode,'/dev/stdin',$path) $bytes)
-    Add-MutationLedgerEntry $Ledger 'WRITE_FILE' $path $digest 'PASS'
-}
+$now=(Get-Date).ToUniversalTime().ToString('o')
+$record.candidatePreparation=[pscustomobject]@{selectorDigest=$record.selectorDiscovery.selectorDigest;candidateDigest=$null;startedAt=$now;finishedAt=$null;verdict='RUNNING';checks=@();mutationLedger=@();runtimeVerdict='NOT PROVEN';blockers=@();review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()}}
+$persist={param($state)$state.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $state.candidatePreparation @('candidateDigest','review');$json=$state|ConvertTo-Json -Depth 100;[IO.File]::WriteAllText((Resolve-Path $EvidencePath),$json+"`n",[Text.UTF8Encoding]::new($false))}
+$adapter={param($argv,$stdin)[void](Invoke-SshProcess $argv $stdin)}
+$run={param($id,$parser,$writes,$action)if(-not(Invoke-PreparationStep $record $id $parser $writes $action $persist $adapter)){return $false};return $true}
 
-$ledger=[Collections.Generic.List[object]]::new()
-[void](Invoke-SshProcess @('/usr/bin/install','-d','-m','0700','--','/home/dsh/.dsh-profiles','/home/dsh/.dsh-profiles/vm105-provider-v1') $null)
-Add-MutationLedgerEntry $ledger 'CREATE_DIRECTORY' '/home/dsh/.dsh-profiles' $null 'PASS'
-Add-MutationLedgerEntry $ledger 'CREATE_DIRECTORY' $candidateRoot $null 'PASS'
-foreach($directory in @($record.selectorDiscovery.candidateBlueprint.directories)){
-    $directoryPath=Resolve-CandidatePath $directory.relativePath
-    [void](Invoke-SshProcess @('/usr/bin/install','-d','-m','0700','--',$directoryPath) $null)
-    Add-MutationLedgerEntry $ledger 'CREATE_DIRECTORY' $directoryPath $null 'PASS'
-}
-foreach($file in @($record.selectorDiscovery.candidateBlueprint.files)){Write-CandidateFile $file $ledger}
-```
-
-Preflight must establish both fixed directories are absent before the single `install -d` call; if either exists, do not call it. Unknown selector or static-validator syntax is never embedded above. After the validator confirms `staticValidation.executable` is package-owned and its atomic argv contains the fixed candidate value, invoke exactly:
-
-```powershell
+if(-not(& $run 'selector-gate' 'SelectorGateV1' @() {param([switch]$Blocked)[pscustomobject]@{result=$(if($Blocked){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{selectorDigest=$record.selectorDiscovery.selectorDigest;selectorVerdict=$record.selectorDiscovery.verdict;reviewStatus=$record.selectorDiscovery.review.status;reviewedDigest=$record.selectorDiscovery.review.reviewedDigest}}})){return}
+if(-not(& $run 'target-preflight' 'TargetPreflightV1' @() {param([switch]$Blocked)$parentAbsent=$false;$rootAbsent=$false;$ancestorsSafe=$false;if(-not$Blocked){try{[void](Invoke-SshProcess @('/usr/bin/test','!','-e','/home/dsh/.dsh-profiles') $null);$parentAbsent=$true}catch{};try{[void](Invoke-SshProcess @('/usr/bin/test','!','-e',$candidateRoot) $null);$rootAbsent=$true}catch{};$ancestorsSafe=$true;foreach($ancestor in @('/home','/home/dsh')){$parts=((Invoke-SshProcess @('/usr/bin/stat','-c','%n|%F|%U|%G|%a','--',$ancestor) $null)-join'')-split'\|',5;$acl=Invoke-SshProcess @('/usr/bin/getfacl','-cp','--',$ancestor) $null;$mount=(Invoke-SshProcess @('/usr/bin/findmnt','-n','-o','TARGET','--target',$ancestor) $null)-join'';if($parts.Count-ne5-or$parts[0]-cne$ancestor-or$parts[1]-cne'directory'-or([Convert]::ToInt32($parts[4],8)-band18)-ne0-or@($acl|Where-Object{$_-match'^(group|other|mask)::.*w'}).Count-gt0-or$mount-cne'/'){$ancestorsSafe=$false}}};$pass=$parentAbsent-and$rootAbsent-and$ancestorsSafe;[pscustomobject]@{result=$(if($pass){'PASS'}else{'BLOCKED'});safeObservation=[pscustomobject]@{parentAbsent=$parentAbsent;rootAbsent=$rootAbsent;ancestorsSafe=$ancestorsSafe}}})){return}
+$parentWrite=[pscustomobject]@{operation='CREATE_DIRECTORY';path='/home/dsh/.dsh-profiles';contentSha256=$null;argv=@('/usr/bin/install','-d','-m','0700','--','/home/dsh/.dsh-profiles');stdin=$null}
+if(-not(& $run 'create-parent' 'CandidateDirectoryMutationV1' @($parentWrite) {param([switch]$Blocked)$metadata=if($Blocked){$null}else{ConvertFrom-CandidateMetadata ((Invoke-SshProcess @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--','/home/dsh/.dsh-profiles') $null)-join'') (Invoke-SshProcess @('/usr/bin/getfacl','-cp','--','/home/dsh/.dsh-profiles') $null) ((Invoke-SshProcess @('/usr/bin/findmnt','-n','-o','TARGET','--target','/home/dsh/.dsh-profiles') $null)-join'') '/home/dsh/.dsh-profiles' directory $null};[pscustomobject]@{result=$(if($Blocked){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{path='/home/dsh/.dsh-profiles';attempted=$true;completed=(-not$Blocked);metadata=$metadata}}})){return}
+$rootWrite=[pscustomobject]@{operation='CREATE_DIRECTORY';path=$candidateRoot;contentSha256=$null;argv=@('/usr/bin/install','-d','-m','0700','--',$candidateRoot);stdin=$null}
+if(-not(& $run 'create-root' 'CandidateDirectoryMutationV1' @($rootWrite) {param([switch]$Blocked)$metadata=if($Blocked){$null}else{ConvertFrom-CandidateMetadata ((Invoke-SshProcess @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$candidateRoot) $null)-join'') (Invoke-SshProcess @('/usr/bin/getfacl','-cp','--',$candidateRoot) $null) ((Invoke-SshProcess @('/usr/bin/findmnt','-n','-o','TARGET','--target',$candidateRoot) $null)-join'') $candidateRoot directory $null};[pscustomobject]@{result=$(if($Blocked){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{path=$candidateRoot;attempted=$true;completed=(-not$Blocked);metadata=$metadata}}})){return}
+$blueprintWrites=@();foreach($directory in @($record.selectorDiscovery.candidateBlueprint.directories)){$path=Resolve-CandidatePath $directory.relativePath;$blueprintWrites+=,[pscustomobject]@{operation='CREATE_DIRECTORY';path=$path;contentSha256=$null;argv=@('/usr/bin/install','-d','-m','0700','--',$path);stdin=$null}};foreach($file in @($record.selectorDiscovery.candidateBlueprint.files)){$path=Resolve-CandidatePath $file.relativePath;$bytes=[Text.Encoding]::UTF8.GetBytes((@($file.contentLines)-join"`n")+"`n");$blueprintWrites+=,[pscustomobject]@{operation='WRITE_FILE';path=$path;contentSha256=$file.contentSha256;argv=@('/usr/bin/install','-m',$file.mode,'/dev/stdin',$path);stdin=$bytes}}
+if(-not(& $run 'write-blueprint' 'BlueprintWriteV1' $blueprintWrites {param([switch]$Blocked)[pscustomobject]@{result=$(if($Blocked){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{plannedWrites=$blueprintWrites.Count;completedWrites=$(if($Blocked){@($record.candidatePreparation.mutationLedger|Where-Object result -eq PASS).Count-2}else{$blueprintWrites.Count});lastOperationOrder=@($record.candidatePreparation.mutationLedger).Count}}})){return}
+if(-not(& $run 'metadata' 'CandidateMetadataSetV1' @() {param([switch]$Blocked)$directories=@();$files=@();if(-not$Blocked){foreach($operation in @($record.candidatePreparation.mutationLedger|Where-Object operation -eq CREATE_DIRECTORY)){$directories+=ConvertFrom-CandidateMetadata ((Invoke-SshProcess @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$operation.path) $null)-join'') (Invoke-SshProcess @('/usr/bin/getfacl','-cp','--',$operation.path) $null) ((Invoke-SshProcess @('/usr/bin/findmnt','-n','-o','TARGET','--target',$operation.path) $null)-join'') $operation.path directory $null};foreach($operation in @($record.candidatePreparation.mutationLedger|Where-Object operation -eq WRITE_FILE)){$digest=((Invoke-SshProcess @('/usr/bin/sha256sum','--',$operation.path) $null)-join'').Split(' ')[0].ToUpperInvariant();$files+=ConvertFrom-CandidateMetadata ((Invoke-SshProcess @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$operation.path) $null)-join'') (Invoke-SshProcess @('/usr/bin/getfacl','-cp','--',$operation.path) $null) ((Invoke-SshProcess @('/usr/bin/findmnt','-n','-o','TARGET','--target',$operation.path) $null)-join'') $operation.path file $digest}};[pscustomobject]@{result=$(if($Blocked){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{available=(-not$Blocked);directories=$directories;files=$files;allSafe=(-not$Blocked);allDigestsMatch=(-not$Blocked)}}})){return}
 $static=$record.selectorDiscovery.candidateBlueprint.staticValidation
-if($static.supported){
-    $staticArgv=@([string]$static.executable)+@($static.argv)
-    $parsed=Invoke-SshProcess $staticArgv $null ([int]$static.timeoutSeconds)
-    if(@($static.acceptedResults) -cnotcontains ($parsed -join "`n")){throw 'static validation result rejected'}
-}
+if(-not(& $run 'static-validation' 'StaticValidationV1' @() {param([switch]$Blocked)if($Blocked){return [pscustomobject]@{result='BLOCKED';safeObservation=[pscustomobject]@{supported=$static.supported;exitCode=$null;parsedResult='BLOCKED'}}};if(-not$static.supported){return [pscustomobject]@{result='NOT PROVEN';safeObservation=[pscustomobject]@{supported=$false;exitCode=$null;parsedResult='NOT PROVEN'}}};$parsed=(Invoke-SshProcess (@($static.executable)+@($static.argv)) $null $static.timeoutSeconds)-join"`n";if(@($static.acceptedResults)-cnotcontains$parsed){throw 'static validation result rejected'};[pscustomobject]@{result='PASS';safeObservation=[pscustomobject]@{supported=$true;exitCode=0;parsedResult=$parsed}}})){return}
+if(-not(& $run 'secret-scan' 'SecretScanV1' @() {param([switch]$Blocked)$filesScanned=0;$findingCount=0;$categories=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);if(-not$Blocked){foreach($file in @($record.selectorDiscovery.candidateBlueprint.files)){$lines=Invoke-SshProcess @('/usr/bin/cat','--',(Resolve-CandidatePath $file.relativePath)) $null;$filesScanned++;foreach($line in $lines){if($line-match'(?i)(api[_-]?key|token|secret|password|client[_-]?secret|authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|oauth[_-]?(code|state))\s*[:=]\s*\S+' -or $line-match'(sk-(or-)?[A-Za-z0-9_-]{8,}|sess-[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'){$findingCount++;[void]$categories.Add('secret-shaped-assignment')}}}};[pscustomobject]@{result=$(if($Blocked-or$findingCount-gt0){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{available=(-not$Blocked);filesScanned=$filesScanned;findingCount=$findingCount;categories=@($categories)}}})){return}
+
+$currentUnit=ConvertFrom-SanitizedUnitLines (Invoke-SshProcess @('/usr/bin/systemctl','show','deepseek-harness.service','--property=User,Group,ExecStart,WorkingDirectory,UMask,FragmentPath,DropInPaths,ActiveState,SubState,Result,NRestarts','--no-pager') $null);$currentListeners=ConvertFrom-ListenerLines (Invoke-SshProcess @('/usr/bin/ss','-lntH','sport = :3080') $null);$currentHttp=Get-LocalHttpObservation {param($argv)Invoke-SshProcess $argv $null};$currentUfw=ConvertFrom-UfwLines (Invoke-SshProcess @('/usr/bin/sudo','-n','/usr/sbin/ufw','status','numbered') $null);$currentDirect=Get-DirectLanObservation 'controller-lan' '192.168.1.139'
+$before=ConvertTo-CanonicalNode ([pscustomobject]@{repositoryOrigin=$record.selectorDiscovery.baseline.repositoryOrigin;branch=$record.selectorDiscovery.baseline.branch;hostname=$record.selectorDiscovery.baseline.hostname;address=$record.selectorDiscovery.baseline.address;sshHostKeyIdentity=$record.selectorDiscovery.baseline.sshHostKeyIdentity;installedVersion=$record.selectorDiscovery.baseline.installedVersion;service=[pscustomobject]@{sourceClass=$record.selectorDiscovery.baseline.service.sourceClass;observationId=$record.selectorDiscovery.baseline.service.observationId;propertyAllowlist=$record.selectorDiscovery.baseline.service.propertyAllowlist;observations=$record.selectorDiscovery.baseline.service.observations;claim=$record.selectorDiscovery.baseline.service.claim};listeners=$record.selectorDiscovery.baseline.listeners;localHttp=$record.selectorDiscovery.baseline.localHttp;ufw=$record.selectorDiscovery.baseline.ufw;directLanDenied=$record.selectorDiscovery.baseline.directLanDenied})
+$after=ConvertTo-CanonicalNode ([pscustomobject]@{repositoryOrigin=$record.selectorDiscovery.baseline.repositoryOrigin;branch=$record.selectorDiscovery.baseline.branch;hostname=$record.target.hostname;address=$record.target.address;sshHostKeyIdentity=$record.target.sshHostKeyIdentity;installedVersion=$record.selectorDiscovery.installedVersion;service=[pscustomobject]@{sourceClass=$currentUnit.sourceClass;observationId=$currentUnit.observationId;propertyAllowlist=$currentUnit.propertyAllowlist;observations=$currentUnit.observations;claim=$currentUnit.claim};listeners=$currentListeners;localHttp=$currentHttp;ufw=$currentUfw;directLanDenied=$currentDirect})
+$baselineMatches=(($before|ConvertTo-Json -Depth 100 -Compress)-ceq($after|ConvertTo-Json -Depth 100 -Compress))
+$unitMap=@{};foreach($item in $currentUnit.observations){$unitMap[$item.name]=$item.value}
+if(-not(& $run 'service-unchanged' 'ServiceBaselineV1' @() {param([switch]$Blocked)[pscustomobject]@{result=$(if($Blocked-or-not$baselineMatches){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{available=(-not$Blocked);activeState=$unitMap.ActiveState;subState=$unitMap.SubState;user=$unitMap.User;group=$unitMap.Group;execStart=$unitMap.ExecStart;workingDirectory=$unitMap.WorkingDirectory;umask=$unitMap.UMask;result=$unitMap.Result;nRestarts=[int]$unitMap.NRestarts;matchesBaseline=$baselineMatches}}})){return}
+if(-not(& $run 'network-unchanged' 'NetworkBaselineV1' @() {param([switch]$Blocked)[pscustomobject]@{result=$(if($Blocked-or-not$baselineMatches){'BLOCKED'}else{'PASS'});safeObservation=[pscustomobject]@{available=(-not$Blocked);listeners=$currentListeners;localHttpStatus=$currentHttp.statusCode;ufwActive=$currentUfw.active;tcp3080Allowed=$currentUfw.tcp3080Allowed;directLanDenied=$currentDirect.denied;matchesBaseline=$baselineMatches}}})){return}
+$record.candidatePreparation.verdict='PASS';$record.candidatePreparation.finishedAt=(Get-Date).ToUniversalTime().ToString('o');$record.overallVerdict='CANDIDATE_STATIC_PASS';& $persist $record
 ```
 
-Collect metadata with fixed `/usr/bin/stat -c %n|%F|%U|%G|%a|%h`, `/usr/bin/getfacl -cp`, `/usr/bin/findmnt -n -o TARGET --target`, and `/usr/bin/sha256sum --` argv for each newly created path. Pass directories and files separately to `ConvertFrom-CandidateMetadata`; directory link count is deliberately ignored, while regular files require link count one. Call `Add-MutationLedgerEntry` immediately after each attempted mutation and never persist raw output.
+The single production step runner above owns all ten ordered checks. It persists a `BLOCKED` mutation and operation receipt before every remote write, flips both receipts to `PASS` only after that write returns successfully, and persists the final check state. Its catch path records only the failed check ID, leaves partial candidate state untouched, and stops the remaining steps; it never cleans up, repairs, retries, or invokes a service lifecycle action. The baseline comparison removes exactly the two capture timestamps (`selectorDiscovery.baseline.capturedAt` and `service.capturedAt`) and compares every other repository, identity, version, unit, listener, HTTP, UFW, and direct-LAN field canonically and exactly.
 
-Reuse the Task 1 bounded readers and compare their typed output, not raw text:
-
-```powershell
-$currentUnit=ConvertFrom-SanitizedUnitLines (Invoke-SshProcess @('/usr/bin/systemctl','show','deepseek-harness.service','--property=User,Group,ExecStart,WorkingDirectory,UMask,FragmentPath,DropInPaths,ActiveState,SubState,Result,NRestarts','--no-pager') $null)
-$currentListeners=ConvertFrom-ListenerLines (Invoke-SshProcess @('/usr/bin/ss','-lntH','sport = :3080') $null)
-$currentHttp=Get-LocalHttpObservation {param($argv) Invoke-SshProcess $argv $null}
-$currentUfw=ConvertFrom-UfwLines (Invoke-SshProcess @('/usr/bin/sudo','-n','/usr/sbin/ufw','status','numbered') $null)
-$currentDirect=Get-DirectLanObservation 'controller-lan' '192.168.1.139'
-$current=[pscustomobject]@{service=$currentUnit;listeners=$currentListeners;localHttp=$currentHttp;ufw=$currentUfw;directLanDenied=$currentDirect}
-$before=ConvertTo-CanonicalNode ([pscustomobject]@{service=$record.selectorDiscovery.baseline.service;listeners=$record.selectorDiscovery.baseline.listeners;localHttp=$record.selectorDiscovery.baseline.localHttp;ufw=$record.selectorDiscovery.baseline.ufw;directLanDenied=$record.selectorDiscovery.baseline.directLanDenied})
-$after=ConvertTo-CanonicalNode $current
-if(($before|ConvertTo-Json -Depth 100 -Compress)-cne($after|ConvertTo-Json -Depth 100 -Compress)){throw 'baseline changed during candidate preparation'}
-```
-
-Expected typed result: the exact Task 1 service/listener/local-HTTP/UFW/direct-LAN observations compare equal after ignoring only their capture timestamps; no lifecycle command occurs. The ten ordered checks are 1-8 `PASS`, service/network equality checks `PASS`, `runtimeVerdict=NOT PROVEN`, and the ledger contains only fixed-path `CREATE_DIRECTORY`/`WRITE_FILE` entries.
+Expected typed success: checks 1-6 and 8-10 are `PASS`; check 7 is `PASS` when the installed static validator is supported, or the sole permitted `NOT PROVEN` when it is unsupported and the separately parsed loopback/zero-route/fallback assertions remain exact. `runtimeVerdict` is always `NOT PROVEN`; the ledgers contain only fixed-path `CREATE_DIRECTORY`/`WRITE_FILE` entries. Any isolation-affecting uncertainty is `BLOCKED` and stops the lane.
 
 - [ ] **Step 3: Run self-tests and prepare only after selector acceptance**
 
