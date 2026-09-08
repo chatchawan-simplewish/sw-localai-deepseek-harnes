@@ -11,7 +11,8 @@ Prepare a fresh, owner-only DeepSeek Harness profile at
 `/home/dsh/.dsh-profiles/vm105-provider-v1` and later replace the current
 service profile through a reversible pointer change. This workflow never writes,
 moves, or deletes the provenance-uncertain profile and fails closed unless the
-installed Harness version exposes a supported profile-selection mechanism.
+installed Harness version exposes a supported profile-selection mechanism that
+isolates the entire Harness profile.
 
 ## Non-goals
 
@@ -67,7 +68,9 @@ selecting it without altering or interpreting the current profile.
 
 1. **Preserve uncertain state.** Treat the current profile as an opaque object.
 2. **Use one supported seam.** The only allowed pointer is the minimum
-   profile-selection mechanism supported by the installed Harness version.
+   profile-selection mechanism supported by the installed Harness version. It
+   must isolate every mutable Harness store, not a credential-only or
+   settings-only subset.
 3. **Separate preparation from cutover.** Preparation is secret-free and
    static. Runtime proof requires a separately approved maintenance restart.
 4. **Fail closed.** Missing, ambiguous, deprecated, or content-dependent
@@ -98,8 +101,10 @@ package metadata, and the effective systemd unit definition. It must establish
 all of the following without opening profile contents:
 
 - the exact supported selector and its precedence;
-- that it selects the Harness credential and settings storage needed by this
-  workflow, rather than only a working directory or cache;
+- that it isolates the entire Harness profile, explicitly including
+  credentials, settings, plugins, sessions/state, and every other mutable store,
+  rather than selecting only credentials/settings, a working directory, or a
+  cache;
 - that an absolute path is accepted;
 - that selection does not merge with, inherit from, migrate, or rewrite the
   current profile;
@@ -110,7 +115,9 @@ all of the following without opening profile contents:
 The specification intentionally gives no selector syntax. Syntax becomes
 eligible for an implementation plan only after direct proof against the
 installed Harness version. If any condition is unproven, the outcome is
-`BLOCKED` and no profile directory or service change follows.
+`BLOCKED` and no profile directory or service change follows. A selector that
+covers credentials and settings but not plugins, sessions/state, or any other
+mutable store is insufficient and `BLOCKED`.
 
 ### Fresh profile boundary
 
@@ -146,8 +153,8 @@ design and approval.
 
 | Component | Responsibility | Permitted dependency | Forbidden dependency |
 | --- | --- | --- | --- |
-| Installed Harness evidence | Prove selector syntax, scope, precedence, and isolation | Installed help/docs/package metadata | Current profile contents or online package changes |
-| Fresh profile root | Hold only fresh VM105-specific settings and later credentials | Installed defaults and approved explicit settings | Existing profile, Hermes, copied credentials, inferred values |
+| Installed Harness evidence | Prove selector syntax, precedence, and isolation of the entire mutable profile | Installed help/docs/package metadata | Current profile contents or online package changes |
+| Fresh profile root | Hold all fresh VM105-specific mutable Harness stores; it begins secret-free and receives credentials only through a later gate | Installed defaults and approved explicit settings | Existing profile, Hermes, copied credentials, inferred values |
 | Static validator | Check path, ownership, modes, syntax, loopback, zero-route and fallback-disabled policy | Newly created secret-free candidate files and metadata | Running Harness, provider calls, old-profile content, secret output |
 | Service-pointer drop-in | Select the fresh profile during approved cutover | Proven supported selector and existing unit | Wrapper scripts, symlinks, guessed selectors, broad unit rewrite |
 | Cutover controller | Stop, switch, start, verify, and roll back on failure | Separately approved exact change packet | Credential entry, provider enablement, unrelated repair |
@@ -186,14 +193,22 @@ a bounded maintenance interruption:
 3. Revalidate the candidate profile's owner, modes, static policy, and absence
    of credential material.
 4. Stop `deepseek-harness.service` once.
-5. Apply the minimal pre-reviewed pointer drop-in and reload systemd.
-6. Start `deepseek-harness.service` once.
-7. Verify every cutover check before accepting the switch.
-8. If any check fails or is ambiguous, restore the prior pointer, reload,
+5. Confirm the service is stopped. Only then capture the old profile root's
+   `lstat` baseline: path, object type, owner, group, mode, and link status. Do
+   not traverse children or read content. This post-stop, pre-pointer record is
+   the only old-root comparison baseline used for cutover acceptance.
+6. Apply the minimal pre-reviewed pointer drop-in and reload systemd.
+7. Start `deepseek-harness.service` once.
+8. Verify every cutover check before accepting the switch.
+9. If any check fails or is ambiguous, restore the prior pointer, reload,
    restart once, and verify the original baseline.
-9. If all checks pass, retain the old profile root, confirm the operation ledger
+10. If all checks pass, retain the old profile root, confirm the operation ledger
    contains no old-tree mutation, and stop before any credential/API access
    creation, OAuth/login/consent, or sensitive entry.
+
+No old-root metadata captured while the service is running may substitute for
+the post-stop, pre-pointer baseline. This ordering prevents a shutdown-time
+comparison race while keeping inspection within the root-only `lstat` boundary.
 
 ## Permission and mode expectations
 
@@ -219,8 +234,10 @@ pre-existing state; it records the discrepancy and stops.
 | `CURRENT_ACTIVE` | Existing service baseline verified | Read-only discovery; after selector proof, bounded writes only to the new candidate path and new reviewed evidence record | `CANDIDATE_STATIC_PASS` | `BLOCKED`, with the original service still active |
 | `BLOCKED` | Selector, path, permission, scope, or baseline proof fails | Record exact nonsecret blocker | `CURRENT_ACTIVE` only after a reviewed replan or corrected prerequisite | Remain `BLOCKED` |
 | `CANDIDATE_STATIC_PASS` | Selector proven; candidate secret-free; static checks pass | Await separate cutover approval | `CUTOVER_APPROVED` | `BLOCKED` if state drifts, with the original service still active |
-| `CUTOVER_APPROVED` | Owner approves exact action-time cutover packet | Revalidate all inputs without stopping the service | `SERVICE_STOPPED` | `BLOCKED`, with the original service still active |
-| `SERVICE_STOPPED` | Service stops cleanly and prior pointer metadata is recorded | Apply the reviewed pointer | `POINTER_APPLIED` | `ROLLBACK_REQUIRED` |
+| `CUTOVER_APPROVED` | Owner approves exact action-time cutover packet | Revalidate all inputs without stopping the service | `CUTOVER_REVALIDATED` | `BLOCKED`, with the original service still active |
+| `CUTOVER_REVALIDATED` | Every pre-stop check passes and the original service is still active | Stop the service once | `SERVICE_STOPPED` | `ROLLBACK_REQUIRED` |
+| `SERVICE_STOPPED` | Service stop is confirmed and prior pointer metadata is recorded | Capture only the old-root `lstat` fields | `OLD_ROOT_BASELINED` | `ROLLBACK_REQUIRED` |
+| `OLD_ROOT_BASELINED` | Root-only `lstat` baseline is captured after stop and before pointer application | Apply the reviewed pointer | `POINTER_APPLIED` | `ROLLBACK_REQUIRED` |
 | `POINTER_APPLIED` | Exact pointer is installed and systemd reload succeeds | Start service | `CANDIDATE_RUNNING` | `ROLLBACK_REQUIRED` |
 | `CANDIDATE_RUNNING` | Service starts against candidate | Run full cutover verification | `SWITCH_ACCEPTED` | `ROLLBACK_REQUIRED` |
 | `ROLLBACK_REQUIRED` | Any command, check, timeout, identity, or ambiguity fails | Restore prior pointer, reload, restart, verify baseline | `ROLLED_BACK` | `ROLLBACK_FAILED` |
@@ -302,7 +319,9 @@ The future exact packet must verify, in order:
 1. hostname and VM identity;
 2. service process identity `dsh:dsh` and expected unit;
 3. effective profile selector resolves exactly to
-   `/home/dsh/.dsh-profiles/vm105-provider-v1` without merging or fallback;
+   `/home/dsh/.dsh-profiles/vm105-provider-v1` for credentials, settings,
+   plugins, sessions/state, and every other mutable store, without merging or
+   fallback;
 4. listener is only `127.0.0.1:3080` or the already-approved equivalent
    loopback sockets;
 5. local HTTP health succeeds through the established loopback path;
@@ -324,7 +343,7 @@ output, or an unrecognized result triggers rollback.
 | --- | --- | --- | --- | --- |
 | Secret disclosure | Old profile contents are opened, copied, logged, hashed, or characterized | Credential exposure and provenance loss | Opaque-profile boundary; permitted root `lstat` only; value-suppressing scan only on new candidate files | `BLOCKED` if boundary cannot be honored |
 | Selector spoofing | Guessed syntax points elsewhere or falls back to the old profile | Mixed identity and false isolation | Installed-version proof; exact effective-profile verification | `NOT PROVEN` until selector discovery passes |
-| State merging | Harness imports or migrates old state into the new profile | Inherited credentials and irreversible contamination | Prove non-merge semantics; fresh empty path; stop on migration behavior | `BLOCKED` unless disproved |
+| State merging | Harness imports, migrates, or continues using any old mutable store | Inherited credentials/state and false isolation | Prove entire-profile isolation across credentials, settings, plugins, sessions/state, and all other mutable stores; stop on partial selection or migration behavior | `BLOCKED` unless disproved |
 | Permission escalation | Broad modes, ACLs, links, mounts, or wrong owner expose the candidate | Unauthorized read/write | 0700 parents, 0600 files, link/ACL/mount checks, `dsh:dsh` runtime | `NOT PROVEN` until static checks pass |
 | Network exposure | Pointer change alters bind address or firewall posture | LAN/public access | Preserve command; verify loopback, UFW, direct-LAN denial; immediate rollback | `NOT PROVEN` until cutover |
 | Denial of service | Service fails to restart against candidate | Maintenance outage | Bounded window, recorded prior pointer, automatic rollback and baseline check | Brief outage remains possible |
@@ -374,7 +393,10 @@ credential-bearing action.
 ### Preparation implementation acceptance
 
 - Selector proof directly covers absolute path, precedence, full-profile scope,
-  non-merge behavior, service compatibility, and supported systemd use.
+  non-merge behavior, service compatibility, and supported systemd use. Full
+  profile scope explicitly covers credentials, settings, plugins,
+  sessions/state, and every other mutable store; partial selection is
+  `BLOCKED`.
 - If selector proof fails, evidence says `BLOCKED` and VM105 has no new profile
   or service change.
 - If selector proof passes, only the fixed fresh path and minimum secret-free
@@ -392,6 +414,9 @@ credential-bearing action.
 - The owner separately approves the exact cutover packet at action time.
 - The maintenance restart is bounded to one switch attempt plus one automatic
   rollback attempt if required.
+- After the service stop is confirmed and before the pointer is applied, the
+  controller captures exactly one root-only old-profile `lstat` baseline for
+  cutover comparison.
 - All ordered cutover checks pass, including effective-profile proof and
   unchanged network posture.
 - Any non-pass result restores the prior pointer and original baseline or is
@@ -425,8 +450,9 @@ design:
 2. The exact systemd drop-in key/value that would implement the proven selector.
 3. Runtime startup and health against the fresh profile; no shadow instance is
    allowed, so these remain `NOT PROVEN` until cutover.
-4. The fresh profile's final effective credential and settings storage paths;
-   they depend on selector proof and static initialization behavior.
+4. The fresh profile's final effective credential, settings, plugin,
+   session/state, and other mutable-store paths; they depend on full-profile
+   selector proof and static initialization behavior.
 5. A supported native Codex login surface and safe configured-state indicator.
 6. Provider account/project identities, least-scope credential identifiers and
    lifetimes, and owner-only issuance outcomes.
