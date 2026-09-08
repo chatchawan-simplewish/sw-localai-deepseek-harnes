@@ -22,6 +22,7 @@ OLD = '/home/dsh/.dsh'
 INSTALL = '/opt/deepseek-harness'
 PACKAGE = INSTALL + '/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh'
 UNIT = 'deepseek-harness-candidate-smoke-20260909.service'
+UNIT_V2 = 'deepseek-harness-candidate-smoke-20260909-v2.service'
 PILOT = 'deepseek-harness.service'
 FORBIDDEN = {'system.posix_acl_access', 'system.posix_acl_default', 'security.capability'}
 FILES = {
@@ -597,9 +598,9 @@ def reject_envfile_directives(raw):
 
 
 def envfile_absence_proof(unit):
-    require(unit in {PILOT, UNIT}, 'UNIT_SOURCE_TARGET')
+    require(unit in {PILOT, UNIT, UNIT_V2}, 'UNIT_SOURCE_TARGET')
     props = show(unit, ['FragmentPath', 'DropInPaths', 'PassEnvironment'])
-    expected = '/etc/systemd/system/' + PILOT if unit == PILOT else '/run/systemd/transient/' + UNIT
+    expected = '/etc/systemd/system/' + PILOT if unit == PILOT else '/run/systemd/transient/' + unit
     require(props == {'FragmentPath': expected, 'DropInPaths': '', 'PassEnvironment': ''}, 'UNIT_SOURCE_BOUNDARY')
     source = Trusted()
     try:
@@ -666,8 +667,8 @@ def listeners(pid):
     return rows
 
 
-def group_pids(group):
-    require(re.fullmatch(r'/system.slice/deepseek-harness-candidate-smoke-20260909\.service', group), 'CGROUP_PATH')
+def group_pids(group, target):
+    require(target in {UNIT, UNIT_V2} and group == '/system.slice/' + target, 'CGROUP_PATH')
     try:
         with open('/sys/fs/cgroup' + group + '/cgroup.procs', encoding='ascii') as stream:
             return set(int(x) for x in stream.read(65536).split())
@@ -765,11 +766,13 @@ except Exception:
 '''
 
 
-def apply():
+def apply(v2=False):
     require(sys.platform == 'linux' and sys.version_info[:2] == (3, 12) and sys.flags.optimize == 0,
             'PYTHON_RUNTIME')
     require(os.geteuid() == 0 and os.getegid() == 0, 'ROOT_REQUIRED')
     require(socket.gethostname() == 'deepseek-harness-01', 'HOST_IDENTITY')
+    target = UNIT_V2 if v2 else UNIT
+    absence_check = None
     trust, owner, group, netfd, started = Trusted(), None, None, None, False
     observed_processes = {}
     result = {'status': 'BLOCKED', 'runtime': 'NOT PROVEN', 'checkpoints': []}
@@ -811,29 +814,50 @@ def apply():
         require(pilot[3] == os.readlink('/proc/self/ns/net'), 'PILOT_NAMESPACE')
         require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
         candidate_inventory()
-        links, canonicals = closure(trust)
-        require(show(UNIT, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
+        if v2:
+            absence_check = absent_resolver_ancestors(trust)
+            def query(anchor, dependency, timeout):
+                end = time.monotonic() + timeout
+                absence_check()
+                remaining = end - time.monotonic()
+                require(remaining > 0, 'RESOLVER_TIMEOUT')
+                paths = resolver_query(anchor, dependency, path, no_global=True, timeout=remaining)
+                absence_check()
+                return paths
+            links, canonicals = closure(trust, result, query, contained=True)
+            absence_check()
+        else:
+            links, canonicals = closure(trust)
+        require(show(target, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
         candidate_inventory()
         require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
         result['checkpoints'].append('PREFLIGHT_PASS')
         trust.verify()
         launch_before = snapshot(os.lstat(launch))
         require(launch_before == snapshot(s), 'LAUNCHER_DRIFT')
-        args = ['/usr/bin/systemd-run', '--unit=' + UNIT, '--description=' + description, '--quiet', '--no-block']
+        args = ['/usr/bin/systemd-run', '--unit=' + target, '--description=' + description, '--quiet', '--no-block']
         args += ['--property=' + k + '=' + v for k, v in PROPERTIES.items()]
-        args += ['--', '/usr/bin/env', '-i', 'HOME=/home/dsh', 'DSH_HOME=' + HOME, 'PATH=' + path,
-                 launch, 'web', '--host', '127.0.0.1', '--port', '3081', '--no-open']
+        candidate_argv = ([match[1], '--no-global-search-paths', match[2]] if v2 else [launch])
+        candidate_argv += ['web', '--host', '127.0.0.1', '--port', '3081', '--no-open']
+        args += ['--', '/usr/bin/env', '-i', 'HOME=/home/dsh', 'DSH_HOME=' + HOME, 'PATH=' + path] + candidate_argv
+        if v2:
+            absence_check()
         started = True
         command(args, 10)
         deadline = time.monotonic() + 30
         listener_pid, identity = None, None
         while time.monotonic() < deadline:
-            unit = effective_properties(UNIT)
+            if v2:
+                owned = show(target, ['InvocationID', 'Description', 'Transient', 'ControlGroup'])
+                require(owned['Description'] == description and owned['Transient'] == 'yes'
+                        and re.fullmatch('[0-9a-f]{32}', owned['InvocationID']), 'UNIT_OWNERSHIP')
+                owner, group = (owned['InvocationID'], description), owned['ControlGroup']
+            unit = effective_properties(target)
             require(unit['Description'] == description and re.fullmatch('[0-9a-f]{32}', unit['InvocationID']), 'UNIT_OWNERSHIP')
             owner = unit['InvocationID'], description
             group = unit['ControlGroup']
             require(unit['ActiveState'] in {'active', 'activating'}, 'CANDIDATE_TERMINATED')
-            pids = group_pids(group)
+            pids = group_pids(group, target)
             for pid in pids:
                 current = process(pid)
                 observed_processes[pid] = current
@@ -852,16 +876,16 @@ def apply():
         require(identity is not None, 'LISTENER_TIMEOUT')
         require(os.readlink('/proc/self/fd/' + str(netfd)) == identity[3], 'NAMESPACE_FD_IDENTITY')
         time.sleep(5)
-        require(process(listener_pid) == identity and listener_pid in group_pids(group), 'PROCESS_IDENTITY_DRIFT')
+        require(process(listener_pid) == identity and listener_pid in group_pids(group, target), 'PROCESS_IDENTITY_DRIFT')
         status = dict(line.split(':', 1) for line in proc_read(listener_pid, 'status').decode().splitlines() if ':' in line)
         require(status['Uid'].split() == ['1000'] * 4 and status['Gid'].split() == ['1000'] * 4, 'LISTENER_UID_GID')
         validate_selector(environment(listener_pid), path)
-        require(argv(listener_pid) == pilot_args[:-5] + ['web', '--host', '127.0.0.1', '--port', '3081', '--no-open'],
+        require(argv(listener_pid) == (candidate_argv if v2 else pilot_args[:-5] + ['web', '--host', '127.0.0.1', '--port', '3081', '--no-open']),
                 'CANDIDATE_ARGV')
         validate_listener(listeners(listener_pid), socket_inodes(listener_pid))
         net_shape(listener_pid)
         require(not any(row[0].endswith(':0C09') for row in listeners('self')), 'HOST_LISTENER_CREATED')
-        preprobe = effective_properties(UNIT)
+        preprobe = effective_properties(target)
         validate_owned(preprobe, owner)
         require(preprobe['ControlGroup'] == group
                 and preprobe['ActiveState'] == 'active', 'PREPROBE_UNIT_DRIFT')
@@ -875,33 +899,42 @@ def apply():
         result['checkpoints'].append('API_READBACK_PASS')
         result.update({'registered_route_count': 0, 'native_default_matches': True, 'status': 'PROBE_PASS_CLEANUP_PENDING'})
     except Blocked as error:
-        result['error_code'] = str(error)
-    except Exception:
+        result['error_code'] = diagnostic_error(error)['safe_code'] if v2 else str(error)
+    except Exception as error:
         result['error_code'] = 'UNEXPECTED_FAILURE'
+        if v2:
+            result.update(diagnostic_error(error))
     finally:
         if started:
             try:
-                props = show(UNIT, ['InvocationID', 'Description', 'Transient', 'ControlGroup'])
+                props = show(target, ['InvocationID', 'Description', 'Transient', 'ControlGroup'])
                 if owner is None:
                     require(props['Description'] == description and props['Transient'] == 'yes'
                             and re.fullmatch('[0-9a-f]{32}', props['InvocationID']), 'CLEANUP_OWNERSHIP')
                     owner = props['InvocationID'], description
                     group = props['ControlGroup']
                 validate_owned(props, owner)
-                command(['/usr/bin/systemctl', 'stop', UNIT], 30)
-                state = show(UNIT, ['LoadState', 'ActiveState'])
+                command(['/usr/bin/systemctl', 'stop', target], 30)
+                state = show(target, ['LoadState', 'ActiveState'])
                 require(state['ActiveState'] in {'inactive', 'failed'} or state['LoadState'] == 'not-found', 'UNIT_NOT_STOPPED')
-                require(not group_pids(group), 'CGROUP_NOT_EMPTY')
+                require(not group_pids(group, target), 'CGROUP_NOT_EMPTY')
                 for pid, prior in observed_processes.items():
                     try:
                         remaining = process(pid)
                     except (FileNotFoundError, ProcessLookupError):
                         continue
                     require(remaining[1] != prior[1], 'CANDIDATE_PROCESS_REMAINS')
+                if v2:
+                    result['checkpoints'].append('OWNED_PROCESS_CLEANUP_PASS')
+                    result['namespace_cleanup'] = 'NOT PROVEN'
                 require(netfd is not None, 'HELD_NAMESPACE_UNAVAILABLE')
                 check = "import pathlib,sys;sys.exit(any(l.split()[3]=='0A' and l.split()[1].endswith(':0C09') for n in ('tcp','tcp6') for l in pathlib.Path('/proc/self/net/'+n).read_text().splitlines()[1:]))"
                 command(['/usr/bin/nsenter', '--net=/proc/self/fd/' + str(netfd), '/usr/bin/python3.12', '-I', '-c', check],
                         5, fds=(netfd,))
+                if v2:
+                    result['namespace_cleanup'] = 'PASS'
+                    absence_check()
+                    result['ancestor_absence_verified'] = True
                 result['checkpoints'].append('OWNED_CLEANUP_PASS')
                 if result['status'] == 'PROBE_PASS_CLEANUP_PENDING':
                     result['inventory'] = candidate_inventory(links, canonicals, trust)
@@ -910,7 +943,7 @@ def apply():
                     result['runtime'] = 'ISOLATED_CONTAINMENT_ONLY'
             except Blocked as error:
                 result.update(status='CLEANUP_NOT_PROVEN' if 'OWNED_CLEANUP_PASS' not in result['checkpoints'] else 'BLOCKED',
-                              error_code=str(error))
+                              error_code=diagnostic_error(error)['safe_code'] if v2 else str(error))
             except Exception:
                 result.update(status='CLEANUP_NOT_PROVEN' if 'OWNED_CLEANUP_PASS' not in result['checkpoints'] else 'BLOCKED',
                               error_code='CLEANUP_OR_INVENTORY_FAILURE')
@@ -921,14 +954,86 @@ def apply():
             except Exception:
                 result.update(status='BLOCKED' if result['status'] != 'CLEANUP_NOT_PROVEN' else result['status'],
                               pilot_error_code='PILOT_PRESERVATION_NOT_PROVEN')
-        if netfd is not None:
-            os.close(netfd)
-        trust.close()
+        if v2:
+            if absence_check is not None:
+                try:
+                    absence_check()
+                    result['ancestor_absence_verified'] = True
+                except Exception as error:
+                    result.update(status='CLEANUP_NOT_PROVEN' if result['status'] == 'CLEANUP_NOT_PROVEN' else 'BLOCKED',
+                                  absence_error=diagnostic_error(error))
+            owned_fds = ([netfd] if netfd is not None else []) + [row[0] for row in reversed(list(trust.held.values()))]
+            for fd in owned_fds:
+                try:
+                    os.close(fd)
+                except Exception as error:
+                    result.update(status='CLEANUP_NOT_PROVEN' if result['status'] == 'CLEANUP_NOT_PROVEN' else 'BLOCKED',
+                                  descriptor_cleanup_error=diagnostic_error(error))
+        else:
+            if netfd is not None:
+                os.close(netfd)
+            trust.close()
     result['parent_http_and_tunnel_verification'] = 'REQUIRED_SEPARATELY'
     return result
 
 
 DIAGNOSTIC_CODES = frozenset({
+    'APPLIED_PROPERTIES',
+    'CANDIDATE_ANCESTOR_DRIFT',
+    'CANDIDATE_ANCESTOR_MODE',
+    'CANDIDATE_ANCESTOR_OWNER',
+    'CANDIDATE_ANCESTOR_TRUST',
+    'CANDIDATE_ATTRIBUTES',
+    'CANDIDATE_DIRECTORY_DRIFT',
+    'CANDIDATE_HARDLINK',
+    'CANDIDATE_LINK_ATTRIBUTES',
+    'CANDIDATE_LINK_DRIFT',
+    'CANDIDATE_MOUNT',
+    'CANDIDATE_NOT_FRESH',
+    'CANDIDATE_OPEN_DRIFT',
+    'CANDIDATE_OWNER_DEVICE',
+    'CANDIDATE_PATH_DRIFT',
+    'CANDIDATE_PIN',
+    'CANDIDATE_PRIVATE_MODE',
+    'CANDIDATE_READ_DRIFT',
+    'CANDIDATE_SPECIAL_FILE',
+    'CGROUP_PATH',
+    'CGROUP_V2_REQUIRED',
+    'COMMAND_FAILED',
+    'COMMAND_TIMEOUT',
+    'DIAGNOSTIC_IDENTITY',
+    'DUPLICATE_ENVIRONMENT',
+    'FALLBACK_EXTRA_ENTRY',
+    'FALLBACK_MAPPING',
+    'FALLBACK_MISSING',
+    'INVENTORY_BOUND',
+    'LISTENER_OWNERSHIP',
+    'NETWORK_INTERFACES',
+    'NETWORK_IPV6_ROUTES',
+    'NETWORK_ROUTES',
+    'ORIGINAL_FILE_MISSING',
+    'PILOT_ARGV',
+    'PILOT_ENVIRONMENT',
+    'PILOT_ENVIRONMENT_SOURCE',
+    'PILOT_NOT_ACTIVE',
+    'PILOT_PATH',
+    'PILOT_PROPERTIES',
+    'RUNTIME_DIGEST_DRIFT',
+    'RUNTIME_HASH_BOUND',
+    'RUNTIME_SIZE_BOUND',
+    'SELECTOR_OR_ENVIRONMENT',
+    'UNEXPECTED_CANDIDATE_LINK',
+    'UNIT_PROPERTIES_MISSING',
+    'UNIT_SOURCE_BOUNDARY',
+    'UNIT_SOURCE_ENCODING',
+    'UNIT_SOURCE_ENVIRONMENTFILE',
+    'UNIT_SOURCE_INCLUDE',
+    'UNIT_SOURCE_INCOMPLETE',
+    'UNIT_SOURCE_MAPPING_DRIFT',
+    'UNIT_SOURCE_SYNTAX',
+    'UNIT_SOURCE_TARGET',
+
+    'API_RECEIPT', 'CANDIDATE_ARGV', 'CANDIDATE_NAMESPACE_CGROUP', 'CANDIDATE_PROCESS_REMAINS', 'CANDIDATE_TERMINATED', 'CGROUP_NOT_EMPTY', 'CLEANUP_OWNERSHIP', 'HELD_NAMESPACE_UNAVAILABLE', 'HOST_3081_EXISTS', 'HOST_IDENTITY', 'HOST_LISTENER_CREATED', 'LAUNCHER_DRIFT', 'LAUNCHER_FIXED_EXEC', 'LAUNCHER_METADATA', 'LAUNCHER_REVIEWED_ENTRY', 'LAUNCHER_SHAPE', 'LAUNCHER_SHEBANG', 'LISTENER_TIMEOUT', 'LISTENER_UID_GID', 'MULTIPLE_LISTENER_OWNERS', 'NAMESPACE_FD_IDENTITY', 'NODE_EXECUTABLE', 'NODE_RUNTIME_PIN', 'PILOT_CHANGED', 'PILOT_NAMESPACE', 'PILOT_REVIEWED_ENTRY', 'PREPROBE_IDENTITY_DRIFT', 'PREPROBE_UNIT_DRIFT', 'PROCESS_IDENTITY_DRIFT', 'PYTHON_RUNTIME', 'RESOLVER_TIMEOUT', 'REVIEWED_LOGICAL_MAPPING', 'ROOT_REQUIRED', 'SOURCE_PIN', 'SOURCE_PINS_MISSING', 'TOOL_EXECUTABLE', 'UNIT_ALREADY_EXISTS', 'UNIT_NOT_STOPPED', 'UNIT_OWNERSHIP', 'WORKSPACE_ENVFILE',
     'CLOSURE_BOUND', 'PACKAGE_BOUND', 'PACKAGE_NAME', 'DEPENDENCY_MAP', 'DEPENDENCY_VERSION',
     'MANIFEST_IDENTITY', 'REVIEWED_PACKAGE_MAPPING', 'REVIEWED_CLOSURE_MAPPING', 'INSTALLED_ONLY_RESOLUTION',
     'TRUST_PATH', 'TRUST_OWNER_MODE', 'TRUST_TYPE', 'TRUST_LINK_COUNT', 'TRUST_ATTRIBUTES',
@@ -1066,6 +1171,35 @@ def diagnostic_error(error):
         code = code if code in DIAGNOSTIC_CODES else 'UNCLASSIFIED_BLOCKED'
     return {'exception_class': name if name in names else 'OTHER',
             'errno': number if type(number) is int else None, 'safe_code': code}
+
+
+def apply_v2():
+    """Separate explicit runtime attempt, with process-local limits restored after owned FDs close."""
+    import resource
+    original, attempted = resource.getrlimit(resource.RLIMIT_NOFILE), False
+    result = {'status': 'BLOCKED', 'runtime': 'NOT PROVEN', 'unit': UNIT_V2,
+              'fd_soft_limit': original[0], 'fd_hard_limit': original[1]}
+    try:
+        require(original[1] >= 4096, 'DIAGNOSTIC_FD_HARD_LIMIT')
+        attempted = True
+        resource.setrlimit(resource.RLIMIT_NOFILE, (4096, original[1]))
+        require(resource.getrlimit(resource.RLIMIT_NOFILE) == (4096, original[1]), 'DIAGNOSTIC_FD_LIMIT_MISMATCH')
+        result.update(fd_applied_soft_limit=4096, fd_applied_hard_limit=original[1])
+        result.update(apply(v2=True))
+    except Exception as error:
+        result.update(status='BLOCKED', **diagnostic_error(error))
+    finally:
+        if attempted:
+            result['fd_restoration'] = 'PASS'
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, original)
+                restored = resource.getrlimit(resource.RLIMIT_NOFILE)
+                result['fd_restored_soft_limit'], result['fd_restored_hard_limit'] = restored
+                require(restored == original, 'DIAGNOSTIC_FD_RESTORE_MISMATCH')
+            except Exception as error:
+                result.update(status='FD_LIMIT_RESTORE_FAILED', fd_restoration='FAILED',
+                              restoration_error=diagnostic_error(error))
+    return result
 
 
 def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, unresolved_census=False):
@@ -1447,6 +1581,86 @@ def self_test():
         require(diagnostic['fd_applied_hard_limit'] == diagnostic['fd_restored_hard_limit'] == 1048576
                 and diagnostic['fd_restored_soft_limit'] == (4096 if fail_restore else 1024)
                 and diagnostic['fd_restoration'] == ('FAILED' if fail_restore else 'PASS'), 'SELF_TEST_LIMIT_RESTORATION')
+    with patch('builtins.open', return_value=io.StringIO('123\n456\n')) as group_file:
+        require(group_pids('/system.slice/' + UNIT_V2, UNIT_V2) == {123, 456}, 'SELF_TEST_V2_REAL_CGROUP')
+        group_file.assert_called_once_with('/sys/fs/cgroup/system.slice/' + UNIT_V2 + '/cgroup.procs', encoding='ascii')
+    for group, target in (('/system.slice/' + UNIT, UNIT_V2), ('/system.slice/' + UNIT_V2, UNIT),
+                          ('/system.slice/other.service', 'other.service')):
+        with patch('builtins.open') as group_file:
+            try:
+                group_pids(group, target)
+            except Blocked as error:
+                require(error.args == ('CGROUP_PATH',) and not group_file.called, 'SELF_TEST_CROSS_UNIT_REJECTED')
+            else:
+                raise Blocked('SELF_TEST_CROSS_UNIT_ACCEPTED')
+    # Drive v2 through preflight, launch capture, early validation failure and owned cleanup.
+    node, entry = '/opt/node-v24.19.0-linux-x64/bin/node', PACKAGE + '/lib/bin.js'
+    pilot_fixture = ({'EnvironmentFiles': ''}, (829, 1, '/pilot', 'pilot-net'),
+                     [node, entry, 'web', '--host', '127.0.0.1', '--port', '3080'], '/usr/bin')
+    for wrong_owner, secondary in ((False, None), (True, None), (False, 'absence'), (False, 'fd')):
+        controls, checks, description = [], [], ['']
+        def fake_command(args, *unused, **kwargs):
+            controls.append(args)
+            if args[0] == '/usr/bin/systemd-run':
+                description[0] = next(x.split('=', 1)[1] for x in args if x.startswith('--description='))
+            return ''
+        def fake_show(unit, keys):
+            require(unit == UNIT_V2, 'SELF_TEST_V2_UNIT')
+            if keys == ['LoadState']:
+                return {'LoadState': 'not-found'}
+            if keys == ['LoadState', 'ActiveState']:
+                return {'LoadState': 'loaded', 'ActiveState': 'inactive'}
+            return {'InvocationID': 'a' * 32, 'Description': 'wrong' if wrong_owner else description[0],
+                    'Transient': 'yes', 'ControlGroup': '/owned'}
+        def fake_absence():
+            checks.append('absence')
+            require(not (secondary == 'absence' and len(controls) > 1), 'RESOLVER_ANCESTOR_EXISTS')
+        fake_stat = SimpleNamespace(st_nlink=1, st_mode=0o100755)
+        fake_trust = SimpleNamespace(held={'fixture': (71, None, None)}, open=lambda *a: 71,
+                                    read=lambda path: ('#!/bin/sh\nexec ' + node + ' ' + entry + ' "$@"\n').encode()
+                                    if path == '/usr/local/bin/dsh' else b'source',
+                                    resolve=lambda path, **kw: path, verify=lambda: None,
+                                    digest_runtime=lambda path: 'bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12')
+        def fake_closure(trust, stats, resolver, contained):
+            require(contained is True and callable(resolver), 'SELF_TEST_V2_CONTAINED_REQUIRED')
+            stats['contained_edge_count'] = 4
+            return {}, {}
+        with patch.dict(globals(), {'Trusted': lambda: fake_trust, 'SOURCE_PINS': {'/source': hashlib.sha256(b'source').hexdigest()},
+                                   'KNOWN_MAPPINGS': {}, 'pilot_baseline': lambda: pilot_fixture, 'listeners': lambda _: [],
+                                   'candidate_inventory': lambda *args: {}, 'closure': fake_closure, 'show': fake_show,
+                                   'command': fake_command, 'snapshot': lambda _: 1, 'group_pids': lambda group, target: [],
+                                   'absent_resolver_ancestors': lambda _: fake_absence,
+                                   'effective_properties': lambda _: require(False, 'UNIT_PROPERTIES_MISSING')}), \
+             patch.object(sys, 'platform', 'linux'), patch.object(sys, 'version_info', (3, 12)), \
+             patch.object(socket, 'gethostname', return_value='deepseek-harness-01'), \
+             patch.object(os, 'geteuid', return_value=0, create=True), patch.object(os, 'getegid', return_value=0, create=True), \
+             patch.object(os, 'fstat', return_value=fake_stat), patch.object(os, 'lstat', return_value=fake_stat), \
+             patch.object(os, 'stat', return_value=fake_stat), patch.object(os, 'readlink', return_value='pilot-net'), \
+             patch.object(os.path, 'lexists', return_value=False), \
+             patch.object(os, 'close', side_effect=OSError(9, 'private error') if secondary == 'fd' else None) as closed:
+            runtime = apply(v2=True)
+        require(controls[0][-9:] == [node, '--no-global-search-paths', entry, 'web', '--host', '127.0.0.1', '--port', '3081', '--no-open'],
+                'SELF_TEST_V2_DIRECT_ARGV')
+        require(runtime['status'] == 'CLEANUP_NOT_PROVEN' and len(checks) >= 3 and closed.call_count == 1,
+                'SELF_TEST_V2_EARLY_CLEANUP')
+        require((len(controls) == 1 if wrong_owner else controls[-1] == ['/usr/bin/systemctl', 'stop', UNIT_V2])
+                and ('OWNED_PROCESS_CLEANUP_PASS' in runtime['checkpoints']) is (not wrong_owner)
+                and 'OWNED_CLEANUP_PASS' not in runtime['checkpoints'], 'SELF_TEST_V2_CLEANUP_OWNERSHIP')
+    for restore_failure in (False, True):
+        limits, events = [1024, 1048576], []
+        def v2_limits(_, values):
+            events.append(tuple(values))
+            if not (restore_failure and values[0] == 1024):
+                limits[:] = values
+        def v2_inner(v2):
+            require(v2 is True and limits == [4096, 1048576], 'SELF_TEST_V2_LIMIT_APPLIED')
+            events.append('owned_fds_closed')
+            return {'status': 'BLOCKED'}
+        with patch.dict(sys.modules, {'resource': SimpleNamespace(RLIMIT_NOFILE=7, getrlimit=lambda _: tuple(limits), setrlimit=v2_limits)}), \
+             patch.dict(globals(), {'apply': v2_inner}):
+            limit_result = apply_v2()
+        require(events == [(4096, 1048576), 'owned_fds_closed', (1024, 1048576)]
+                and limit_result['fd_restoration'] == ('FAILED' if restore_failure else 'PASS'), 'SELF_TEST_V2_LIMIT_RESTORE')
     reject_envfile_directives(b'\xef\xbb\xbf[Service]\r\n# Comment\r\nExecStart=/usr/bin/env \\\r\n -i /bin/true\r\n')
     cases = [
         lambda: validate_selector({'HOME': '/home/dsh', 'PATH': '/usr/bin'}, '/usr/bin'),
@@ -1505,6 +1719,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--apply', action='store_true')
+    modes.add_argument('--apply-v2', action='store_true')
     modes.add_argument('--self-test', action='store_true')
     modes.add_argument('--preflight-diagnostic', action='store_true')
     modes.add_argument('--resolver-diagnostic', action='store_true')
@@ -1515,7 +1730,7 @@ if __name__ == '__main__':
         result = (self_test() if args.self_test else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
                   else preflight_diagnostic(contained_diagnostic=True) if args.contained_preflight_diagnostic
                   else preflight_diagnostic(resolver_diagnostic=True) if args.resolver_diagnostic
-                  else preflight_diagnostic() if args.preflight_diagnostic else apply() if args.apply else {
+                  else preflight_diagnostic() if args.preflight_diagnostic else apply_v2() if args.apply_v2 else apply() if args.apply else {
             'status': 'CONTRACT_ONLY', 'runtime': 'NOT PROVEN', 'unit': UNIT,
             'candidate': HOME, 'properties': PROPERTIES, 'attempts': 1,
             'required_parent_checks': ['fresh source receipts', 'pilot loopback HTTP before/after', 'tunnel before/after'],
