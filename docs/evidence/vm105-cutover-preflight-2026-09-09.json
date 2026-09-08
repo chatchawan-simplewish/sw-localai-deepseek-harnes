@@ -1,0 +1,110 @@
+{
+  "scope": "Fresh read-only normal-service preparation proof. No switch entry exists; candidate cutover remains NOT EXECUTABLE, credentials and routes NOT PROVEN.",
+  "timezone": "Asia/Bangkok",
+  "attempts": [
+    {
+      "helper_sha256": "382449B489A5C32F6AC6BE1916748EA04FAA929B7BAC4F90B494519395468F56",
+      "receipt": "f1669e",
+      "process_exit": 1,
+      "vm_contact": false,
+      "result": {
+        "error_code": "TUNNEL_IDENTITY",
+        "mutation_entry": "UNIMPLEMENTED",
+        "status": "CUTOVER_PREFLIGHT_INCOMPLETE"
+      },
+      "cause": "Nested Windows PowerShell Get-FileHash command unavailable; no service/tunnel mismatch established."
+    },
+    {
+      "helper_sha256": "FC5119E0F9FD26BDCDF56DC8E73A9C38D680A1D5033511E45CBD40391968EF92",
+      "receipt": "3858fb",
+      "process_exit": 1,
+      "vm_contact": false,
+      "result": {
+        "error_code": "TUNNEL_IDENTITY",
+        "mutation_entry": "UNIMPLEMENTED",
+        "status": "CUTOVER_PREFLIGHT_INCOMPLETE"
+      },
+      "cause": "Exact expected SSH argument vector was followed by one trailing ASCII space; strict string predicate rejected it."
+    },
+    {
+      "helper_sha256": "1483F2769C283BB72CEDFF8EB3E86FAE96348C5FBF10296FCBD1785DB9535847",
+      "receipt": "0f80d3",
+      "process_exit": 1,
+      "vm_contact": true,
+      "result": {
+        "error_code": "PILOT_ENVIRONMENT",
+        "mutation_entry": "UNIMPLEMENTED",
+        "ssh_exit": 1,
+        "status": "CUTOVER_PREFLIGHT_INCOMPLETE"
+      },
+      "cause": "Existing PWD and systemd MEMORY_PRESSURE_WATCH/WRITE were absent from the verifier allowlist; no environment mutation occurred."
+    },
+    {
+      "helper_sha256": "73A2D3EA340FC4BF4E97495F0FF668DD33C90ADFA378E31770BBC637196B4AD6",
+      "receipt": "0a0b28",
+      "process_exit": 0,
+      "vm_contact": true,
+      "start_utc": "2026-09-08 20:31:37 UTC",
+      "end_utc": "2026-09-08 20:32:13 UTC",
+      "result": {
+        "base_effective_equal": true,
+        "base_source_equal": true,
+        "candidate_cutover": "NOT EXECUTABLE",
+        "closure_count": 432,
+        "dropin_destination_absent": true,
+        "environment_file_proof": "ABSENT_SOURCE_VERIFIED",
+        "fd_restoration": "PASS",
+        "inventory_count": 463,
+        "mutation_entry": "UNIMPLEMENTED",
+        "parent_access_before_after": true,
+        "pilot_identity_unchanged": true,
+        "proposed_dropin_sha256": "498ffcd058b856e054e8b144292d1831b0a3f4c4004bb0ae6d94a6e21ee0ea0a",
+        "root_bytes_equal": true,
+        "socket_absent": true,
+        "socket_source_proof": "SOCKETS_ABSENT_SOURCE_VERIFIED",
+        "ssh_exit": 0,
+        "status": "CUTOVER_PREFLIGHT_PASS",
+        "ufw_active": true
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "receipt": "11ed10",
+      "facts": "Existing tunnel task Running, exact action/script hash and one loopback listener matched."
+    },
+    {
+      "receipt": "ccd2b2",
+      "facts": "Get-FileHash CommandNotFoundException in nested Windows PowerShell. Replaced dependency with .NET SHA256; no environment/module change."
+    },
+    {
+      "receipt": "d09ef3",
+      "facts": "Exact SSH argument vector matched; one trailing ASCII space. Fix trims only trailing ASCII spaces; flags and host remain exact."
+    },
+    {
+      "receipt": "39030b",
+      "facts": "Only three additional process environment names: PWD, MEMORY_PRESSURE_WATCH, MEMORY_PRESSURE_WRITE. HOME/selector/PATH/PWD and identity match."
+    },
+    {
+      "receipt": "1a85ab",
+      "facts": "Current service ControlGroup=/system.slice/deepseek-harness.service, MemoryPressureWatch=auto, MemoryPressureThresholdUSec=200ms."
+    },
+    {
+      "receipt": "a701a7",
+      "facts": "Watch matches owned cgroup memory.pressure path; strict decoded write matches public PSI threshold protocol; identity unchanged."
+    }
+  ],
+  "references": [
+    "https://systemd.io/MEMORY_PRESSURE/"
+  ],
+  "review": {
+    "implementation": "Independent reviewer accepted each frozen helper before its single run; final73A2D3EA hash and rejection fixtures independently verified.",
+    "receipt": "Independent review at2026-09-09 03:34:52 Bangkok accepted complete receipt F59AEE9BB645AF8FF04AFEECFB1BEB113A5431625899280BBE1F8431EF950AFD before this review-note update: four attempts, final SSH0, counts432/463 and source/socket/root/FD/pilot/external proofs matched reviewed code. Preparation scope only; no independent live rerun or full-goal acceptance."
+  },
+  "limits": [
+    "No candidate startup, service controls, credential/OAuth/provider/route calls, browser, firewall mutation or GPU load occurred in this preflight. Candidate reads were restricted to the reviewed public input/configuration pins and protected generated-state metadata; opaque pilot contents were not read.",
+    "Opaque pilot contents remain uninspected; process environment checks emit only allowlisted nonsecret metadata/booleans.",
+    "Pass is a timestamped preparation result, not proof of future state or executable cutover readiness.",
+    "All four preflight attempts are consumed; repeat only for a concrete new revalidation reason."
+  ]
+}

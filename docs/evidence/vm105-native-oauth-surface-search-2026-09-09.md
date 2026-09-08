@@ -55,6 +55,10 @@ Unlike the earlier excerpt-only UI captures, these four local JSON captures reta
 
 ## Separate final declaration follow-up
 
+Bounded retained-source design review at2026-09-09 03:08:57 Asia/Bangkok did not establish an existing private owner interaction path, so no speculative integration plan or login attempt was created. The missing capability is a surface attached to the running Harness context that supplies notify/prompt/cancellation to `ctx.authorization.begin({key: "llm-pi-ai/openai-codex", method: "oauth", interaction, signal})`, with proven selected-store binding. This is a technical gap in addition to owner-only consent. It is not a whole-installation absence claim. Any future integration must keep challenge/input details private, use verified `Codex-Chrome-Bell-PC2` for owner consent, and avoid standalone pi-ai stores, token copying or custom OAuth protocol. An authorized result must represent this attempt's committed native credential record; model access still requires separate route tests.
+
+The review also identified error handling requiring care: retained authorization source SHA256 `d86547a2f450ff7f58f421f5e2a91eab6abc5ac3dc2ae90cd3785d15547002a3`, lines194–195 and219–220, logs thrown errors. Future interaction/rendering callbacks must throw sanitized errors that contain no challenge, URL, code or input; outer-only sanitization is insufficient. Adapter source pin remains `e183a9cdde703b47485410bd68d247c8becdb277c390f0f91c6dd28718d350e2`. This was a retained-source review, not a new VM read or auth test.
+
 This separate follow-up inspected one declared startup file and needed none of its allowance of at most two additional directly imported startup/interaction files. It did not expand or rewrite the preceding eight-file window. The clock tool immediately before the follow-up returned `2026-09-08 17:51:31 UTC`.
 
 - Full-source capture `C:/Users/chatc/.codex/tmp-native-surface-startup.json`; VM-reported UTC `2026-09-08T17:51:58.977855+00:00`.

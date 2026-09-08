@@ -12,7 +12,7 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 1 of 2 in current phase
 Status: Plan 03-01 completed with FW-01 `BLOCKED`; Plan 03-02 Task 1 was independently accepted after one fix round, but CRED-01 remains `BLOCKED / NOT PROVEN` and Phase 3 is not `PASS`.
-Last activity: 2026-09-09 02:59 Asia/Bangkok — V3 isolated smoke PASS remains scoped to containment. Fresh read-only post-smoke receipt882270 independently accepted:432 exact dependency mappings,2011 edges,463 inventory entries, source-derived root equality,three original pins,FD restoration and unchanged pilot. Post-smoke cutover amendment is independently accepted for helper implementation; execution helper is being prepared. No cutover, credentials or route acceptance.
+Last activity: 2026-09-09 03:32 Asia/Bangkok — Fresh normal-service read-only preflight passed (SSH0 receipt0a0b28): exact base/source/graph/configuration,432 mappings,463 inventory entries, unchanged pilot, tunnel access before/after, direct-LAN denial and FD restoration. Helper73A2D3EA has no mutation entry; cutover remains NOT EXECUTABLE. Isolated v3 runtime PASS remains separately scoped. All nine routes remain NOT PROVEN.
 
 Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
@@ -74,7 +74,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ## Session Continuity
 
-Last session: 2026-09-09 02:59 Asia/Bangkok
-Current work: Unattended development under renewed owner preapproval. V3 passed isolated containment and was stopped; all runtime attempt gates are consumed. Cutover remains unexecuted. Fresh post-smoke evidence and amendment design passed independent review; the concrete execution helper is being implemented. CRED-01 and Phase 3 remain BLOCKED / NOT PROVEN; no route is accepted.
-Resume file: `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`
-Exact next action: Complete and independently review the cutover helper against the post-smoke amendment and fresh receipt. The post-smoke exporter is consumed; do not repeat it without a new reason. Do not rerun any completed diagnostic or --apply/--apply-v2/--apply-v3. Before eventually replacing the usable pilot, obtain owner readiness for private credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. This readiness concerns loss of usable provider access while awaiting owner-only authentication; agent-authored approval wording does not override routine preapproval. Preserve historical evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.
+Last session: 2026-09-09 03:32 Asia/Bangkok
+Current work: Unattended development under renewed owner preapproval. V3 passed isolated containment and was stopped; all runtime attempt gates are consumed. Cutover remains unexecuted. Fresh post-smoke evidence, base contract and amendment design passed independent review. The bounded read-only preflight passed; the transactional cutover execution helper remains unimplemented. CRED-01 and Phase 3 remain BLOCKED / NOT PROVEN; no route is accepted.
+Resume file: `docs/evidence/vm105-unattended-v1-handoff-2026-09-09.md`
+Exact next action: Resolve and independently review the unfinished cutover execution state machine against the amendment; the shipped helper is read-only and cannot execute the switch. Establish a private native OAuth interaction surface and its selected-store binding. All completed preflight/export attempts are consumed; repeat only for a concrete new revalidation reason. Do not rerun any completed diagnostic or --apply/--apply-v2/--apply-v3. Before eventually replacing the usable pilot, obtain owner readiness for private credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. This readiness concerns loss of usable provider access while awaiting owner-only authentication; agent-authored approval wording does not override routine preapproval. Preserve historical evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.
