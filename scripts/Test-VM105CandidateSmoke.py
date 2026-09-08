@@ -25,6 +25,8 @@ UNIT = 'deepseek-harness-candidate-smoke-20260909.service'
 UNIT_V2 = 'deepseek-harness-candidate-smoke-20260909-v2.service'
 UNIT_V3 = 'deepseek-harness-candidate-smoke-20260909-v3.service'
 PILOT = 'deepseek-harness.service'
+EXPECTED_BOOT_ROOT = b"# dsh profile root \xe2\x80\x94 an empty entry list. The tree is composed as patches:\n# each bundle in package.json's dsh.profile.bundles, then cordis.patch.yml, then any\n# --patch overlays. Edit cordis.patch.yml, not this file.\n[]\n"
+EXPECTED_BOOT_ROOT_SHA256 = 'c300dcf2ebc5f02062d6591268d29d3db6fe45e0cb138f5467276fe2ba06076e'
 FORBIDDEN = {'system.posix_acl_access', 'system.posix_acl_default', 'security.capability'}
 FILES = {
     'profiles/web/package.json': '210068ddb9ebc4cdf395ebb53020be6ccaaedb917e74dae16296d62394626398',
@@ -345,6 +347,18 @@ def optional_classification(manifest, name, kind):
     return 'TRUE' if row['optional'] is True else 'FALSE' if row['optional'] is False else 'MALFORMED'
 
 
+def closure_record(manifest, digest, logical, canonical):
+    name, version = manifest.get('name'), manifest.get('version')
+    package_name(name)
+    require(len(name) <= 214 and type(version) is str and 0 < len(version) <= 128
+            and all(32 <= ord(c) < 127 for c in version), 'EXPORT_MANIFEST_IDENTITY')
+    require(re.fullmatch('[0-9a-f]{64}', digest), 'DIAGNOSTIC_MANIFEST_DIGEST')
+    for path in (logical, canonical):
+        resolver_path(path)
+        require(path.startswith(INSTALL + '/'), 'INSTALL_ESCAPE')
+    return {'name': name, 'version': version, 'manifest_sha256': digest, 'logical': logical, 'canonical': canonical}
+
+
 CONTAINED_EDGES = frozenset({
     ('@modelcontextprotocol/sdk', '0690cbe02511a95d1ff199acf20b5a12ac4dfde1bbe30c82a0de73afa92dffc9',
      'peerDependencies', '@cfworker/json-schema', INSTALL + '/node_modules/.pnpm/node_modules/@modelcontextprotocol/sdk/package.json'),
@@ -357,7 +371,7 @@ CONTAINED_EDGES = frozenset({
 })
 
 
-def closure(trust, stats=None, resolver=None, contained=False, census=False):
+def closure(trust, stats=None, resolver=None, contained=False, census=False, export=None):
     started = time.monotonic()
     require(not census or stats is not None and resolver is None and not contained, 'CENSUS_MODE_BOUNDARY')
     if stats is not None:
@@ -377,7 +391,10 @@ def closure(trust, stats=None, resolver=None, contained=False, census=False):
         if stats is not None:
             stats['closure_package_count'] = len(links)
         canonicals = {root['name']: PACKAGE}
-        queue = collections.deque([(PACKAGE + '/package.json', root, hashlib.sha256(root_bytes).hexdigest())])
+        root_digest = hashlib.sha256(root_bytes).hexdigest()
+        if export is not None:
+            export.append(closure_record(root, root_digest, PACKAGE, PACKAGE))
+        queue = collections.deque([(PACKAGE + '/package.json', root, root_digest)])
         edges = 0
         while queue:
             anchor, manifest, manifest_digest = queue.popleft()
@@ -454,6 +471,9 @@ def closure(trust, stats=None, resolver=None, contained=False, census=False):
                     links[name], canonicals[name] = logical, canonical
                     if stats is not None:
                         stats['closure_package_count'] = len(links)
+                    if export is not None:
+                        require(len(export) < 512, 'PACKAGE_BOUND')
+                        export.append(closure_record(child, child_digest, logical, canonical))
                     queue.append((logical + '/package.json', child, child_digest))
         trust.verify()
         require(all(canonicals.get(name) == entry['canonical'] for name, entry in KNOWN_MAPPINGS.items()),
@@ -475,7 +495,11 @@ def no_candidate_mounts():
             require(target != HOME and not target.startswith(HOME + '/'), 'CANDIDATE_MOUNT')
 
 
-def candidate_inventory(links=None, canonical=None, trust=None):
+def validate_boot_root(raw):
+    require(raw == EXPECTED_BOOT_ROOT, 'BOOT_ROOT_BYTES')
+
+
+def candidate_inventory(links=None, canonical=None, trust=None, expected_root=None):
     no_candidate_mounts()
     deadline, records, seen_links, seen = time.monotonic() + 30, [], set(), set()
     held = []
@@ -531,6 +555,9 @@ def candidate_inventory(links=None, canonical=None, trust=None):
                         require(not FORBIDDEN.intersection(os.listxattr(child)), 'CANDIDATE_ATTRIBUTES')
                         if directory:
                             visit(child, path, depth + 1)
+                        elif path == 'profiles/web/cordis.yml' and expected_root is not None:
+                            require(expected_root == EXPECTED_BOOT_ROOT, 'BOOT_ROOT_BYTES')
+                            validate_boot_root(bounded_read(child, 65536))
                         elif path in FILES and (links is None or path != 'profiles/web/cordis.yml'):
                             data = bounded_read(child, 65536)
                             require(hashlib.sha256(data).hexdigest() == FILES[path], 'CANDIDATE_PIN')
@@ -1011,6 +1038,7 @@ def apply(v2=False, target=None):
 
 
 DIAGNOSTIC_CODES = frozenset({
+    'EXPORT_MANIFEST_IDENTITY', 'BOOT_ROOT_BYTES', 'BOOT_ROOT_SOURCE', 'EVIDENCE_SIZE',
     'RUNTIME_TARGET', 'SECONDARY_CLEANUP_FAILURE', 'FD_LIMIT_RESTORE_FAILED',
     'UNIT_SOURCE_CONTINUATION', 'UNIT_SOURCE_SOCKETS', 'SOCKETS_NOT_EMPTY', 'SOCKET_SOURCE_INTERFACE', 'SOCKET_UNIT_EXISTS',
     'JOURNAL_SIZE', 'JOURNAL_ROWS', 'JOURNAL_FIELDS', 'JOURNAL_TARGET', 'JOURNAL_VALUE', 'JOURNAL_CURSOR',
@@ -1381,7 +1409,7 @@ def apply_v2(target=UNIT_V2):
     return result
 
 
-def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, unresolved_census=False):
+def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, unresolved_census=False, post_smoke=False):
     """Read-only reproduction: this entry has no path to apply or unit controls."""
     result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None, 'safe_code': None,
               'closure_package_count': None, 'closure_edge_count': None, 'closure_elapsed_ms': None,
@@ -1394,7 +1422,9 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
               'fd_restored_soft_limit': None, 'fd_restored_hard_limit': None,
               'fd_restoration': 'NOT_ATTEMPTED'}
     trust, previous_handler, original_limits, limit_attempted = Trusted(), None, None, False
-    absence_check = None
+    absence_check, before = None, None
+    if post_smoke:
+        result.update(status='POST_SMOKE_EVIDENCE_INCOMPLETE', closure_records=[], inventory=[])
     if unresolved_census:
         result.update(status='UNRESOLVED_CENSUS_INCOMPLETE', unresolved_edges=[], census_context=None,
                       census_scope='REACHABLE_INSTALLED_MANIFESTS_ONLY', runtime_acceptance='NOT PROVEN',
@@ -1411,7 +1441,9 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
         raise TimeoutError()
 
     try:
-        require(sum((resolver_diagnostic, contained_diagnostic, unresolved_census)) <= 1, 'CENSUS_MODE_BOUNDARY')
+        require(sum((resolver_diagnostic, contained_diagnostic, unresolved_census, post_smoke)) <= 1, 'CENSUS_MODE_BOUNDARY')
+        if post_smoke:
+            contained_diagnostic = True
         require(sys.platform == 'linux' and sys.version_info[:2] == (3, 12) and sys.flags.optimize == 0,
                 'PYTHON_RUNTIME')
         require(os.geteuid() == 0 and os.getegid() == 0 and socket.gethostname() == 'deepseek-harness-01',
@@ -1431,7 +1463,10 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
         stage('SOURCE_PINS')
         require(SOURCE_PINS, 'SOURCE_PINS_MISSING')
         for path, digest in SOURCE_PINS.items():
-            require(hashlib.sha256(trust.read(path)).hexdigest() == digest, 'SOURCE_PIN')
+            source_bytes = trust.read(path)
+            require(hashlib.sha256(source_bytes).hexdigest() == digest, 'SOURCE_PIN')
+            if post_smoke and path == PACKAGE + '/lib/profile-boot-DG5t9aNs.js':
+                require(b'const PROFILE_ROOT_CONFIG = `' + EXPECTED_BOOT_ROOT + b'`;' in source_bytes, 'BOOT_ROOT_SOURCE')
         stage('TOOLS')
         for path in ('/usr/bin/python3.12', '/usr/bin/nsenter', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/env'):
             require(os.fstat(trust.open(path, True)).st_mode & 0o111, 'TOOL_EXECUTABLE')
@@ -1454,7 +1489,8 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
                 'NODE_RUNTIME_PIN')
         require(os.stat(match[1]).st_mode & 0o111, 'NODE_EXECUTABLE')
         stage('PILOT_BASELINE')
-        baseline, pilot, pilot_args, path = pilot_baseline()
+        before = pilot_baseline()
+        baseline, pilot, pilot_args, path = before
         require(pilot_args[:-5] == [match[1], match[2]], 'PILOT_REVIEWED_ENTRY')
         stage('PATH_METADATA')
         for component in path.split(':'):
@@ -1465,7 +1501,12 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
         stage('WORKSPACE_ENV_ABSENCE')
         require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
         stage('CANDIDATE_INVENTORY')
-        candidate_inventory()
+        if not post_smoke:
+            candidate_inventory()
+        else:
+            state = show(UNIT_V3, ['ActiveState', 'MainPID'])
+            require(state['ActiveState'] in {'inactive', 'failed'} and state['MainPID'] == '0'
+                    and not group_pids('/system.slice/' + UNIT_V3, UNIT_V3), 'UNIT_NOT_STOPPED')
         if contained_diagnostic:
             stage('RESOLVER_ANCESTOR_ABSENCE')
             absence_check = absent_resolver_ancestors(trust)
@@ -1480,19 +1521,39 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
                 absence_check()
             return paths
         stage('INSTALLED_CLOSURE')
-        closure(trust, result, query if resolver_diagnostic or contained_diagnostic else None,
-                contained=contained_diagnostic, census=unresolved_census)
+        links, canonicals = closure(trust, result, query if resolver_diagnostic or contained_diagnostic else None,
+                                    contained=contained_diagnostic, census=unresolved_census,
+                                    export=result['closure_records'] if post_smoke else None)
         stage('UNIT_ABSENCE')
-        require(show(UNIT, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
+        if post_smoke:
+            state = show(UNIT_V3, ['LoadState', 'ActiveState', 'MainPID'])
+            require(state['ActiveState'] in {'inactive', 'failed'} and state['MainPID'] == '0', 'UNIT_NOT_STOPPED')
+            require(not group_pids('/system.slice/' + UNIT_V3, UNIT_V3), 'CGROUP_NOT_EMPTY')
+        else:
+            require(show(UNIT, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
         stage('FINAL_CANDIDATE_INVENTORY')
-        candidate_inventory()
+        if post_smoke:
+            result['inventory'] = candidate_inventory(links, canonicals, trust, expected_root=EXPECTED_BOOT_ROOT)
+            result.update(root_bytes_equal=True, root_sha256=EXPECTED_BOOT_ROOT_SHA256,
+                          original_input_sha256={k: v for k, v in FILES.items() if k != 'profiles/web/cordis.yml'})
+        else:
+            candidate_inventory()
         require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
         stage('FINAL_HELD_METADATA')
         trust.verify()
-        result['status'] = 'UNRESOLVED_CENSUS_COMPLETE' if unresolved_census else 'READ_ONLY_PREFLIGHT_PASS'
+        result['status'] = 'POST_SMOKE_EVIDENCE_PASS' if post_smoke else 'UNRESOLVED_CENSUS_COMPLETE' if unresolved_census else 'READ_ONLY_PREFLIGHT_PASS'
     except Exception as error:
         result.update(diagnostic_error(error))
     finally:
+        if post_smoke and before is not None:
+            try:
+                require(pilot_baseline() == before, 'PILOT_CHANGED')
+                result['pilot_identity_unchanged'] = True
+                state = show(UNIT_V3, ['ActiveState', 'MainPID'])
+                require(state['ActiveState'] in {'inactive', 'failed'} and state['MainPID'] == '0'
+                        and not group_pids('/system.slice/' + UNIT_V3, UNIT_V3), 'UNIT_NOT_STOPPED')
+            except Exception as error:
+                result.update(status='POST_SMOKE_EVIDENCE_INCOMPLETE', final_state_error=diagnostic_error(error))
         result['held_fd_count'] = len(trust.held)
         if absence_check is not None:
             try:
@@ -1531,6 +1592,11 @@ def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, 
             signal.signal(signal.SIGALRM, previous_handler)
     if unresolved_census and result['status'] != 'UNRESOLVED_CENSUS_COMPLETE':
         result['status'] = 'UNRESOLVED_CENSUS_INCOMPLETE'
+    if post_smoke:
+        if result['status'] != 'POST_SMOKE_EVIDENCE_PASS':
+            result['status'] = 'POST_SMOKE_EVIDENCE_INCOMPLETE'
+        if len(json.dumps(result, sort_keys=True).encode('utf-8')) > 2097152:
+            return {'status': 'POST_SMOKE_EVIDENCE_INCOMPLETE', 'safe_code': 'EVIDENCE_SIZE'}
     return result
 
 
@@ -1540,6 +1606,33 @@ def self_test():
     import urllib.request
     from types import SimpleNamespace
     from unittest.mock import patch
+    validate_boot_root(EXPECTED_BOOT_ROOT)
+    require(len(EXPECTED_BOOT_ROOT) == 223 and EXPECTED_BOOT_ROOT.count(b'\n') == 4
+            and hashlib.sha256(EXPECTED_BOOT_ROOT).hexdigest() == EXPECTED_BOOT_ROOT_SHA256, 'SELF_TEST_ROOT_SOURCE_BYTES')
+    for wrong in (EXPECTED_BOOT_ROOT.rstrip(b'\n'), b'\xef\xbb\xbf' + EXPECTED_BOOT_ROOT,
+                  EXPECTED_BOOT_ROOT.replace(b'\n', b'\r\n'), b'[]\n'):
+        try:
+            validate_boot_root(wrong)
+        except Blocked:
+            pass
+        else:
+            raise Blocked('SELF_TEST_ROOT_NORMALIZED')
+    raw_manifest = b'{ "name": "fixture", "version": "1.0.0" }\n'
+    export, reads = [], []
+    export_trust = SimpleNamespace(read=lambda path: reads.append(path) or raw_manifest, verify=lambda: None)
+    with patch.dict(globals(), {'KNOWN_MAPPINGS': {}}):
+        exported_links, _ = closure(export_trust, export=export)
+    require(len(reads) == 1 and export == [{'name': 'fixture', 'version': '1.0.0',
+            'manifest_sha256': hashlib.sha256(raw_manifest).hexdigest(), 'logical': PACKAGE, 'canonical': PACKAGE}]
+            and export[0]['manifest_sha256'] != hashlib.sha256(json.dumps(json.loads(raw_manifest)).encode()).hexdigest(),
+            'SELF_TEST_EXPORT_SAME_MANIFEST_BYTES')
+    for version in ('secret\nvalue', 'x' * 129):
+        try:
+            closure_record({'name': 'fixture', 'version': version}, 'a' * 64, PACKAGE, PACKAGE)
+        except Blocked:
+            pass
+        else:
+            raise Blocked('SELF_TEST_EXPORT_UNBOUNDED')
     for omitted in (set(), {'EnvironmentFiles'}, {'Sockets'}, {'EnvironmentFiles', 'Sockets'}):
         source_calls = []
         keys = ['EnvironmentFiles', 'Sockets', 'TriggeredBy']
@@ -1990,6 +2083,7 @@ if __name__ == '__main__':
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--apply-v2', action='store_true')
     modes.add_argument('--apply-v3', action='store_true')
+    modes.add_argument('--post-smoke-evidence', action='store_true')
     modes.add_argument('--attempt-journal-diagnostic', action='store_true')
     modes.add_argument('--socket-source-diagnostic', action='store_true')
     modes.add_argument('--self-test', action='store_true')
@@ -1999,7 +2093,7 @@ if __name__ == '__main__':
     modes.add_argument('--unresolved-census', action='store_true')
     args = parser.parse_args()
     try:
-        result = (self_test() if args.self_test else socket_source_diagnostic() if args.socket_source_diagnostic else attempt_journal_diagnostic() if args.attempt_journal_diagnostic else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
+        result = (self_test() if args.self_test else preflight_diagnostic(post_smoke=True) if args.post_smoke_evidence else socket_source_diagnostic() if args.socket_source_diagnostic else attempt_journal_diagnostic() if args.attempt_journal_diagnostic else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
                   else preflight_diagnostic(contained_diagnostic=True) if args.contained_preflight_diagnostic
                   else preflight_diagnostic(resolver_diagnostic=True) if args.resolver_diagnostic
                   else preflight_diagnostic() if args.preflight_diagnostic else apply_v2(UNIT_V3) if args.apply_v3 else apply_v2() if args.apply_v2 else apply() if args.apply else {
@@ -2010,4 +2104,4 @@ if __name__ == '__main__':
     except Exception:
         result = {'status': 'BLOCKED', 'error_code': 'PRECONDITION_OR_SELF_TEST_FAILURE'}
     print(json.dumps(result, sort_keys=True))
-    sys.exit(0 if result['status'] in {'SOCKET_SOURCE_DIAGNOSTIC_PASS', 'ATTEMPT_JOURNAL_COMPLETE', 'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)
+    sys.exit(0 if result['status'] in {'POST_SMOKE_EVIDENCE_PASS', 'SOCKET_SOURCE_DIAGNOSTIC_PASS', 'ATTEMPT_JOURNAL_COMPLETE', 'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)

@@ -1,5 +1,7 @@
 # VM105 candidate profile cutover: owner-review packet
 
+> Historical preparation packet. As of 2026-09-09 02:57 Asia/Bangkok, isolated v3 startup and cleanup passed, and the candidate contains generated state. The pristine-state checks and selector-only payload below are superseded by the [post-smoke amendment](2026-09-09-vm105-post-smoke-cutover-amendment.md). Normal-service cutover, credentials and routes remain NOT PROVEN. Do not execute this older payload on its own.
+
 Status: **Static candidate ACCEPTED — corrected five-row candidate separately verified and independently reviewed at 2026-09-08 23:23:25 Asia/Bangkok. Runtime NOT PROVEN; no cutover performed. Awaiting owner readiness for fresh credential entry.**
 
 Repository: `https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git`.
