@@ -1,0 +1,96 @@
+{
+  "status": "A1_METADATA_PASS",
+  "root": "/run/dsh-native-bridge-check-20260909-a1",
+  "metadata": {
+    "root": {
+      "present": true,
+      "kind": "directory",
+      "uid": 1000,
+      "gid": 1000,
+      "mode": "0700",
+      "dev": 25,
+      "inode": 4078,
+      "nlink": 3,
+      "size": 100
+    },
+    "src": {
+      "present": true,
+      "kind": "directory",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0555",
+      "dev": 25,
+      "inode": 4079,
+      "nlink": 2,
+      "size": 100
+    },
+    "src/native-codex-owner.mjs": {
+      "present": true,
+      "kind": "regular",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0444",
+      "dev": 25,
+      "inode": 4080,
+      "nlink": 1,
+      "size": 12054
+    },
+    "src/native-codex-terminal.mjs": {
+      "present": true,
+      "kind": "regular",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0444",
+      "dev": 25,
+      "inode": 4081,
+      "nlink": 1,
+      "size": 7166
+    },
+    "src/test-native-codex-owner-linux.mjs": {
+      "present": true,
+      "kind": "regular",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0444",
+      "dev": 25,
+      "inode": 4082,
+      "nlink": 1,
+      "size": 8653
+    },
+    "flow.sock": {
+      "present": false
+    },
+    "disconnect.sock": {
+      "present": false
+    },
+    "preexisting.sock": {
+      "present": true,
+      "kind": "regular",
+      "uid": 1000,
+      "gid": 1000,
+      "mode": "0600",
+      "dev": 25,
+      "inode": 4085,
+      "nlink": 1,
+      "size": 22
+    },
+    "replacement.fixture": {
+      "present": false
+    },
+    "replacement.sock": {
+      "present": false
+    },
+    "retained.sock": {
+      "present": true,
+      "kind": "socket",
+      "uid": 1000,
+      "gid": 1000,
+      "mode": "0600",
+      "dev": 25,
+      "inode": 4087,
+      "nlink": 1,
+      "size": 0
+    }
+  },
+  "ssh_exit": 0
+}

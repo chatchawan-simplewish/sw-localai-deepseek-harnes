@@ -1,0 +1,32 @@
+# VM105 native owner Cordis lifecycle assessment
+
+20260909 044126 Asia/Bangkok. Reviewer: `/root/core_source_reader`. Repository: DeepSeek Harness at `C:/Users/chatc/Projects/sw-localai-deepseek-harnes`; verified origin `https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git`. Worktree: `C:/Users/chatc/Projects/sw-localai-deepseek-harnes/.worktrees/vm105-authoritative-roadmap`.
+
+Assessment verdict: **Cordis lifecycle/export compatibility is source-proven, with one small bridge repair recommended before runtime activation.** No SSH, code execution, runtime fixture, provider, credential, profile, service, browser, Git staging, commit, or implementation edit was performed.
+
+## Frozen evidence
+
+The complete retained receipt `docs/evidence/vm105-native-core-source-2026-09-09.json` has SHA256 `f84e506f495c28bca8409d34d9c5e5201258f1839e83819a7bac98371e94930f`. It reports `PUBLIC_CORE_SOURCE_PASS`, declared entry `lib/index.js`, full untruncated 60,378-byte/1,828-line source, and source SHA256 `1729cdbf8ee40b17c8839e06bf96491490548559e11ef7e411271e0754e751c5`; a fresh local reconstruction matched that source hash. The assessed bridge `scripts/native-codex-owner.mjs` has SHA256 `90bb452d25d5b6c7c7593e2cfc7c01650069d1d63f4770728bff5ef32935b14b`.
+
+Line references below use the original line numbers in the receipt's reconstructed `capture.source` and the repository source file.
+
+## Source-proven compatibility
+
+| Question | Verdict and evidence |
+| --- | --- |
+| Module export shape | **PASS.** The bridge exports object properties `name`, `inject`, and `apply` at `native-codex-owner.mjs:5-6,197`. Cordis accepts an object whose `apply` property is a function (`capture.source:1445-1446`), resolves that property as the runtime callback (`1532-1536`), uses `plugin.name` (`1623-1631`), and creates the fiber from `plugin.inject` (`1634-1639`). This proves compatibility if the loader passes the imported module namespace object described by the retained loader evidence. |
+| Injection declaration | **PASS.** The bridge's array `['authorization', 'credentials']` at `native-codex-owner.mjs:6` is an accepted form: Cordis converts each array element into a required injection entry (`capture.source:1490-1497`). Fiber construction checks those entries and derives the activation epoch from available service implementations (`1043-1061,1305-1327`). Withdrawal changes the epoch and initiates unload (`1329-1342`). |
+| Async `apply` return value | **PASS.** Fiber invokes the bridge callback and returns its value (`capture.source:1062-1073`). `_execute()` recognizes a thenable and applies `safeCollect` to its fulfillment (`1134-1145`); `safeCollect` accepts a function and adds it through `runner.collect`, whose bridge-fiber implementation pushes it into `_disposables` (`1048-1050`). Therefore the disposer returned after the bridge's `await server.listen(...)` at `native-codex-owner.mjs:211-221` is collected. |
+| Normal unload | **PASS with cleanup-settlement limit below.** Cordis clears collected disposers in reverse order and awaits `runDisposable()` for each (`capture.source:1-25,963-965,1371-1382`). The bridge disposer is idempotent through `released` (`native-codex-owner.mjs:198-204`). |
+| Injection withdrawal during bind | **PASS, deferred.** If an injection changes while `_reload()` is awaiting the bridge, `_setEpoch()` records the new epoch but leaves the current inertia in place (`capture.source:1329-1342`). After `apply` settles, `_reload()` sees the epoch mismatch and immediately transitions through `_unload()` (`1348-1389`), which invokes the newly collected disposer. The pending `server.listen` itself is not cancelled by Cordis. |
+| Parent disposal during bind | **Resources are eventually released, but the current bridge takes an avoidable error path.** Fiber disposal clears `uid`, marks the epoch inactive, and waits for current inertia (`capture.source:1074-1089`). When the listen later resolves, `ctx.on('dispose', dispose)` at `native-codex-owner.mjs:220` calls Cordis `on()`, which asserts that the fiber remains active (`capture.source:371-379,1130-1132`). It therefore throws; the bridge catch calls its local disposer and rethrows fixed `OWNER_BRIDGE_UNAVAILABLE` (`native-codex-owner.mjs:222`). Cleanup occurs, but ordinary disposal during startup is reported through Cordis's startup-error path (`capture.source:1348-1361`). If the listen never settles, Cordis waits indefinitely because it has no disposer to invoke yet. |
+
+## Recommended minimal repair
+
+Delete `ctx.on('dispose', dispose)` at `native-codex-owner.mjs:220`. In this Cordis version, `ctx.on()` registers an ordinary event listener as a fiber-owned effect and removes it during unload (`capture.source:327-344,360-380`); the core source contains no built-in `dispose` event emission. The returned disposer is the supported lifecycle mechanism and is already collected. Removing the line prevents the inactive-context throw after parent disposal during the pending listen and avoids exposing an arbitrary `dispose` event as a second teardown trigger. No replacement abstraction is needed.
+
+One smaller cleanup-settlement limitation remains: `releaseSocket()` starts `server.close(callback)` but returns `undefined`, and `dispose()` does not return its result (`native-codex-owner.mjs:181-204`). Cordis can await async disposers, but currently considers unload settled before the close callback closes the held directory descriptor. The socket pathname is synchronously unlinked first, so this does not block rebinding. If lifecycle completion must include the final server close and descriptor close, the narrow follow-up is to return one cached Promise from `dispose()`/`releaseSocket()` that resolves in the existing close callback; repeated disposal should return that same Promise. This is a completion-accounting improvement, not an export or disposer-collection incompatibility.
+
+## Runtime limits
+
+Source proves Cordis's acceptance and lifecycle algorithm; it does not prove that the installed loader passes this exact module namespace/config, that the effective services satisfy both injections, or that real Linux `listen`, close, unlink, injection-withdrawal, and process-retirement timing match the synthetic checks. A permanently pending Node listen remains non-preemptible by Cordis and needs a bounded local bind deadline only if operational evidence shows that case is possible. Native authentication, credential commit, and model routes remain outside this assessment and **NOT PROVEN** here.

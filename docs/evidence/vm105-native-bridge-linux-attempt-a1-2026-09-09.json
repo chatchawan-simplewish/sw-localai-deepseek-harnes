@@ -1,0 +1,33 @@
+{
+  "status": "LINUX_CHECK_FAIL",
+  "root": "/run/dsh-native-bridge-check-20260909-a1",
+  "artifacts": [
+    {
+      "name": "native-codex-owner.mjs",
+      "sha256": "90bb452d25d5b6c7c7593e2cfc7c01650069d1d63f4770728bff5ef32935b14b",
+      "inode": 4080,
+      "mode": "0444"
+    },
+    {
+      "name": "native-codex-terminal.mjs",
+      "sha256": "9e9bf70f8c6e4088f66ac573ce2bf89a60971d30b4f9ea3000aface4af33b458",
+      "inode": 4081,
+      "mode": "0444"
+    },
+    {
+      "name": "test-native-codex-owner-linux.mjs",
+      "sha256": "6f82e2f2783123255f9e441cde991da2bdcbddbf92bd9f4dc6cc7e1b12cc1414",
+      "inode": 4082,
+      "mode": "0444"
+    }
+  ],
+  "root_inode": 4078,
+  "node_sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
+  "owned_child_reaped": true,
+  "ssh_exit": 0,
+  "parent_capture": {
+    "launcher_sha256": "3fa388c3fbdb0ed48b368c63114a16940c87312ad661147aed062ca384ff688a",
+    "attempt_consumed": true,
+    "tool_exit": 0
+  }
+}

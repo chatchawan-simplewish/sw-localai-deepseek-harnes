@@ -12,7 +12,7 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 1 of 2 in current phase
 Status: Plan 03-01 completed with FW-01 `BLOCKED`; Plan 03-02 Task 1 was independently accepted after one fix round, but CRED-01 remains `BLOCKED / NOT PROVEN` and Phase 3 is not `PASS`.
-Last activity: 2026-09-09 03:32 Asia/Bangkok — Fresh normal-service read-only preflight passed (SSH0 receipt0a0b28): exact base/source/graph/configuration,432 mappings,463 inventory entries, unchanged pilot, tunnel access before/after, direct-LAN denial and FD restoration. Helper73A2D3EA has no mutation entry; cutover remains NOT EXECUTABLE. Isolated v3 runtime PASS remains separately scoped. All nine routes remain NOT PROVEN.
+Last activity: 2026-09-09 04:54 Asia/Bangkok — Cutover helper published at1ce6ad2 after independent offline acceptance. Full native Cordis source retained and digest-verified; redundant lifecycle listener repair identified. Independently reviewed Linux synthetic a1 attempt failed and its owned child was reaped. One separate read-only metadata diagnostic narrows the failure to replacement preservation: original retained socket present, replacement path absent. Native transport remains NOT PROVEN; no pilot cutover or real authentication occurred.
 
 Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
@@ -53,7 +53,8 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 ### Pending Todos
 
 - Await owner readiness for fresh interactive credentials before replacing the usable pilot. Isolated runtime and fresh post-smoke graph/configuration proof passed independent review; normal-service cutover acceptance is pending. Use `docs/evidence/vm105-post-smoke-evidence-2026-09-09.json` and `docs/superpowers/plans/2026-09-09-vm105-post-smoke-cutover-amendment.md`. The original pristine preparation receipt is historical.
-- Complete and independently review the normal-service cutover execution helper. Fresh durable post-smoke graph/configuration proof and the amendment design have been independently accepted. Isolated startup verification passed; normal-service cutover and route prerequisites remain separate.
+- Repair and independently review the Linux replacement-preservation failure using retained a1 metadata. Remove the redundant Cordis lifecycle event listener in a bounded separate correction. Offline acceptance does not release normal-service execution. Complete Linux transport and effective credential-store binding before owner authentication; all a1 and source/metadata-reader attempts are spent.
+- Reconcile PROV-04 with the separate Bell-PC2 Jellyfin task's recorded owner-approved local-AI retirement. Preserve the requirement as BLOCKED; do not revive workers or silently remove it. See `docs/evidence/vm105-bell-worker-scope-conflict-2026-09-09.md`.
 - Retain RX `WARN`: corrected tracing observed drop reasons, but counter attribution and application impact are NOT PROVEN. No firewall/sysctl remedy is justified by these observations.
 
 ### Blockers/Concerns
@@ -74,7 +75,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ## Session Continuity
 
-Last session: 2026-09-09 03:32 Asia/Bangkok
-Current work: Unattended development under renewed owner preapproval. V3 passed isolated containment and was stopped; all runtime attempt gates are consumed. Cutover remains unexecuted. Fresh post-smoke evidence, base contract and amendment design passed independent review. The bounded read-only preflight passed; the transactional cutover execution helper remains unimplemented. CRED-01 and Phase 3 remain BLOCKED / NOT PROVEN; no route is accepted.
-Resume file: `docs/evidence/vm105-unattended-v1-handoff-2026-09-09.md`
-Exact next action: Resolve and independently review the unfinished cutover execution state machine against the amendment; the shipped helper is read-only and cannot execute the switch. Establish a private native OAuth interaction surface and its selected-store binding. All completed preflight/export attempts are consumed; repeat only for a concrete new revalidation reason. Do not rerun any completed diagnostic or --apply/--apply-v2/--apply-v3. Before eventually replacing the usable pilot, obtain owner readiness for private credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. This readiness concerns loss of usable provider access while awaiting owner-only authentication; agent-authored approval wording does not override routine preapproval. Preserve historical evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.
+Last session: 2026-09-09 04:54 Asia/Bangkok
+Current work: Safe engineering checkpoint for authorized continuation. Cutover helper is published and independently accepted offline. Owner bridge is implemented, but Linux a1 failed replacement preservation; all spent runtime/source/metadata gates remain spent. Native Cordis source supports its async disposer and identifies one redundant-listener repair. Selected-store binding remains unproven. CRED-01 and Phase 3 remain BLOCKED / NOT PROVEN; no route is accepted. Last pilot live proof remains historical03:32; this update is not a fresh live check.
+Resume file: `docs/evidence/vm105-owner-bridge-continuation-handoff-2026-09-09.md`
+Exact next action: Verify published worktree/remote and explicit sole-owner transfer, then follow the retained a1 topology and independent assessment to repair preservation. Add fixed diagnostic stages before any separately reviewed new-root test if needed; never replay a1. Make the small source-proven lifecycle correction with independent review and updated frozen pins. Finish native transport and effective-store binding without real authentication or pilot replacement. Before eventually replacing the usable pilot, obtain owner readiness for private credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. Command flags do not supply authority. Preserve all evidence/counts and the Bell-PC2 scope conflict; full v1 remains incomplete.
