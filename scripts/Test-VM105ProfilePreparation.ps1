@@ -291,7 +291,7 @@ function Get-SecretFindingCategory {
     param([string]$Text)
     $candidate=$Text
     for($i=0;$i-lt3;$i++){
-        if($candidate-match'(?i)["'']?(?:key|api[_-]?key|token|secret|password|client[_-]?secret|authorization|code|state|access[_-]?token|refresh[_-]?token|id[_-]?token|oauth[_-]?(?:code|state))["'']?\s*[:=]\s*(?!\(null\)(?:\s|[,}\]]|$))(?:"[^"]+"|''[^'']+''|[^\s,}\]]+)'){return 'secret-shaped-assignment'}
+        if($candidate-match'(?i)["'']?(?:key|api[_-]?key|token|secret|password|client[_-]?secret|authorization|code|state|access[_-]?token|refresh[_-]?token|id[_-]?token|oauth[_-]?(?:code|state))["'']?\s*[:=]\s*(?!\(null\)(?:\s|[,}\]]|$))(?:"[^"]+"|''[^'']+''|[^\s,}\]"'']+)'){return 'secret-shaped-assignment'}
         if($candidate-match'(?i)(?:^|[^A-Za-z0-9_-])(?:sk-(?:or-)?|sess-)[A-Za-z0-9_-]+'){return 'secret-shaped-token'}
         if($candidate-match'-----BEGIN [A-Z ]*PRIVATE KEY-----'){return 'private-key'}
         try{$decoded=[Uri]::UnescapeDataString($candidate)}catch{return 'encoded-value'}
@@ -463,6 +463,12 @@ Test-PreparationEvidence $good 'Selector';$positiveCount++
 $blocked=New-SyntheticBlockedSelectorRecord;Test-PreparationEvidence $blocked 'Selector';$positiveCount++
 $candidate=Copy-SyntheticRecord $good;Attach-Candidate $candidate;Test-PreparationEvidence $candidate 'Candidate';$positiveCount++
 $candidateBlocked=Copy-SyntheticRecord $good;Attach-Candidate $candidateBlocked 'metadata';Test-PreparationEvidence $candidateBlocked 'Candidate';$positiveCount++
+$emptyValueFailures=[Collections.Generic.List[string]]::new()
+foreach($spec in @(@('empty quoted token','token=""'),@('empty quoted JSON token','{"token":""}'))){
+    $record=Copy-SyntheticRecord $good;$record.selectorDiscovery.selector.precedence=$spec[1];Sync-SelectorDigest $record
+    try{Test-PreparationEvidence $record 'Selector';$positiveCount++}catch{$emptyValueFailures.Add($spec[0])}
+}
+Assert-True ($emptyValueFailures.Count-eq0) "Expected positive acceptance: $($emptyValueFailures-join', ')"
 
 $negativeCases=[Collections.Generic.List[object]]::new()
 function Add-NegativeCase { param([string]$Name,[scriptblock]$Action,[string]$Pattern) $negativeCases.Add([pscustomobject]@{name=$Name;action=$Action;pattern=$Pattern}) }
@@ -542,7 +548,7 @@ foreach($case in $negativeCases){
 }
 Assert-True ($missed.Count-eq0) "Expected rejection was not raised: $($missed-join', ')"
 $captured=&{Test-SyntheticSecretScanner 'api_key: synthetic_nonempty_value'}2>&1|Out-String;Assert-True ($captured-notmatch'synthetic_nonempty_value') 'secret-output-suppression'
-Assert-True ($positiveCount-eq4 -and $negativeCases.Count-eq68 -and $script:NegativeTestCount-eq$negativeCases.Count) 'self-test-count-drift'
+Assert-True ($positiveCount-eq6 -and $negativeCases.Count-eq68 -and $script:NegativeTestCount-eq$negativeCases.Count) 'self-test-count-drift'
 "SELF_TEST_PASS positive=$positiveCount negative=$script:NegativeTestCount"
     exit 0
 }
@@ -551,3 +557,4 @@ Assert-True (Test-Path -LiteralPath $EvidencePath -PathType Leaf) 'Evidence file
 $evidence = Get-Content -Raw -LiteralPath $EvidencePath | ConvertFrom-Json -DateKind String
 Test-PreparationEvidence $evidence $Stage
 "EVIDENCE_PASS stage=$Stage"
+exit 0
