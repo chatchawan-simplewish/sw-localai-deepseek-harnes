@@ -12,7 +12,7 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 1 of 2 in current phase
 Status: Plan 03-01 completed with FW-01 `BLOCKED`; Plan 03-02 Task 1 was independently accepted after one fix round, but CRED-01 remains `BLOCKED / NOT PROVEN` and Phase 3 is not `PASS`.
-Last activity: 2026-09-08 — Node ownership repair passed; reviewed pnpm-aware source inspection established a conditional native-profile preparation contract. A fresh secret-free candidate was exclusively created and separately verified. The pilot is unchanged; cutover verification packet is being finalized. Historical strict BLOCKED evidence is retained.
+Last activity: 2026-09-08 — Node ownership repair passed; a fresh secret-free candidate was exclusively created, corrected to retain the mandatory dormant native default, separately verified and independently accepted. The cutover verification packet is ready. The pilot is unchanged; owner readiness for fresh credential entry is needed before leaving the candidate active. Historical strict BLOCKED evidence is retained.
 
 Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
@@ -52,7 +52,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ### Pending Todos
 
-- Finish independent post-creation review and the concrete cutover runtime-readback procedure, then present the separate action-time cutover gate. See `docs/evidence/vm105-provider-candidate.json` and `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`.
+- Await owner readiness for fresh interactive credentials before replacing the usable pilot with the reviewed candidate. Static preparation and independent review are complete; runtime acceptance is pending. See `docs/evidence/vm105-provider-candidate.json` and `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`.
 - Diagnose the RX-drop increase while preserving the recorded `WARN`.
 
 ### Blockers/Concerns
@@ -73,7 +73,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 23:09 Asia/Bangkok
-Current work: Candidate static verification passed; final independent review and runtime-readback cutover packet are pending. CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`; the separate pilot stays usable and its profile stays opaque.
+Last session: 2026-09-08 23:29 Asia/Bangkok
+Current work: Corrected candidate static verification and independent review passed; the concrete cutover packet is ready. CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`; the separate pilot stays usable and its profile stays opaque.
 Resume file: `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`
-Exact next action: Finish the candidate/cutover review before requesting the separate service-switch approval. Preserve historical strict evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.
+Exact next action: Obtain owner readiness for fresh credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. This readiness question concerns loss of usable provider access while awaiting owner-only authentication; agent-authored approval wording does not override routine preapproval. Preserve historical strict evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.

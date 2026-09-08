@@ -21,7 +21,21 @@
     "profiles/web/package.json": "210068ddb9ebc4cdf395ebb53020be6ccaaedb917e74dae16296d62394626398",
     "profiles/web/pnpm-workspace.yaml": "95258a5c24e8cdd4eeb341febcdf58c619293a86859888447c6d556cce99d174",
     "profiles/web/cordis.yml": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-    "profiles/web/cordis.patch.yml": "e50562055d3e82ceef90e49ad8cc2502a69c9415d7b60293c2895d93141ae6cf"
+    "profiles/web/cordis.patch.yml": "7c4b50b071a07a705b817a689fb02b6e1b616aae159fa47572828bcefece99cb"
+  },
+  "compatibilityCorrection": {
+    "reason": "The native Web API requires agentDefaultModel; disabling it prevents API mounting.",
+    "helper": "scripts/repair-vm105-candidate-default.py",
+    "helperSha256": "A9DE5FDD6EC6D30296EA13C01EBAE9783A2B131C79E880D0C3E4EC9E72135115",
+    "originalPatchSha256": "e50562055d3e82ceef90e49ad8cc2502a69c9415d7b60293c2895d93141ae6cf",
+    "correctedPatchSha256": "7c4b50b071a07a705b817a689fb02b6e1b616aae159fa47572828bcefece99cb",
+    "result": "APPLIED",
+    "parentIndependentVerification": "PASS",
+    "nativeDefault": "deepseek-official/deepseek-v4-flash",
+    "activeAdaptersExpected": 0,
+    "remainingPatchRows": 5,
+    "scopeAmendment": "Retain the inactive native selection; require zero active adapters and no usable inference route.",
+    "apiProxySourceSha256": "8e32ffc951f499849c155e30cb30813af5ed7abb11008653125092299b693d9f"
   },
   "verification": {
     "linuxSelfTest": "PASS",
@@ -36,14 +50,14 @@
     "vmLoopbackHttp": 200,
     "bellPc2TunnelHttp": 200
   },
-  "independentPostCreationReview": "ACCEPTED",
+  "independentPostCreationReview": "ACCEPTED after compatibility correction; runtime remains NOT PROVEN",
   "independentReviewer": "/root/runtime_recovery_review",
-  "independentReviewAtBangkok": "2026-09-08 23:10:44",
+  "independentReviewAtBangkok": "2026-09-08 23:23:25",
   "limits": [
     "Native JSON documents are used as YAML-subset configuration files.",
-    "Static zero-route and no-selection policy is source-derived; runtime readback remains required.",
+    "Static zero-route policy is source-derived; the inactive native default is intentionally retained for API compatibility. Runtime readback remains required.",
     "Intentional read-only project and OS skill inputs are outside profile-state migration.",
     "Fresh credential configuration and provider tests are not performed.",
-    "Cutover remains a separate action-time approval gate."
+    "Owner readiness is needed before replacing the usable pilot with a fresh profile that awaits interactive credential setup."
   ]
 }
