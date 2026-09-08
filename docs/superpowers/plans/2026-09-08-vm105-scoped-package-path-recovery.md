@@ -547,11 +547,19 @@ $planText=Get-Content -Raw -LiteralPath $planPath
 $gateMatch=[regex]::Match($planText,'(?ms)^```powershell\r?\n(?<gate>if\(-not \$evidencePath\).*?Recovery outcome lacks accepted independent review''\}\r?\n)^```\s*$')
 if(-not $gateMatch.Success){throw 'Unable to extract exact Step 10 gate'}
 $gate=[scriptblock]::Create($gateMatch.Groups['gate'].Value)
-$tempEvidence=New-TemporaryFile
 $hadEvidencePath=Test-Path Variable:evidencePath
 if($hadEvidencePath){$savedEvidencePath=$evidencePath}
+$originalEvidencePath=if($hadEvidencePath -and $evidencePath){$evidencePath}else{'docs/evidence/vm105-profile-pointer-preparation.json'}
+$originalRecord=Get-Content -Raw -LiteralPath $originalEvidencePath | ConvertFrom-Json -DateKind String
+$expectedGate=[ordered]@{
+    selectorVerdict=$originalRecord.selectorDiscovery.verdict
+    reviewStatus=$originalRecord.selectorDiscovery.review.status
+    selectorDigest=$originalRecord.selectorDiscovery.selectorDigest
+    originalPlanTask2=$(if($originalRecord.selectorDiscovery.review.status -ceq 'ACCEPTED' -and $originalRecord.selectorDiscovery.review.reviewedDigest -ceq $originalRecord.selectorDiscovery.selectorDigest -and $originalRecord.selectorDiscovery.verdict -ceq 'PASS'){'MAY_RESUME'}else{'STOPPED'})
+}
+$tempEvidence=New-TemporaryFile
 try{
-    $stale=Get-Content -Raw -LiteralPath 'docs/evidence/vm105-profile-pointer-preparation.json' | ConvertFrom-Json -DateKind String
+    $stale=Get-Content -Raw -LiteralPath $originalEvidencePath | ConvertFrom-Json -DateKind String
     $stale.selectorDiscovery.review.reviewedDigest=('0'*64)
     [IO.File]::WriteAllText($tempEvidence.FullName,($stale | ConvertTo-Json -Depth 100)+"`n",[Text.UTF8Encoding]::new($false))
     $evidencePath=$tempEvidence.FullName
@@ -564,7 +572,10 @@ try{
 }
 $postFixtureOutput=@(& $gate | Out-String)
 $postFixtureText=$postFixtureOutput-join''
-if((Test-Path -LiteralPath $tempEvidence.FullName) -or $postFixtureText -notmatch 'selectorDigest\s*:\s*8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4' -or $postFixtureText -notmatch 'originalPlanTask2\s*:\s*STOPPED'){throw 'Step 10 did not restore original evidence selection after stale fixture'}
+if(Test-Path -LiteralPath $tempEvidence.FullName){throw 'Stale fixture temporary evidence remains'}
+foreach($field in $expectedGate.GetEnumerator()){
+    if($postFixtureText -cnotmatch ('(?m)^'+[regex]::Escape($field.Key)+'\s*:\s*'+[regex]::Escape([string]$field.Value)+'\s*$')){throw 'Step 10 did not restore original evidence selection after stale fixture'}
+}
 ```
 
 If `originalPlanTask2` is `MAY_RESUME`, hand the exact accepted selector digest back to the original plan and resume at Task 2 only. If it is `STOPPED`, report the accepted blockers and take no further action. Neither branch authorizes candidate creation, cutover, service/systemd work, credentials, or any other prohibited operation during this recovery task.
