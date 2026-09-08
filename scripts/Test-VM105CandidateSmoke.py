@@ -305,21 +305,34 @@ def lookup_paths(anchor):
         current = pp.dirname(current)
 
 
+def unresolved_metadata(name, declaring_name, kind, digest):
+    package_name(name)
+    package_name(declaring_name)
+    require(len(name) <= 214 and len(declaring_name) <= 214, 'DIAGNOSTIC_PACKAGE_NAME_BOUND')
+    require(kind in {'dependencies', 'peerDependencies'}, 'DIAGNOSTIC_DEPENDENCY_KIND')
+    require(type(digest) is str and re.fullmatch('[0-9a-f]{64}', digest), 'DIAGNOSTIC_MANIFEST_DIGEST')
+    return {'unresolved_dependency': name, 'declaring_package': declaring_name,
+            'dependency_kind': kind, 'declaring_manifest_sha256': digest}
+
+
 def closure(trust, stats=None):
     started = time.monotonic()
     if stats is not None:
-        stats.update(closure_package_count=0, closure_edge_count=0, closure_elapsed_ms=0)
+        stats.update(closure_package_count=0, closure_edge_count=0, closure_elapsed_ms=0,
+                     unresolved_dependency=None, declaring_manifest_sha256=None,
+                     declaring_package=None, dependency_kind=None)
     try:
         deadline = started + 30
-        root = json.loads(trust.read(PACKAGE + '/package.json'))
+        root_bytes = trust.read(PACKAGE + '/package.json')
+        root = json.loads(root_bytes)
         links = {root['name']: PACKAGE}
         if stats is not None:
             stats['closure_package_count'] = len(links)
         canonicals = {root['name']: PACKAGE}
-        queue = collections.deque([(PACKAGE + '/package.json', root)])
+        queue = collections.deque([(PACKAGE + '/package.json', root, hashlib.sha256(root_bytes).hexdigest())])
         edges = 0
         while queue:
-            anchor, manifest = queue.popleft()
+            anchor, manifest, manifest_digest = queue.popleft()
             for kind in ('dependencies', 'peerDependencies'):
                 deps = manifest.get(kind, {})
                 require(type(deps) is dict, 'DEPENDENCY_MAP')
@@ -346,15 +359,17 @@ def closure(trust, stats=None):
                                 'MANIFEST_IDENTITY')
                         require(name not in KNOWN_MAPPINGS or canonical == KNOWN_MAPPINGS[name]['canonical'],
                                 'REVIEWED_PACKAGE_MAPPING')
-                        resolved = logical, canonical, child
+                        resolved = logical, canonical, child, hashlib.sha256(data).hexdigest()
                         break
+                    if resolved is None and stats is not None:
+                        stats.update(unresolved_metadata(name, manifest.get('name'), kind, manifest_digest))
                     require(resolved is not None, 'INSTALLED_ONLY_RESOLUTION')
                     require(len(links) < 512, 'PACKAGE_BOUND')
-                    logical, canonical, child = resolved
+                    logical, canonical, child, child_digest = resolved
                     links[name], canonicals[name] = logical, canonical
                     if stats is not None:
                         stats['closure_package_count'] = len(links)
-                    queue.append((logical + '/package.json', child))
+                    queue.append((logical + '/package.json', child, child_digest))
         trust.verify()
         require(all(canonicals.get(name) == entry['canonical'] for name, entry in KNOWN_MAPPINGS.items()),
                 'REVIEWED_CLOSURE_MAPPING')
@@ -836,6 +851,8 @@ DIAGNOSTIC_CODES = frozenset({
     'LINK_ATTRIBUTES', 'LINK_DRIFT', 'LINK_ESCAPE', 'LINK_BOUND', 'PACKAGE_DIRECTORY_TYPE',
     'READ_BOUND', 'SOURCE_DIGEST_DRIFT', 'SOURCE_PIN', 'SOURCE_PINS_MISSING',
     'DIAGNOSTIC_FD_HARD_LIMIT', 'DIAGNOSTIC_FD_LIMIT_MISMATCH', 'DIAGNOSTIC_FD_RESTORE_MISMATCH',
+    'DIAGNOSTIC_PACKAGE_NAME_BOUND',
+    'DIAGNOSTIC_DEPENDENCY_KIND', 'DIAGNOSTIC_MANIFEST_DIGEST',
 })
 
 
@@ -857,6 +874,8 @@ def preflight_diagnostic():
     """Read-only reproduction: this entry has no path to apply or unit controls."""
     result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None, 'safe_code': None,
               'closure_package_count': None, 'closure_edge_count': None, 'closure_elapsed_ms': None,
+              'unresolved_dependency': None, 'declaring_manifest_sha256': None,
+              'declaring_package': None, 'dependency_kind': None,
               'held_fd_count': 0, 'last_successful_fd_count': None, 'fd_soft_limit': None, 'fd_hard_limit': None,
               'fd_applied_soft_limit': None, 'fd_applied_hard_limit': None,
               'fd_restored_soft_limit': None, 'fd_restored_hard_limit': None,
@@ -1004,6 +1023,22 @@ def self_test():
     require(counters['closure_package_count'] == 512 and counters['closure_edge_count'] == 512
             and type(counters['closure_elapsed_ms']) is int and counters['closure_elapsed_ms'] >= 0,
             'SELF_TEST_CLOSURE_METRICS')
+    declaring_bytes = b'{ "name": "@deepseek-ai/dsh", "dependencies": { "@fixture/missing": "*" } }\n'
+    def missing_package(*unused):
+        raise FileNotFoundError()
+    unresolved = SimpleNamespace(read=lambda _: declaring_bytes, resolve=missing_package, verify=lambda: None)
+    counters = {}
+    try:
+        closure(unresolved, counters)
+    except Blocked as error:
+        require(error.args == ('INSTALLED_ONLY_RESOLUTION',), 'SELF_TEST_UNRESOLVED_GUARD')
+    else:
+        raise RuntimeError('unresolved package accepted')
+    require(counters['unresolved_dependency'] == '@fixture/missing'
+            and counters['declaring_package'] == '@deepseek-ai/dsh' and counters['dependency_kind'] == 'dependencies'
+            and counters['declaring_manifest_sha256'] == hashlib.sha256(declaring_bytes).hexdigest()
+            and counters['declaring_manifest_sha256'] != hashlib.sha256(json.dumps(json.loads(declaring_bytes)).encode()).hexdigest(),
+            'SELF_TEST_EXACT_DECLARING_BYTES')
     def exhausted(*unused):
         raise OSError(24, 'must never appear in output')
     fake = SimpleNamespace(held={'mock': (71, None, None)}, read=exhausted)
@@ -1041,6 +1076,9 @@ def self_test():
         lambda: reject_envfile_directives(b'[Service]\nEnvironmentFile=\\\n /secret\n'),
         lambda: reject_envfile_directives(b'.include /another-unit\n'),
         lambda: reject_envfile_directives(b'[Service]\ninvalid syntax\n'),
+        lambda: unresolved_metadata('dependency', '../../invalid', 'dependencies', '0' * 64),
+        lambda: unresolved_metadata('dependency', 'a' * 215, 'dependencies', '0' * 64),
+        lambda: unresolved_metadata('dependency', 'declaring', 'optionalDependencies', '0' * 64),
     ]
     for case in cases:
         try:
