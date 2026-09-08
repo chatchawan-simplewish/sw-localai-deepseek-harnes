@@ -13,7 +13,7 @@ Owner preferences override optional skill friction, but never override system or
 ## Communication and progress
 
 - Every user-facing message starts with an Asia/Bangkok `YYYYMMDD HHMMSS` timestamp.
-- Number progress as an evidence-derived tree with zero-padded completed/total counts; never invent totals. Literal example: `Phase 1 - 05/20`.
+- Number progress as an evidence-derived tree with zero-padded completed/total counts; never invent totals. Literal examples: `Phase 1 - 05/20`, `Phase 2 - 00/20`, `Phase 3 - 00/30`, and `Phase 4 - 00/20`.
 - Keep decisions and questions separate from ordinary progress under exactly these headings: `Overview`, `What I need from you`, `Choices`, `Recommended choice`, and `Exact reply`. Include pros, cons, costs, risks, and trade-offs when a decision is presented.
 - Completion summaries cover important changes, verification, remaining work or limits, impact, and switchable choices.
 
@@ -31,12 +31,12 @@ Owner preferences override optional skill friction, but never override system or
 
 ## Sub-agents and context rollover
 
-- Use fresh bounded sub-agents for meaningful implementation and independent review. Assign one owner per file or live-resource lane; agents do not revert others. The parent verifies before acceptance. Trivial one-command checks may remain inline.
+- Use a sub-agent-driven workflow with fresh bounded sub-agents for meaningful implementation and independent review. Assign one owner per file or live-resource lane; agents do not revert others. The parent verifies before acceptance. Trivial one-command checks may remain inline.
 - At or before 85% context, stop at a safe point, write a durable handoff with state, evidence, and next action, create a continuation task from it, verify transfer, leave the old task unarchived and read-only, and continue.
 
 ## Git and session safety
 
-- Preserve dirty work. Stage exact paths only; never use broad cleanup or reset. Use command-scoped Git identity for commits.
+- Preserve dirty work. Use exact-path staging only; never use broad cleanup or reset. Use command-scoped Git identity for commits.
 - Never archive old tasks unless the user explicitly asks to archive that exact task.
 - Preserve system/platform safety requirements even when a project workflow suggests otherwise.
 
