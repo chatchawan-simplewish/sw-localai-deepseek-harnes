@@ -89,11 +89,14 @@
     "candidateBlueprint": null,
     "selectorDigest": "8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4",
     "review": {
-      "status": "ACCEPTED",
-      "reviewedAt": "2026-09-08T10:42:59.2148708Z",
-      "reviewer": "pending-independent-review",
+      "status": "REJECTED",
+      "reviewedAt": "2026-09-08T11:01:39.3411852Z",
+      "reviewer": "/root/vm105_pointer_task1_reviewer",
       "reviewedDigest": "8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4",
-      "findings": []
+      "findings": [
+        "Acceptance was asserted before independent review",
+        "Secret-shaped assignment scanner missed required forms"
+      ]
     }
   },
   "cutoverPrerequisites": {

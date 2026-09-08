@@ -165,7 +165,7 @@ function Assert-Review {
     Assert-String $Review.status 'review-status'; Assert-True ($AllowedStatus -ccontains $Review.status) 'review-status-value'; Assert-Array $Review.findings 'review-findings'
     foreach($finding in @($Review.findings)){Assert-String $finding 'review-finding'}
     if($Review.status-ceq'PENDING'){Assert-True ($null-eq$Review.reviewedAt -and $null-eq$Review.reviewer -and $null-eq$Review.reviewedDigest -and @($Review.findings).Count-eq0) 'review-pending-fields'}
-    else {Assert-IsoTime $Review.reviewedAt 'reviewedAt';Assert-String $Review.reviewer 'reviewer';Assert-Digest $Review.reviewedDigest 'reviewedDigest';Assert-True ($Review.reviewedDigest-ceq$Digest) 'review-digest';if($Review.status-ceq'ACCEPTED'){Assert-True (@($Review.findings).Count-eq0) 'accepted-review-findings'}else{Assert-True (@($Review.findings).Count-gt0) 'rejected-review-findings'}}
+    else {Assert-IsoTime $Review.reviewedAt 'reviewedAt';Assert-String $Review.reviewer 'reviewer';Assert-Digest $Review.reviewedDigest 'reviewedDigest';Assert-True ($Review.reviewedDigest-ceq$Digest) 'review-digest';if($Review.status-ceq'ACCEPTED'){Assert-True ($Review.reviewer-notmatch'(?i)pending|implementer') 'reviewer-pending';Assert-True (@($Review.findings).Count-eq0) 'accepted-review-findings'}else{Assert-True (@($Review.findings).Count-gt0) 'rejected-review-findings'}}
 }
 
 function Assert-Target {
@@ -223,7 +223,7 @@ function Assert-SelectorDiscovery {
         Assert-ExactKeys $proof.serviceCompatibility @('installed','unit') 'serviceCompatibility';Assert-Array $proof.serviceCompatibility.installed 'compat-installed';Assert-Array $proof.serviceCompatibility.unit 'compat-unit';Assert-True (@($proof.serviceCompatibility.installed).Count-gt0 -and @($proof.serviceCompatibility.unit).Count-gt0) 'missing-service-compatibility';foreach($ref in @($proof.serviceCompatibility.installed)){Assert-InstalledSourceRef $ref $packageRoot};foreach($ref in @($proof.serviceCompatibility.unit)){Assert-SanitizedUnitRef $ref $selector.name}
         Assert-CandidateBlueprint $Discovery.candidateBlueprint $packageRoot $CandidateRoot
     }
-    $expected=Get-CanonicalStageDigest $Discovery @('selectorDigest','review');Assert-True ($Discovery.selectorDigest-ceq$expected) 'selector-stage-digest';Assert-Review $Discovery.review $Discovery.selectorDigest @('ACCEPTED','REJECTED');Assert-True ($Discovery.review.status-ceq'ACCEPTED') 'selector-review-not-accepted'
+    $expected=Get-CanonicalStageDigest $Discovery @('selectorDigest','review');Assert-True ($Discovery.selectorDigest-ceq$expected) 'selector-stage-digest';Assert-Review $Discovery.review $Discovery.selectorDigest @('ACCEPTED','REJECTED');if($Discovery.verdict-ceq'PASS'){Assert-True ($Discovery.review.status-ceq'ACCEPTED') 'selector-review-not-accepted'}
 }
 
 function Assert-CutoverPrerequisites {
@@ -280,8 +280,25 @@ function Assert-Closeout {
 
 function Test-NoSecretShapedData {
     param([object]$Value)
-    $json=$Value|ConvertTo-Json -Depth 100 -Compress
-    Assert-True ($json -notmatch '(?i)(sk-(?:or-)?[A-Za-z0-9_-]{8,}|sess-[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[_-]?key|token|secret|password|client[_-]?secret|authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|oauth[_-]?(?:code|state))\s*[:=]\s*[^\s,}\]]{4,})') 'secret-shaped-value'
+    if($null-eq$Value-or$Value-is[ValueType]){return}
+    if($Value-is[string]){Assert-True ($null-eq(Get-SecretFindingCategory $Value)) 'secret-shaped-value';return}
+    if($Value-is[Collections.IDictionary]){foreach($item in $Value.Values){Test-NoSecretShapedData $item};return}
+    if($Value-is[Collections.IEnumerable]){foreach($item in $Value){Test-NoSecretShapedData $item};return}
+    foreach($property in $Value.psobject.Properties){Test-NoSecretShapedData $property.Value}
+}
+
+function Get-SecretFindingCategory {
+    param([string]$Text)
+    $candidate=$Text
+    for($i=0;$i-lt3;$i++){
+        if($candidate-match'(?i)["'']?(?:key|api[_-]?key|token|secret|password|client[_-]?secret|authorization|code|state|access[_-]?token|refresh[_-]?token|id[_-]?token|oauth[_-]?(?:code|state))["'']?\s*[:=]\s*(?!\(null\)(?:\s|[,}\]]|$))(?:"[^"]+"|''[^'']+''|[^\s,}\]]+)'){return 'secret-shaped-assignment'}
+        if($candidate-match'(?i)(?:^|[^A-Za-z0-9_-])(?:sk-(?:or-)?|sess-)[A-Za-z0-9_-]+'){return 'secret-shaped-token'}
+        if($candidate-match'-----BEGIN [A-Z ]*PRIVATE KEY-----'){return 'private-key'}
+        try{$decoded=[Uri]::UnescapeDataString($candidate)}catch{return 'encoded-value'}
+        if($decoded-ceq$candidate){break}
+        $candidate=$decoded
+    }
+    return $null
 }
 
 function Test-PreparationEvidence {
@@ -434,7 +451,8 @@ function New-SyntheticBlockedSelectorRecord {
 
 function Test-SyntheticSecretScanner {
     param([string]$Text)
-    if($Text-match'(?i)(api[_-]?key|token|secret|password|client[_-]?secret)\s*[:=]\s*\S+'){'finding category=secret-shaped-assignment'}
+    $category=Get-SecretFindingCategory $Text
+    if($category){"finding category=$category"}
 }
 if ($SelfTest) {
 $script:NegativeTestCount=0;$positiveCount=0;$good=New-SyntheticPreparationRecord
@@ -498,6 +516,7 @@ Add-NegativeCase 'dropIn allowlist' { $r=Copy-SyntheticRecord $good;$r.cutoverPr
 Add-NegativeCase 'dropIn consistency' { $r=Copy-SyntheticRecord $good;$r.cutoverPrerequisites.dropInDirectory.verdict='PASS';Test-PreparationEvidence $r Selector } 'dropin-consistency'
 Add-NegativeCase 'selector digest' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selectorDigest='B'*64;Test-PreparationEvidence $r Selector } 'selector-stage-digest'
 Add-NegativeCase 'review allowlist' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.review|Add-Member extra 1;Test-PreparationEvidence $r Selector } 'review keys differ'
+Add-NegativeCase 'premature accepted review' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.review.reviewer='pending-independent-review';Test-PreparationEvidence $r Selector } 'reviewer-pending'
 Add-NegativeCase 'candidate allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation|Add-Member extra 1;Test-PreparationEvidence $r Candidate } 'candidatePreparation keys differ'
 Add-NegativeCase 'check allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.checks[0]|Add-Member extra 1;Test-PreparationEvidence $r Candidate } 'candidateCheck keys differ'
 Add-NegativeCase 'opaque observation' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.checks[1].safeObservation|Add-Member extra 1;$r.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $r.candidatePreparation @('candidateDigest','review');Test-PreparationEvidence $r Candidate } 'TargetPreflightV1 keys differ'
@@ -510,11 +529,20 @@ Add-NegativeCase 'continued after block' { $r=Copy-SyntheticRecord $good;Attach-
 Add-NegativeCase 'operationLedger allowlist' { $r=Copy-SyntheticRecord $good;$r.operationLedger=@([pscustomobject]@{at='2026-09-08T00:00:00.0000000Z';actor='controller';operation='READ_BASELINE';target='deepseek-harness.service';result='PASS';secretObserved=$false;extra=1});Test-PreparationEvidence $r Selector } 'operationLedgerEntry keys differ'
 Add-NegativeCase 'operationLedger forbidden' { $r=Copy-SyntheticRecord $good;$r.operationLedger=@([pscustomobject]@{at='2026-09-08T00:00:00.0000000Z';actor='controller';operation='SYSTEMCTL';target='deepseek-harness.service';result='PASS';secretObserved=$false});Test-PreparationEvidence $r Selector } 'operation-ledger-values'
 Add-NegativeCase 'secret shaped value' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.precedence='api_key=synthetic_nonempty_value';Sync-SelectorDigest $r;Test-PreparationEvidence $r Selector } 'secret-shaped-value'
+Add-NegativeCase 'generic key assignment' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.precedence='key=synthetic';Sync-SelectorDigest $r;Test-PreparationEvidence $r Selector } 'secret-shaped-value'
+Add-NegativeCase 'one character token' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.precedence='token=x';Sync-SelectorDigest $r;Test-PreparationEvidence $r Selector } 'secret-shaped-value'
+Add-NegativeCase 'quoted JSON token' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.precedence='{"token":"synthetic"}';Sync-SelectorDigest $r;Test-PreparationEvidence $r Selector } 'secret-shaped-value'
+Add-NegativeCase 'OAuth code assignment' { $r=Copy-SyntheticRecord $good;$r.selectorDiscovery.selector.precedence='code=synthetic';Sync-SelectorDigest $r;Test-PreparationEvidence $r Selector } 'secret-shaped-value'
 Add-NegativeCase 'closeout allowlist' { $r=Copy-SyntheticRecord $candidate;$r.candidatePreparation.review.status='ACCEPTED';$r.candidatePreparation.review.reviewedAt='2026-09-08T00:00:00.0000000Z';$r.candidatePreparation.review.reviewer='synthetic-reviewer';$r.candidatePreparation.review.reviewedDigest=$r.candidatePreparation.candidateDigest;$r.closeout=[pscustomobject]@{closedAt='2026-09-08T00:00:00.0000000Z';verdict='PREPARATION_READY';selectorDigest=$r.selectorDiscovery.selectorDigest;candidateDigest=$r.candidatePreparation.candidateDigest;cutoverPrerequisiteVerdict='BLOCKED';handoffPath='docs/handoffs/2026-09-08-vm105-profile-cutover-requirements.md';handoffSha256=('A'*64);review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()};extra=1};$r.overallVerdict='PREPARATION_READY';Test-PreparationEvidence $r Closeout } 'closeout keys differ'
 
-foreach($case in $negativeCases){Assert-Throws $case.action $case.pattern}
+$missed=[Collections.Generic.List[string]]::new()
+foreach($case in $negativeCases){
+    try{& $case.action;$missed.Add($case.name)}
+    catch{Assert-True ($_.Exception.Message-match$case.pattern) "Wrong rejection category: $($case.name) -> $($_.Exception.Message)";$script:NegativeTestCount++}
+}
+Assert-True ($missed.Count-eq0) "Expected rejection was not raised: $($missed-join', ')"
 $captured=&{Test-SyntheticSecretScanner 'api_key: synthetic_nonempty_value'}2>&1|Out-String;Assert-True ($captured-notmatch'synthetic_nonempty_value') 'secret-output-suppression'
-Assert-True ($positiveCount-eq4 -and $negativeCases.Count-eq63 -and $script:NegativeTestCount-eq$negativeCases.Count) 'self-test-count-drift'
+Assert-True ($positiveCount-eq4 -and $negativeCases.Count-eq68 -and $script:NegativeTestCount-eq$negativeCases.Count) 'self-test-count-drift'
 "SELF_TEST_PASS positive=$positiveCount negative=$script:NegativeTestCount"
     exit 0
 }
