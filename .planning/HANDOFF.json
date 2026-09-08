@@ -1,50 +1,52 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-08T18:40:57+07:00",
+  "timestamp": "2026-09-08T19:47:17+07:00",
   "phase": "03",
   "phase_name": "provider-prerequisites",
   "phase_dir": ".planning/phases/03-provider-prerequisites",
   "plan": 2,
   "task": 1,
   "total_tasks": 1,
-  "status": "paused_before_independent_plan_review",
+  "status": "recovery_complete_selector_blocked",
   "completed_tasks": [
     {
       "id": 1,
-      "name": "Write and independently accept the VM105 selector BLOCKED record",
+      "name": "Preserve original accepted scoped-parser blocker",
       "status": "done",
-      "commit": "82ed70e"
+      "commit": "82ed70e63fdcc1b411ddc7221a1bb0019b1bd81b"
     },
     {
       "id": 2,
-      "name": "Draft the bounded npm scoped-package-path recovery plan",
-      "status": "in_progress",
-      "commit": "77e39a4",
-      "progress": "One-task plan committed and statically checked; independent plan review has not started."
+      "name": "Correct and independently accept the bounded recovery plan",
+      "status": "done",
+      "commit": "61dde1548d7b9b463722b9c7ca859e5ba35f6870"
+    },
+    {
+      "id": 3,
+      "name": "Execute scoped parser recovery under TDD and accept exact BLOCKED outcome",
+      "status": "done",
+      "commit": "4523025da2ee443884aff0799c3dd2af4fe65a4a"
+    },
+    {
+      "id": 4,
+      "name": "Finalize independently accepted selector review metadata",
+      "status": "done",
+      "commit": "6bc962d266dc52e0edea811f11080e56f85332cb"
     }
   ],
   "remaining_tasks": [
     {
-      "id": 3,
-      "name": "Independently review and, if necessary, revise the recovery plan",
-      "status": "not_started"
-    },
-    {
-      "id": 4,
-      "name": "Execute the accepted recovery task with fresh implementer and reviewer agents",
-      "status": "not_started"
-    },
-    {
       "id": 5,
-      "name": "Resume the original candidate-preparation Task 2 only if the selector becomes independently accepted PASS",
-      "status": "not_started"
+      "name": "Original preparation Task 2: secret-free candidate creation",
+      "status": "blocked",
+      "reason": "Requires independently accepted selector PASS; current accepted verdict is BLOCKED."
     }
   ],
   "blockers": [
     {
-      "description": "The installed wrapper hands off to an otherwise expected npm-scoped package path containing a complete @scope segment, while the approved fixed parser rejects every @ character.",
+      "description": "Fixed wrapper interpreter /opt/node-v24.19.0-linux-x64/bin/node is canonical and a regular 0755 link-count-one file but owned by dsh:dsh; approved discovery requires root:root. Stopped before entrypoint validation and package/source inspection.",
       "type": "technical",
-      "workaround": "Use only the committed, independently reviewed recovery plan to admit a complete lowercase npm scope segment below /opt/deepseek-harness; otherwise retain BLOCKED."
+      "workaround": "None within current authority. No repair, retry, alternate discovery or candidate creation. Any ownership remediation requires a separately reviewed and authorized plan."
     }
   ],
   "human_actions_pending": [],
@@ -66,6 +68,45 @@
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Read the phase handoff, verify repository origin, branch, HEAD 77e39a4701ee3b6c5b3cfa8964049cc1e44b3115, remote parity, and clean state; then dispatch an independent read-only review of docs/superpowers/plans/2026-09-08-vm105-scoped-package-path-recovery.md before any implementation.",
-  "context_notes": "Repository C:/Users/chatc/Projects/sw-localai-deepseek-harnes, authoritative worktree .worktrees/vm105-authoritative-roadmap, branch codex/vm105-authoritative-roadmap, URL https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git. Progress remains Total 09/21, Phase 1 05/05, Phase 2 03/03, Phase 3 01/02, Phase 4 00/09, Phase 5 00/02. Accepted selector evidence digest is 8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4 with overall and selector verdict BLOCKED, selector/blueprint/candidate null, review ACCEPTED. Parent verification passed self-test positive=6 negative=68, Selector evidence, Phase 3 Network scan, and diff check. No candidate profile, credential, OAuth, provider, service, systemd, firewall, or cutover mutation occurred. No project background process was started."
+  "next_action": "STOP: bounded recovery ended with independently accepted selector BLOCKED. Do not resume original Task 2, repair ownership, retry discovery, or mutate VM105 under this goal. A separately reviewed and authorized next plan is required.",
+  "context_notes": "Verified repository https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git, authoritative worktree C:/Users/chatc/Projects/sw-localai-deepseek-harnes/.worktrees/vm105-authoritative-roadmap, branch codex/vm105-authoritative-roadmap. App checkout remains detached at 41b8fe7 and untouched. Total 09/21; Phase 1 05/05; Phase 2 03/03; Phase 3 01/02; Phase 4 00/09; Phase 5 00/02. Selector digest ADB1FD7758B30059D83D4DD7A3E47FD232AE7551F0E36D63F35DD44AF604076F, verdict BLOCKED, review ACCEPTED by /root/scoped_recovery_review with no Critical/Important findings. installedEntrypoint, selector, blueprint and candidate remain null. Parent selftest positive=6 negative=68, Selector PASS, Network0 and diff0. Six read-only SSH calls, no retry/repair, no profile/credential/service/systemd/network/cutover mutation. Historical baseline preserved, not freshly re-observed. No project background processes started.",
+  "discovery_receipts": [
+    {
+      "id": "vm105-recovery-0001",
+      "operation": "id -un",
+      "result": "dsh",
+      "exitCode": 0
+    },
+    {
+      "id": "vm105-recovery-0002",
+      "operation": "readlink -f /usr/local/bin/dsh",
+      "result": "canonical exact wrapper path",
+      "exitCode": 0
+    },
+    {
+      "id": "vm105-recovery-0003",
+      "operation": "stat /usr/local/bin/dsh",
+      "result": "regular file root:root 0755 linkCount=1",
+      "exitCode": 0
+    },
+    {
+      "id": "vm105-recovery-0004",
+      "operation": "cat /usr/local/bin/dsh",
+      "result": "fixed-wrapper handoff parsed in memory; raw source not retained",
+      "exitCode": 0
+    },
+    {
+      "id": "vm105-recovery-0005",
+      "operation": "readlink -f /opt/node-v24.19.0-linux-x64/bin/node",
+      "result": "canonical exact interpreter path",
+      "exitCode": 0
+    },
+    {
+      "id": "vm105-recovery-0006",
+      "operation": "stat /opt/node-v24.19.0-linux-x64/bin/node",
+      "result": "regular file dsh:dsh 0755 linkCount=1; ownership contract BLOCKED",
+      "exitCode": 0
+    }
+  ],
+  "review_limit": "Independent review used preserved sanitized receipts, not a fresh VM observation. Plan review optional temporary-fixture rerun was blocked by automatic tool policy before launch; no retry of that optional rerun occurred."
 }
