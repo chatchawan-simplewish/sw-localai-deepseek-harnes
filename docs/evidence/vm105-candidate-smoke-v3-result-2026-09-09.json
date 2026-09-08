@@ -1,0 +1,85 @@
+{
+  "recorded_bangkok": "2026-09-09 02:42:10",
+  "tool_receipt": "189461",
+  "ssh_exit_code": 0,
+  "helper_sha256": "A9E983B7AD8D4276E6B46E92409274FED7ADE17C3ABFBCDB14379709DFF8925F",
+  "published_code_commit": "c859828",
+  "execution_review": "candidate_smoke_review independently accepted one v3 attempt; parent offline tests/hash and immediate preservation guards passed",
+  "result_review": "candidate_smoke_review independently accepted ISOLATED_CONTAINMENT_ONLY evidence: matched helper/inventory hashes, recomputed463 unique paths/classifications and checked receipt scope. Full fallback target/manifest-digest map and rewritten-root pin were verified in memory but are not durable in this receipt; refresh those before cutover. No independent live runtime execution or route acceptance.",
+  "independent_preservation": "native_oauth_review performed fresh read-only checks: remote 02:43:07 Bangkok receipt6d7434/SSH0 pilot829 unchanged, v3 absent/inactive/empty cgroup, only loopback3080 among checked ports; local02:43:14 receipt1e747b taskRunning, loopback3080 PID33528, HTTP200. No runtime/route inference from these preservation checks.",
+  "attempt": {
+    "ancestor_absence_verified": true,
+    "checkpoints": [
+      "PILOT_ENVIRONMENTFILES_ABSENT_SOURCE_VERIFIED",
+      "PREFLIGHT_PASS",
+      "CANDIDATE_ENVIRONMENTFILES_ABSENT_SOURCE_VERIFIED",
+      "CANDIDATE_SOCKETS_ABSENT_SOURCE_VERIFIED",
+      "ISOLATION_PASS",
+      "API_READBACK_PASS",
+      "OWNED_PROCESS_CLEANUP_PASS",
+      "OWNED_CLEANUP_PASS",
+      "CONTAINMENT_METADATA_PASS",
+      "PILOT_IDENTITY_UNCHANGED"
+    ],
+    "cleanup_error_code": null,
+    "closure_edge_count": 2011,
+    "closure_elapsed_ms": 6693,
+    "closure_package_count": 432,
+    "contained_edge_count": 4,
+    "contained_optional_peer_skipped": true,
+    "declaring_manifest_sha256": "2c7130cb149070446491c0556df3dc35939f8c7f1977fc9c6b6158e151116ac1",
+    "declaring_package": "zustand",
+    "dependency_kind": "peerDependencies",
+    "fd_applied_hard_limit": 1048576,
+    "fd_applied_soft_limit": 4096,
+    "fd_hard_limit": 1048576,
+    "fd_restoration": "PASS",
+    "fd_restored_hard_limit": 1048576,
+    "fd_restored_soft_limit": 1024,
+    "fd_soft_limit": 1024,
+    "namespace_cleanup": "PASS",
+    "native_default_matches": true,
+    "parent_http_and_tunnel_verification": "REQUIRED_SEPARATELY",
+    "primary_error_code": null,
+    "registered_route_count": 0,
+    "resolver_anchor": "/opt/deepseek-harness/node_modules/.pnpm/node_modules/zustand/package.json",
+    "resolver_attempted": true,
+    "resolver_paths": [
+      "/opt/deepseek-harness/node_modules/.pnpm/node_modules/zustand/node_modules",
+      "/opt/deepseek-harness/node_modules/.pnpm/node_modules",
+      "/opt/deepseek-harness/node_modules",
+      "/opt/node_modules",
+      "/node_modules"
+    ],
+    "runtime": "ISOLATED_CONTAINMENT_ONLY",
+    "status": "ISOLATED_CANDIDATE_SMOKE_PASS",
+    "unit": "deepseek-harness-candidate-smoke-20260909-v3.service",
+    "unresolved_dependency": "@types/react"
+  },
+  "inventory": {
+    "file": "vm105-candidate-v3-generated-inventory-2026-09-09.json",
+    "sha256": "72E910D83F1C3D6B0CD7A5C5B250068A0865005E03F556A2ECFFA5E92911EAA7",
+    "entry_count": 463,
+    "classifications": {
+      "TRUSTED_INSTALLED_FALLBACK": 432,
+      "PRIVATE_UNCLASSIFIED_METADATA": 27,
+      "REVIEWED_INPUT": 3,
+      "EXPECTED_REWRITTEN_ROOT_METADATA": 1
+    }
+  },
+  "parent_before": {
+    "chunk_id": "4ef0e2",
+    "wall_time_seconds": 3.7669255,
+    "exit_code": 0,
+    "original_token_count": 66,
+    "output": "MainPID=829\nNRestarts=0\nExecMainStartTimestamp=Tue 2026-09-08 14:41:13 UTC\nActiveState=active\nLoadState=not-found\nActiveState=inactive\nLISTEN 0      511    127.0.0.1:3080 0.0.0.0:*\nRunning\r\n{\"LocalAddress\":\"127.0.0.1\",\"LocalPort\":3080,\"OwningProcess\":33528}\r\n200\r\n"
+  },
+  "parent_after": {
+    "chunk_id": "b90b01",
+    "wall_time_seconds": 3.9746243,
+    "exit_code": 0,
+    "original_token_count": 70,
+    "output": "MainPID=829\nNRestarts=0\nExecMainStartTimestamp=Tue 2026-09-08 14:41:13 UTC\nActiveState=active\nControlGroup=\nLoadState=not-found\nActiveState=inactive\nLISTEN 0      511    127.0.0.1:3080 0.0.0.0:*\nRunning\r\n{\"LocalAddress\":\"127.0.0.1\",\"LocalPort\":3080,\"OwningProcess\":33528}\r\n200\r\n"
+  },
+  "qualification": "PASS is isolated containment only: root/API readiness, zero active adapters, expected dormant selection and owned process/namespace cleanup. registered_route_count is the helper's sum of active flags, not total registry entries. It does not prove normal-service compatibility, cutover, fresh credentials, native OAuth owner interaction or any provider route. Candidate generated state replaces pristine startup preconditions; historical failures remain preserved."
+}
