@@ -681,7 +681,7 @@ def listeners(pid):
 
 
 def group_pids(group, target):
-    require(target in {UNIT, UNIT_V2} and group == '/system.slice/' + target, 'CGROUP_PATH')
+    require(target in {UNIT, UNIT_V2, UNIT_V3} and group == '/system.slice/' + target, 'CGROUP_PATH')
     try:
         with open('/sys/fs/cgroup' + group + '/cgroup.procs', encoding='ascii') as stream:
             return set(int(x) for x in stream.read(65536).split())
@@ -779,16 +779,19 @@ except Exception:
 '''
 
 
-def apply(v2=False):
+def apply(v2=False, target=None):
     require(sys.platform == 'linux' and sys.version_info[:2] == (3, 12) and sys.flags.optimize == 0,
             'PYTHON_RUNTIME')
     require(os.geteuid() == 0 and os.getegid() == 0, 'ROOT_REQUIRED')
     require(socket.gethostname() == 'deepseek-harness-01', 'HOST_IDENTITY')
-    target = UNIT_V2 if v2 else UNIT
+    require(target is None or v2 and target == UNIT_V3, 'RUNTIME_TARGET')
+    target = target or (UNIT_V2 if v2 else UNIT)
     absence_check = None
     trust, owner, group, netfd, started = Trusted(), None, None, None, False
     observed_processes = {}
     result = {'status': 'BLOCKED', 'runtime': 'NOT PROVEN', 'checkpoints': []}
+    if target == UNIT_V3:
+        result.update(unit=target, primary_error_code=None, cleanup_error_code=None)
     before = None
     description = 'vm105-candidate-smoke-owned-' + uuid.uuid4().hex
     try:
@@ -855,6 +858,9 @@ def apply(v2=False):
         args += ['--', '/usr/bin/env', '-i', 'HOME=/home/dsh', 'DSH_HOME=' + HOME, 'PATH=' + path] + candidate_argv
         if v2:
             absence_check()
+        if target == UNIT_V3:
+            require(show(target.removesuffix('.service') + '.socket', ['LoadState']) == {'LoadState': 'not-found'},
+                    'SOCKET_UNIT_EXISTS')
         started = True
         command(args, 10)
         deadline = time.monotonic() + 30
@@ -904,6 +910,8 @@ def apply(v2=False):
                 and preprobe['ActiveState'] == 'active', 'PREPROBE_UNIT_DRIFT')
         if preprobe['EnvironmentFiles'] == ENV_SOURCE_PROOF:
             result['checkpoints'].append('CANDIDATE_ENVIRONMENTFILES_ABSENT_SOURCE_VERIFIED')
+        if target == UNIT_V3 and preprobe['Sockets'] == SOCKET_SOURCE_PROOF:
+            result['checkpoints'].append('CANDIDATE_SOCKETS_ABSENT_SOURCE_VERIFIED')
         require(process(listener_pid) == identity, 'PREPROBE_IDENTITY_DRIFT')
         result['checkpoints'].append('ISOLATION_PASS')
         raw = command(['/usr/bin/nsenter', '--net=/proc/self/fd/' + str(netfd), '/usr/bin/python3.12', '-I', '-c', PROBE],
@@ -913,10 +921,14 @@ def apply(v2=False):
         result.update({'registered_route_count': 0, 'native_default_matches': True, 'status': 'PROBE_PASS_CLEANUP_PENDING'})
     except Blocked as error:
         result['error_code'] = diagnostic_error(error)['safe_code'] if v2 else str(error)
+        if target == UNIT_V3:
+            result['primary_error_code'] = result['error_code']
     except Exception as error:
         result['error_code'] = 'UNEXPECTED_FAILURE'
         if v2:
             result.update(diagnostic_error(error))
+        if target == UNIT_V3:
+            result['primary_error_code'] = result.get('safe_code') or 'UNEXPECTED_FAILURE'
     finally:
         if started:
             try:
@@ -955,9 +967,13 @@ def apply(v2=False):
                     result['status'] = 'ISOLATED_CANDIDATE_SMOKE_PASS'
                     result['runtime'] = 'ISOLATED_CONTAINMENT_ONLY'
             except Blocked as error:
+                if target == UNIT_V3:
+                    result['cleanup_error_code'] = diagnostic_error(error)['safe_code']
                 result.update(status='CLEANUP_NOT_PROVEN' if 'OWNED_CLEANUP_PASS' not in result['checkpoints'] else 'BLOCKED',
                               error_code=diagnostic_error(error)['safe_code'] if v2 else str(error))
             except Exception:
+                if target == UNIT_V3:
+                    result['cleanup_error_code'] = 'CLEANUP_OR_INVENTORY_FAILURE'
                 result.update(status='CLEANUP_NOT_PROVEN' if 'OWNED_CLEANUP_PASS' not in result['checkpoints'] else 'BLOCKED',
                               error_code='CLEANUP_OR_INVENTORY_FAILURE')
         if before is not None:
@@ -973,6 +989,8 @@ def apply(v2=False):
                     absence_check()
                     result['ancestor_absence_verified'] = True
                 except Exception as error:
+                    if target == UNIT_V3 and result['cleanup_error_code'] is None:
+                        result['cleanup_error_code'] = diagnostic_error(error)['safe_code'] or 'SECONDARY_CLEANUP_FAILURE'
                     result.update(status='CLEANUP_NOT_PROVEN' if result['status'] == 'CLEANUP_NOT_PROVEN' else 'BLOCKED',
                                   absence_error=diagnostic_error(error))
             owned_fds = ([netfd] if netfd is not None else []) + [row[0] for row in reversed(list(trust.held.values()))]
@@ -980,6 +998,8 @@ def apply(v2=False):
                 try:
                     os.close(fd)
                 except Exception as error:
+                    if target == UNIT_V3 and result['cleanup_error_code'] is None:
+                        result['cleanup_error_code'] = diagnostic_error(error)['safe_code'] or 'SECONDARY_CLEANUP_FAILURE'
                     result.update(status='CLEANUP_NOT_PROVEN' if result['status'] == 'CLEANUP_NOT_PROVEN' else 'BLOCKED',
                                   descriptor_cleanup_error=diagnostic_error(error))
         else:
@@ -991,6 +1011,7 @@ def apply(v2=False):
 
 
 DIAGNOSTIC_CODES = frozenset({
+    'RUNTIME_TARGET', 'SECONDARY_CLEANUP_FAILURE', 'FD_LIMIT_RESTORE_FAILED',
     'UNIT_SOURCE_CONTINUATION', 'UNIT_SOURCE_SOCKETS', 'SOCKETS_NOT_EMPTY', 'SOCKET_SOURCE_INTERFACE', 'SOCKET_UNIT_EXISTS',
     'JOURNAL_SIZE', 'JOURNAL_ROWS', 'JOURNAL_FIELDS', 'JOURNAL_TARGET', 'JOURNAL_VALUE', 'JOURNAL_CURSOR',
     'JOURNAL_UNKNOWN_ENUM', 'JOURNAL_ID', 'JOURNAL_NUMBER', 'JOURNAL_INTERVAL', 'JOURNAL_TIMEOUT', 'JOURNAL_EXIT', 'JOURNAL_NO_EVIDENCE',
@@ -1326,11 +1347,12 @@ def attempt_journal_diagnostic():
     return result
 
 
-def apply_v2():
+def apply_v2(target=UNIT_V2):
     """Separate explicit runtime attempt, with process-local limits restored after owned FDs close."""
+    require(target in {UNIT_V2, UNIT_V3}, 'RUNTIME_TARGET')
     import resource
     original, attempted = resource.getrlimit(resource.RLIMIT_NOFILE), False
-    result = {'status': 'BLOCKED', 'runtime': 'NOT PROVEN', 'unit': UNIT_V2,
+    result = {'status': 'BLOCKED', 'runtime': 'NOT PROVEN', 'unit': target,
               'fd_soft_limit': original[0], 'fd_hard_limit': original[1]}
     try:
         require(original[1] >= 4096, 'DIAGNOSTIC_FD_HARD_LIMIT')
@@ -1338,9 +1360,11 @@ def apply_v2():
         resource.setrlimit(resource.RLIMIT_NOFILE, (4096, original[1]))
         require(resource.getrlimit(resource.RLIMIT_NOFILE) == (4096, original[1]), 'DIAGNOSTIC_FD_LIMIT_MISMATCH')
         result.update(fd_applied_soft_limit=4096, fd_applied_hard_limit=original[1])
-        result.update(apply(v2=True))
+        result.update(apply(v2=True, target=target) if target == UNIT_V3 else apply(v2=True))
     except Exception as error:
         result.update(status='BLOCKED', **diagnostic_error(error))
+        if target == UNIT_V3:
+            result.setdefault('primary_error_code', result.get('safe_code') or 'UNEXPECTED_FAILURE')
     finally:
         if attempted:
             result['fd_restoration'] = 'PASS'
@@ -1350,8 +1374,10 @@ def apply_v2():
                 result['fd_restored_soft_limit'], result['fd_restored_hard_limit'] = restored
                 require(restored == original, 'DIAGNOSTIC_FD_RESTORE_MISMATCH')
             except Exception as error:
-                result.update(status='FD_LIMIT_RESTORE_FAILED', fd_restoration='FAILED',
-                              restoration_error=diagnostic_error(error))
+                if target == UNIT_V3 and result.get('cleanup_error_code') is None:
+                    result['cleanup_error_code'] = 'FD_LIMIT_RESTORE_FAILED'
+                result.update(status='CLEANUP_NOT_PROVEN' if result['status'] == 'CLEANUP_NOT_PROVEN' else 'FD_LIMIT_RESTORE_FAILED',
+                              fd_restoration='FAILED', restoration_error=diagnostic_error(error))
     return result
 
 
@@ -1805,11 +1831,27 @@ def self_test():
                 require(error.args == ('CGROUP_PATH',) and not group_file.called, 'SELF_TEST_CROSS_UNIT_REJECTED')
             else:
                 raise Blocked('SELF_TEST_CROSS_UNIT_ACCEPTED')
+    with patch('builtins.open', return_value=io.StringIO('123\n')) as group_file:
+        require(group_pids('/system.slice/' + UNIT_V3, UNIT_V3) == {123}, 'SELF_TEST_V3_REAL_CGROUP')
+        group_file.assert_called_once_with('/sys/fs/cgroup/system.slice/' + UNIT_V3 + '/cgroup.procs', encoding='ascii')
+    source_events = []
+    source_fixture = SimpleNamespace(read=lambda path: source_events.append(('read', path)) or b'[Service]\nExecStart=/bin/true\n',
+                                     verify=lambda: source_events.append(('verify',)), close=lambda: source_events.append(('close',)))
+    def source_show(unit, keys):
+        require(unit == UNIT_V3, 'SELF_TEST_V3_SOURCE_TARGET')
+        source_events.append(('show',))
+        return {'FragmentPath': '/run/systemd/transient/' + UNIT_V3, 'DropInPaths': '', 'PassEnvironment': ''}
+    with patch.dict(globals(), {'Trusted': lambda: source_fixture, 'show': source_show}):
+        envfile_absence_proof(UNIT_V3, sockets=True)
+    require(source_events == [('show',), ('read', '/run/systemd/transient/' + UNIT_V3), ('verify',),
+                              ('show',), ('verify',), ('close',)], 'SELF_TEST_V3_SOURCE_HELD_RECHECK')
     # Drive v2 through preflight, launch capture, early validation failure and owned cleanup.
     node, entry = '/opt/node-v24.19.0-linux-x64/bin/node', PACKAGE + '/lib/bin.js'
     pilot_fixture = ({'EnvironmentFiles': ''}, (829, 1, '/pilot', 'pilot-net'),
                      [node, entry, 'web', '--host', '127.0.0.1', '--port', '3080'], '/usr/bin')
-    for wrong_owner, secondary in ((False, None), (True, None), (False, 'absence'), (False, 'fd')):
+    for runtime_target, wrong_owner, secondary in ((UNIT_V2, False, None), (UNIT_V3, False, None),
+                                                    (UNIT_V3, True, None), (UNIT_V3, False, 'absence'),
+                                                    (UNIT_V3, False, 'fd'), (UNIT_V3, False, 'socket')):
         controls, checks, description = [], [], ['']
         def fake_command(args, *unused, **kwargs):
             controls.append(args)
@@ -1817,7 +1859,10 @@ def self_test():
                 description[0] = next(x.split('=', 1)[1] for x in args if x.startswith('--description='))
             return ''
         def fake_show(unit, keys):
-            require(unit == UNIT_V2, 'SELF_TEST_V2_UNIT')
+            if unit == UNIT_V3.removesuffix('.service') + '.socket':
+                require(keys == ['LoadState'], 'SELF_TEST_SOCKET_QUERY')
+                return {'LoadState': 'loaded' if secondary == 'socket' else 'not-found'}
+            require(unit == runtime_target, 'SELF_TEST_V2_UNIT')
             if keys == ['LoadState']:
                 return {'LoadState': 'not-found'}
             if keys == ['LoadState', 'ActiveState']:
@@ -1850,29 +1895,41 @@ def self_test():
              patch.object(os, 'stat', return_value=fake_stat), patch.object(os, 'readlink', return_value='pilot-net'), \
              patch.object(os.path, 'lexists', return_value=False), \
              patch.object(os, 'close', side_effect=OSError(9, 'private error') if secondary == 'fd' else None) as closed:
-            runtime = apply(v2=True)
+            runtime = apply(v2=True, target=runtime_target) if runtime_target == UNIT_V3 else apply(v2=True)
+        if secondary == 'socket':
+            require(not controls and runtime['primary_error_code'] == 'SOCKET_UNIT_EXISTS'
+                    and runtime['status'] == 'BLOCKED', 'SELF_TEST_SOCKET_NO_START')
+            continue
+        if runtime_target == UNIT_V3:
+            require(runtime['primary_error_code'] == ('UNIT_OWNERSHIP' if wrong_owner else 'UNIT_PROPERTIES_MISSING')
+                    and runtime['cleanup_error_code'] == ('CLEANUP_OWNERSHIP' if wrong_owner else 'HELD_NAMESPACE_UNAVAILABLE'),
+                    'SELF_TEST_PRIMARY_CLEANUP_RETAINED')
         require(controls[0][-9:] == [node, '--no-global-search-paths', entry, 'web', '--host', '127.0.0.1', '--port', '3081', '--no-open'],
                 'SELF_TEST_V2_DIRECT_ARGV')
         require(runtime['status'] == 'CLEANUP_NOT_PROVEN' and len(checks) >= 3 and closed.call_count == 1,
                 'SELF_TEST_V2_EARLY_CLEANUP')
-        require((len(controls) == 1 if wrong_owner else controls[-1] == ['/usr/bin/systemctl', 'stop', UNIT_V2])
+        require((len(controls) == 1 if wrong_owner else controls[-1] == ['/usr/bin/systemctl', 'stop', runtime_target])
                 and ('OWNED_PROCESS_CLEANUP_PASS' in runtime['checkpoints']) is (not wrong_owner)
                 and 'OWNED_CLEANUP_PASS' not in runtime['checkpoints'], 'SELF_TEST_V2_CLEANUP_OWNERSHIP')
-    for restore_failure in (False, True):
+    for runtime_target, restore_failure in ((UNIT_V2, False), (UNIT_V2, True), (UNIT_V3, False), (UNIT_V3, True)):
         limits, events = [1024, 1048576], []
         def v2_limits(_, values):
             events.append(tuple(values))
             if not (restore_failure and values[0] == 1024):
                 limits[:] = values
-        def v2_inner(v2):
+        def v2_inner(v2, target=None):
             require(v2 is True and limits == [4096, 1048576], 'SELF_TEST_V2_LIMIT_APPLIED')
             events.append('owned_fds_closed')
-            return {'status': 'BLOCKED'}
+            require(target == (UNIT_V3 if runtime_target == UNIT_V3 else None), 'SELF_TEST_LIMIT_TARGET')
+            return {'status': 'CLEANUP_NOT_PROVEN', 'primary_error_code': 'UNIT_PROPERTIES_MISSING',
+                    'cleanup_error_code': 'HELD_NAMESPACE_UNAVAILABLE'} if target == UNIT_V3 else {'status': 'BLOCKED'}
         with patch.dict(sys.modules, {'resource': SimpleNamespace(RLIMIT_NOFILE=7, getrlimit=lambda _: tuple(limits), setrlimit=v2_limits)}), \
              patch.dict(globals(), {'apply': v2_inner}):
-            limit_result = apply_v2()
+            limit_result = apply_v2(runtime_target)
         require(events == [(4096, 1048576), 'owned_fds_closed', (1024, 1048576)]
                 and limit_result['fd_restoration'] == ('FAILED' if restore_failure else 'PASS'), 'SELF_TEST_V2_LIMIT_RESTORE')
+    require(limit_result['status'] == 'CLEANUP_NOT_PROVEN' and limit_result['primary_error_code'] == 'UNIT_PROPERTIES_MISSING'
+            and limit_result['cleanup_error_code'] == 'HELD_NAMESPACE_UNAVAILABLE', 'SELF_TEST_RESTORE_PRIMARY_PRECEDENCE')
     reject_envfile_directives(b'\xef\xbb\xbf[Service]\r\n# Comment\r\nExecStart=/usr/bin/env \\\r\n -i /bin/true\r\n')
     cases = [
         lambda: validate_selector({'HOME': '/home/dsh', 'PATH': '/usr/bin'}, '/usr/bin'),
@@ -1932,6 +1989,7 @@ if __name__ == '__main__':
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--apply-v2', action='store_true')
+    modes.add_argument('--apply-v3', action='store_true')
     modes.add_argument('--attempt-journal-diagnostic', action='store_true')
     modes.add_argument('--socket-source-diagnostic', action='store_true')
     modes.add_argument('--self-test', action='store_true')
@@ -1944,7 +2002,7 @@ if __name__ == '__main__':
         result = (self_test() if args.self_test else socket_source_diagnostic() if args.socket_source_diagnostic else attempt_journal_diagnostic() if args.attempt_journal_diagnostic else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
                   else preflight_diagnostic(contained_diagnostic=True) if args.contained_preflight_diagnostic
                   else preflight_diagnostic(resolver_diagnostic=True) if args.resolver_diagnostic
-                  else preflight_diagnostic() if args.preflight_diagnostic else apply_v2() if args.apply_v2 else apply() if args.apply else {
+                  else preflight_diagnostic() if args.preflight_diagnostic else apply_v2(UNIT_V3) if args.apply_v3 else apply_v2() if args.apply_v2 else apply() if args.apply else {
             'status': 'CONTRACT_ONLY', 'runtime': 'NOT PROVEN', 'unit': UNIT,
             'candidate': HOME, 'properties': PROPERTIES, 'attempts': 1,
             'required_parent_checks': ['fresh source receipts', 'pilot loopback HTTP before/after', 'tunnel before/after'],
