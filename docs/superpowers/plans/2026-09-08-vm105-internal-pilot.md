@@ -16,9 +16,9 @@ Current-profile provider configuration is explicitly approved. Do not export/rea
 
 Files: accepted pilot proposal, this plan, docs/evidence/vm105-internal-pilot-readiness.md (readiness agent), and docs/evidence/vm105-internal-pilot.md (parent result/handoff).
 
-- [ ] 1. Verify live service, SSH forward and visible UI with minimal secret-free reads.
-- [ ] 2. Select one provider/model; owner completes fresh credential entry/submission privately; verify one harmless response.
-- [ ] 3. Create/select a disposable workspace through supported UI, run a small coding task, and check its output with one meaningful runnable check.
-- [ ] 4. One focused independent results review, then publish a concise secret-free pilot handoff and exact unresolved limits.
+- [x] 1. Verify live service, SSH forward and visible UI with minimal secret-free reads.
+- [x] 2. Select one provider/model; owner completes fresh credential entry/submission privately; verify one harmless response. Passed via owner-added OpenRouter Auto Router; exact served backend is not proven.
+- [x] 3. Create/select a disposable workspace through supported UI, run a small coding task, and check its output with one meaningful runnable check.
+- [x] 4. One focused independent results review, then publish a concise secret-free pilot handoff and exact unresolved limits. Accepted with limitations; see docs/evidence/vm105-internal-pilot.md and its linked review.
 
 Browser/provider changes are parent-owned; the readiness agent owns only read-only readiness and its evidence file. No TDD scaffolding for native configuration; any nontrivial code created for the demo must have a runnable check. Pilot 00/04 initially; full roadmap remains 09/21.
