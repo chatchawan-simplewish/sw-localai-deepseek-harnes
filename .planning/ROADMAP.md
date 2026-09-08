@@ -8,7 +8,7 @@ Evidence states are `PASS`, `WARN`, `BLOCKED`, and `NOT PROVEN`. A checked evide
 
 ## Phases
 
-- [ ] **Phase 1: Authority and Evidence** - Establish current repository, VM105, deployment-record, planning, and governance authority.
+- [x] **Phase 1: Authority and Evidence** - Establish current repository, VM105, deployment-record, planning, and governance authority.
 - [x] **Phase 2: Network Facts and Owner Access** - Explain the SSH rule, characterize RX drops, and prove tunnel-only Web UI access.
 - [ ] **Phase 3: Provider Prerequisites** - Establish fresh owner-only credentials and only the route-specific firewall permissions actually required.
 - [ ] **Phase 4: Route Truth and Fail-Closed Attribution** - Prove every requested provider route separately, including failure isolation and routing attribution.
@@ -16,8 +16,8 @@ Evidence states are `PASS`, `WARN`, `BLOCKED`, and `NOT PROVEN`. A checked evide
 
 ## Evidence Progress Tree
 
-- **Total - 05/21**
-  - **Phase 1 - 02/05**
+- **Total - 08/21**
+  - **Phase 1 - 05/05**
   - **Phase 2 - 03/03**
   - **Phase 3 - 00/02**
   - **Phase 4 - 00/09**
@@ -39,9 +39,9 @@ Evidence states are `PASS`, `WARN`, `BLOCKED`, and `NOT PROVEN`. A checked evide
 Evidence tasks:
 - [x] **BASE-01 — PASS**: Repository and GitHub identity were freshly revalidated.
 - [x] **BASE-02 — PASS**: VM105 identity, service, listener, local HTTP, version, cloud-init, and UFW baseline were freshly revalidated.
-- [ ] **EVID-01 — NOT PROVEN**: The redacted deployment record has not yet been imported and checked in this repository.
-- [ ] **PLAN-01 — NOT PROVEN**: Authoritative planning is initialized, but the required continuation record remains to be completed and verified.
-- [ ] **GOV-01 — NOT PROVEN**: Stale operating-rule checkboxes have not yet been reconciled against Git evidence.
+- [x] **EVID-01 — PASS**: The expressly redacted VM105 deployment record with provenance and secret scan is committed in this repository (`10bd057`).
+- [x] **PLAN-01 — PASS**: Authoritative project, requirements, roadmap, state, phase totals, and continuation context are reconciled with the Phase 1 evidence record.
+- [x] **GOV-01 — PASS**: Operating-rule checkboxes are reconciled with verified delivery commits `abbaff9f`, `0cbd61a`, and `927ec51`.
 
 ### Phase 2: Network Facts and Owner Access
 **Goal**: The owner understands the observed network state and can use the Harness UI only through the intended SSH tunnel.
@@ -127,7 +127,7 @@ Evidence tasks:
 
 | Phase | Evidence Tasks Complete | Plans Complete | Status | Completed |
 |-------|-------------------------|----------------|--------|-----------|
-| 1. Authority and Evidence | 02/05 | TBD | In progress | - |
+| 1. Authority and Evidence | 05/05 | TBD | Complete | 2026-09-08 |
 | 2. Network Facts and Owner Access | 03/03 | TBD | Complete (pre-roadmap evidence) | 2026-09-08 |
 | 3. Provider Prerequisites | 00/02 | TBD | Not started | - |
 | 4. Route Truth and Fail-Closed Attribution | 00/09 | TBD | Not started | - |

@@ -30,7 +30,7 @@
 - Consumes: `docs/superpowers/specs/2026-09-08-project-operating-rules-design.md`
 - Produces: repository-wide instructions inherited by future agents
 
-- [ ] **Step 1: Create `AGENTS.md`**
+- [x] **Step 1: Create `AGENTS.md`**
 
 Add these sections: project identity; rule precedence; timestamped
 communication; tree-style progress; decision/question separation; completion
@@ -38,7 +38,7 @@ summary; unattended authority; mandatory-input minimization; Chrome profile;
 API tokens and MCPs; sub-agent workflow; context rollover; Git/session safety;
 and a completeness checklist.
 
-- [ ] **Step 2: Validate coverage and contradictions**
+- [x] **Step 2: Validate coverage and contradictions**
 
 Run a PowerShell assertion that checks for the exact required concepts:
 
@@ -58,7 +58,7 @@ if ((Select-String -Path AGENTS.md -Pattern 'pre-approve all future recommendati
 
 Expected: exit code 0 with no missing or duplicated rule.
 
-- [ ] **Step 3: Verify formatting and secret safety**
+- [x] **Step 3: Verify formatting and secret safety**
 
 ```powershell
 git diff --check -- AGENTS.md
@@ -69,7 +69,7 @@ if (rg -n 'sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}' AGENTS.md) { thro
 
 Expected: `git diff --check` succeeds and `rg` returns no matches.
 
-- [ ] **Step 4: Commit only the contract**
+- [x] **Step 4: Commit only the contract**
 
 ```powershell
 git add -- AGENTS.md
@@ -77,3 +77,8 @@ git -c user.name='Codex' -c user.email='codex@local' commit -m 'docs: add projec
 ```
 
 Expected: the commit contains only `AGENTS.md`.
+
+### Reconciliation Evidence
+
+- Delivery commits: `abbaff9f` (initial contract), `0cbd61a` (repository URL verification), and `927ec51` (rule examples).
+- Fresh validation: the Phase 1 reconciliation PowerShell check in `.superpowers/sdd/2026-09-08-phase-1-authority-evidence/task-2-brief.md` exited `0` on 2026-09-08, confirming four checked steps and clean whitespace.

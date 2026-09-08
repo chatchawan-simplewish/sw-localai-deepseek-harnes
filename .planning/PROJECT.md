@@ -12,15 +12,14 @@ Every configured provider route must be secure, explicit, independently attribut
 
 ### Validated
 
-- ✓ Repository identity and owner operating contract exist — checkpoint `927ec51`
-- ✓ VM105 has a loopback-only, reboot-persistent DeepSeek Harness service — historical deployment evidence, pending fresh revalidation
+- ✓ **BASE-01 (Phase 1)**: Repository path, GitHub remote, branch, local and remote commits, and dirty state are recorded from fresh revalidation — checkpoint `927ec51`.
+- ✓ **BASE-02 (Phase 1)**: VM105 identity, service, loopback listener, local HTTP response, Harness version, cloud-init, and UFW baseline are recorded from fresh revalidation — redacted record `10bd057`.
+- ✓ **EVID-01 (Phase 1)**: An expressly redacted VM105 deployment record with provenance and no credential values is committed — `10bd057`.
+- ✓ **PLAN-01 (Phase 1)**: Authoritative project, requirements, roadmap, state, phase totals, and continuation context are established — `8ccf3df` and this reconciliation.
+- ✓ **GOV-01 (Phase 1)**: Operating-rules checklist matches verified Git delivery evidence — `abbaff9f`, `0cbd61a`, and `927ec51`.
 
 ### Active
 
-- [ ] Revalidate repository, GitHub, VM105, and historical evidence.
-- [ ] Import an expressly redacted VM105 deployment record into this repository.
-- [ ] Establish authoritative planning, requirements, roadmap, state, and progress totals.
-- [ ] Reconcile stale operating-rule plan checkboxes against Git evidence.
 - [ ] Explain the VM104-to-VM105 SSH firewall rule before deciding whether it stays.
 - [ ] Determine whether VM105 RX drops are current or historical.
 - [ ] Re-establish the Bell-PC2 SSH tunnel and verify the Web UI.
@@ -83,4 +82,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Record remaining `WARN`, `BLOCKED`, and `NOT PROVEN` items.
 
 ---
-*Last updated: 2026-09-08 after project initialization*
+*Last updated: 2026-09-08 after Phase 1 authority-and-evidence reconciliation*

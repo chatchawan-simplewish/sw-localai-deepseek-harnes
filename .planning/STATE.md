@@ -5,22 +5,23 @@
 See: `.planning/PROJECT.md` (updated 2026-09-08)
 
 **Core value:** Every configured provider route must be secure, explicit, independently attributable, and fail closed before it is trusted.
-**Current focus:** Phase 1 — Authority and Evidence
+**Current focus:** Phase 3 — Provider Prerequisites
 
 ## Current Position
 
-Phase: 1 of 5 (Authority and Evidence)
+Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 0 of TBD in current phase
-Status: Ready to plan remaining Phase 1 work
-Last activity: 2026-09-08 — Created the authoritative five-phase roadmap and mapped all 21 v1 requirements exactly once.
+Status: Ready to verify provider prerequisites and prepare owner-only entry.
+Last activity: 2026-09-08 — Reconciled Phase 1 authority-and-evidence requirements, operating-rule delivery evidence, and authoritative progress totals.
 
-Progress: `[██░░░░░░░░]` 05/21 evidence tasks complete (24%)
+Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 
-- **Phase 1 - 02/05** — BASE-01 `PASS`; BASE-02 `PASS`
-- **Phase 2 - 03/03** — NET-01 `NOT PROVEN` outcome; NET-02 `WARN`; UI-01 `PASS`
-- **Phase 3 - 00/02**
-- **Phase 4 - 00/09**
-- **Phase 5 - 00/02**
+- **Total - 08/21**
+  - **Phase 1 - 05/05** — BASE-01 `PASS`; BASE-02 `PASS`; EVID-01 `PASS`; PLAN-01 `PASS`; GOV-01 `PASS`
+  - **Phase 2 - 03/03** — NET-01 `NOT PROVEN` outcome; NET-02 `WARN`; UI-01 `PASS`
+  - **Phase 3 - 00/02**
+  - **Phase 4 - 00/09**
+  - **Phase 5 - 00/02**
 
 ## Performance Metrics
 
@@ -31,7 +32,7 @@ Progress: `[██░░░░░░░░]` 05/21 evidence tasks complete (24%)
 
 | Phase | Plans | Evidence Tasks | Status |
 |-------|-------|----------------|--------|
-| 1. Authority and Evidence | TBD | 02/05 | In progress |
+| 1. Authority and Evidence | TBD | 05/05 | Evidence complete |
 | 2. Network Facts and Owner Access | TBD | 03/03 | Evidence complete |
 | 3. Provider Prerequisites | TBD | 00/02 | Not started |
 | 4. Route Truth and Fail-Closed Attribution | TBD | 00/09 | Not started |
@@ -50,12 +51,11 @@ Progress: `[██░░░░░░░░]` 05/21 evidence tasks complete (24%)
 
 ### Pending Todos
 
-- Complete EVID-01, PLAN-01, and GOV-01 to close Phase 1.
+- Verify provider endpoint/model prerequisites and prepare owner-only credential/native-OAuth entry without exposing values.
 - Diagnose the RX-drop increase while preserving the recorded `WARN`.
 
 ### Blockers/Concerns
 
-- Phase 1: The redacted VM105 deployment record and governance reconciliation remain `NOT PROVEN` in this repository.
 - Phase 2: The VM104-to-VM105 firewall-rule origin is proven, but current operational need is `NOT PROVEN`; the rule remains unchanged and removal is not authorized.
 - Phase 2: RX drops increased by 36 in 45 seconds; impact and cause are unresolved (`WARN`).
 - Phases 3-4: All provider credentials, native OAuth state, firewall routes, provider responses, invalid-credential tests, and automatic attribution remain `NOT PROVEN`.
@@ -68,7 +68,7 @@ Progress: `[██░░░░░░░░]` 05/21 evidence tasks complete (24%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 07:46 Asia/Bangkok
-Stopped at: Authoritative roadmap, state, and 21/21 traceability created; Phase 2 evidence reconciled; no live infrastructure changed.
-Resume file: None
-Exact next action: Import the expressly redacted VM105 deployment record with provenance into this repository, verify that it contains no credential values, and record the EVID-01 verdict before proceeding to governance reconciliation.
+Last session: 2026-09-08 09:26 Asia/Bangkok
+Stopped at: Phase 1 authority-and-evidence reconciliation complete; no live infrastructure or browser state changed.
+Resume file: `.superpowers/sdd/2026-09-08-phase-1-authority-evidence/task-2-report.md`
+Exact next action: Verify provider endpoint/model prerequisites and prepare owner-only credential/native-OAuth entry without exposing values.

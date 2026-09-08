@@ -7,11 +7,11 @@
 
 ### Authority and evidence
 
-- [ ] **BASE-01**: The owner can verify the repository path, GitHub remote, branch, local commit, remote commit, and dirty state from recorded evidence.
-- [ ] **BASE-02**: The owner can verify VM105 identity, address, Harness version, service state, listener scope, and local HTTP response from current evidence.
-- [ ] **EVID-01**: The repository contains an expressly redacted VM105 deployment record with provenance and no credential values.
-- [ ] **PLAN-01**: The repository contains authoritative project, configuration, requirements, roadmap, state, numbered phase totals, and continuation records.
-- [ ] **GOV-01**: The operating-rules implementation checklist reflects verified Git evidence rather than stale unchecked steps.
+- [x] **BASE-01**: The owner can verify the repository path, GitHub remote, branch, local commit, remote commit, and dirty state from recorded evidence.
+- [x] **BASE-02**: The owner can verify VM105 identity, address, Harness version, service state, listener scope, and local HTTP response from current evidence.
+- [x] **EVID-01**: The repository contains an expressly redacted VM105 deployment record with provenance and no credential values.
+- [x] **PLAN-01**: The repository contains authoritative project, configuration, requirements, roadmap, state, numbered phase totals, and continuation records.
+- [x] **GOV-01**: The operating-rules implementation checklist reflects verified Git evidence rather than stale unchecked steps.
 
 ### Network and access
 
@@ -55,13 +55,13 @@
 
 Every v1 requirement maps to exactly one authoritative roadmap phase.
 
-| Requirement | Phase | Initial Evidence Status |
+| Requirement | Phase | Completion Status |
 |-------------|-------|-------------------------|
-| BASE-01 | Phase 1 | PASS |
-| BASE-02 | Phase 1 | PASS |
-| EVID-01 | Phase 1 | NOT PROVEN |
-| PLAN-01 | Phase 1 | NOT PROVEN |
-| GOV-01 | Phase 1 | NOT PROVEN |
+| BASE-01 | Phase 1 | Complete |
+| BASE-02 | Phase 1 | Complete |
+| EVID-01 | Phase 1 | Complete |
+| PLAN-01 | Phase 1 | Complete |
+| GOV-01 | Phase 1 | Complete |
 | NET-01 | Phase 2 | NOT PROVEN |
 | NET-02 | Phase 2 | WARN |
 | UI-01 | Phase 2 | PASS |
@@ -84,9 +84,9 @@ Every v1 requirement maps to exactly one authoritative roadmap phase.
 - Mapped to phases: 21
 - Unmapped: 0
 - Duplicated mappings: 0
-- Evidence tasks complete: 5/21 (`PASS`: 3, `WARN`: 1, completed with `NOT PROVEN` outcome: 1)
-- Evidence tasks remaining: 16/21 (`NOT PROVEN`: 16, `BLOCKED`: 0)
+- Evidence tasks complete: 8/21 (`PASS`: 6, `WARN`: 1, completed with `NOT PROVEN` outcome: 1)
+- Evidence tasks remaining: 13/21 (`NOT PROVEN`: 13, `BLOCKED`: 0)
 
 ---
 *Requirements defined: 2026-09-08*
-*Last updated: 2026-09-08 after initial definition*
+*Last updated: 2026-09-08 after Phase 1 authority-and-evidence reconciliation*
