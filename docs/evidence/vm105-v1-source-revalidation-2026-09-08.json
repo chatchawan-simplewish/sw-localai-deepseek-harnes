@@ -1,0 +1,702 @@
+{
+  "status": "NOT PROVEN",
+  "observed_at_utc": "2026-09-08T17:00:13.240469+00:00",
+  "package_count": 28,
+  "file_count": 56,
+  "packages": [
+    {
+      "name": "dsh",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/@deepseek-ai/dsh",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh",
+      "mapping_match": true,
+      "declared_parent": null,
+      "dependency_declaration": null,
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "dc930c0b18158f49ae3753ceaf6b1b7ae71dc6c8f45c85a2d679b142024addf7",
+          "digest_match": true
+        },
+        {
+          "relative_path": "config/agent-presets/standard/agent.cordis.yml",
+          "sha256": "fa14feb98daef20b810fef30bb7239a89a786de3c45c602b37743f7100d9a5af",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-base",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh-base",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-base",
+      "mapping_match": true,
+      "declared_parent": "dsh",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "35d203246e9c2a8e623da058cd9b1527252b6c4b4bf2acc56f5233a70db676df",
+          "digest_match": true
+        },
+        {
+          "relative_path": "cordis.patch.yml",
+          "sha256": "9870a518274194c0e1ebd870cee2737fbc2ffc04ae36887871ffe6fcf74beac1",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-web-app",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh-web-app",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-web-app",
+      "mapping_match": true,
+      "declared_parent": "dsh",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "f1ab1f51022e56adae15889764001aed390da0d647db08313d07b571265a27f1",
+          "digest_match": true
+        },
+        {
+          "relative_path": "cordis.patch.yml",
+          "sha256": "7889b655be3809dd21e3c59023f8510e6e8425f6f37616e4ba20389f2e938dda",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-credentials-local",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-credentials-local",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-credentials-local@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+ds_7bb67d14430a2d1ff3cabd2ed2468913/node_modules/@deepseek-ai/dsh-credentials-local",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "db3521c031061dddf4eebbd28cea8063b4dddd4007d530e2e1def5ff86dd757e",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "1688f17801d5809abace4ef6228b771625a0153c043d7d4dba21b398ec4056eb",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-settings-file",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-settings-file",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-settings-file@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-at_07dac851674f547bcb0fed2f2776d133/node_modules/@deepseek-ai/dsh-settings-file",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "2221515504477467b2a0b26a1c64522426b269a0dcd955e198363fb333ea3399",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "524d02699bc9ce5b5db89aac944a5a4ea3b8e9daf89b298f02e1eb805673a339",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-session-persistence-jsonl",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-session-persistence-jsonl",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-session-persistence-jsonl@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepse_14f57a8dc717fa4ab0d46db3acee4cf9/node_modules/@deepseek-ai/dsh-session-persistence-jsonl",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "c4214db638bacee636f777e2b4cbc4940bf78deaa892037934e42392d83e279d",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "8b6ebc4509a3e969ab3ad6e0dfb553ae4861e5b101831afed23e593d148d97f3",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-session-query-sqlite",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-session-query-sqlite",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-session-query-sqlite@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai_8ad53b91c340c6b558e2b3a4406f8efa/node_modules/@deepseek-ai/dsh-session-query-sqlite",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "1af230f33d67c93e69af9f50fa421ec635b074ade08ce138a183fe86cc2d3d7a",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "d35c13881eeb9d393fa3a21acaafa6277692e77f90e579ea62a95d6ea0cf370a",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-attachment-local",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-attachment-local",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-attachment-local@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh_48db1ca9b536b07a9b9b8a3fb21f8dd4/node_modules/@deepseek-ai/dsh-attachment-local",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "207ac2fb21254ba93ad585b147bd80a6ff869f28cbf731abcfdbc3a0645fa0f6",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "2d2be7d22cf89895e281489158a2f4c9984497dfcb880ad88b8740e2afec7e76",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-spill-local",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-spill-local",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-spill-local@0.1.1-rc.2_7314b9cfa55168b22f8f6fda35aa8983/node_modules/@deepseek-ai/dsh-spill-local",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "27707cc1e7746ccf97fb292cc82dd6d14c74f4b5613d8710e320f25f2a6d4e95",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "ae92f47942cf63e656c409b3729fe5bdf22e232ec5d05fd14bc9f642b2eb2b0b",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-storage-json",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-storage-json",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-storage-json@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-inv_59f569bce1a393f7830e8147447e2db0/node_modules/@deepseek-ai/dsh-storage-json",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "ad83e2b0a6389bb685e74ade1dfe5b4c55a4fb5f2ad94ab12c62f814eee3edd9",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "563bf17d4060fd280b746b13a03b9b843bf702e4229be73a4397657f75bc0db1",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-workspace",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-workspace",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-workspace@0.1.1-rc.2_ca1aef6913f66bb64a14405a8170db89/node_modules/@deepseek-ai/dsh-workspace",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "0dbf7f622e4b7d930734135368907ed8256a707fab6f990582444772a78e790f",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "d53e71d931937066ff20440afcff911ced09cefb8a0f3d024348b0e5248d4c74",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-storage-domain",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-storage-domain",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-storage-domain@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-i_1dd5e89577ac0f175d4162432caf3a24/node_modules/@deepseek-ai/dsh-storage-domain",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "bce55a9b0118d795e950e5aed10cbae55b407b491f7d85d909a0410d0f97a182",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "604703d7f461001c95be48536a0f2b76ed8174dec4cba5bf1456a200c47ee72b",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-home-paths",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh-home-paths",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-home-paths@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-invar_260f8dde1d5adbe84fd51b779f4f83da/node_modules/@deepseek-ai/dsh-home-paths",
+      "mapping_match": true,
+      "declared_parent": "dsh",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "736ff71c95173d31fb53ebe68451eff978c11b5b747cca6621d86a4504f78e9c",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "b82aa631aa4bfdd5b02c67d48fce455b2ca73cbf66d2b7096a336b3800914340",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-app-boot",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh-app-boot",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-app-boot@0.1.1-rc.2_d7ed335ddbfb7670edc51bd2c8928580/node_modules/@deepseek-ai/dsh-app-boot",
+      "mapping_match": true,
+      "declared_parent": "dsh",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "ccf455c20e4b20687429dc33cac6857630bce5fe76be483bf2871952ae725c47",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "9d4b7f214cd35b3e8ce4e027b12cca34a416d355577aeacbf08a5b324f0cabb6",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-jobs-local",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-jobs-local",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-jobs-local@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-agent_fa0dcc68596217609c256ec409a4fd14/node_modules/@deepseek-ai/dsh-jobs-local",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "d281a711241b290de8e63952c91556db1e69c242768116f9f84c51e3b397d317",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "fa4d847d0e7d99364ba875c97f45c2f8b81e51d8a33de0fe6af54acdeb1936a2",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-session-telemetry-otel",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-session-telemetry-otel",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-session-telemetry-otel@0.1.1-rc.2_0e329a50b6fe6a15de6a41bb5c1b84f9/node_modules/@deepseek-ai/dsh-session-telemetry-otel",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "ac1484a557fc10f8d0598e2d754895e1b5143edaac7a73c022da639c3e04256d",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "22f031eccb0add4265b719a1ce50ae5a4c01d61c0ee3229fa3ebe7158e5e161a",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-skill-filesystem",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-skill-filesystem",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-skill-filesystem@0.1.1-rc.2_48868494a4b9bcea1966f12a762e8376/node_modules/@deepseek-ai/dsh-skill-filesystem",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "f0a4bd7e17b72ad22d03509d954acbe1119862363f032d4faa79b02ce3e72f83",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "1aea87781ba5b4d44c7cfd6184d933a1c171a3fd2791456b65ebfc8b255f1221",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-skill",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-skill",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-skill@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-invariants_59a2d92d9f246f83337b4268751f40ea/node_modules/@deepseek-ai/dsh-skill",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "be09a8c49f4a38be29be3b30258c1c0455b5fabc27622f1bb6d5ab317db5adb1",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "5402787cbc95b4586e2c3aa4b0129e91094ad368b428aa19bcbbd8553bbfa9d7",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-agent-presets",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-agent-presets",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-agent-presets@0.1.1-rc.2_5200ead8959daeaefdf3dd69ba905368/node_modules/@deepseek-ai/dsh-agent-presets",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "2074d078b3945c3a75d9483ce3aaec5ce28c377a6a27d63aef16e12fbd0907ee",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "a0b417514e3d285ad5fef74867e8049af333ebdec6e4d7639e388aa0903e0039",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-persona",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh-persona",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-persona@0.1.1-rc.2_c46449525c16bef5ec3490eab6722d56/node_modules/@deepseek-ai/dsh-persona",
+      "mapping_match": true,
+      "declared_parent": "dsh",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "a84fbb0919c92b6a3e04b099cf4dc82587445c901eeab6845ad078e417176bf6",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "37a223d0c44fac7fd9d69f55b972828b177db7092fc45302c8b1938e595b9ace",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-llm",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-llm",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-llm@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-attachment@0_de8559ed89b7370843bac1bad71a6196/node_modules/@deepseek-ai/dsh-llm",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "252de11f9af2a92e2e2eb26dc4e80f7b6313586a96ffce16069435b536952cf6",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "90de54c106866d9333ddc312176e14df75e7c5ee1d6e54443174a827302276fd",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-llm-pi-ai",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-llm-pi-ai",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-llm-pi-ai@0.1.1-rc.2_236ec8963c16cce3286da2b293de8170/node_modules/@deepseek-ai/dsh-llm-pi-ai",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "b50f77d01dbdffbee612f9969903952c131956e5b28d806c7c82a7f715753f89",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "e183a9cdde703b47485410bd68d247c8becdb277c390f0f91c6dd28718d350e2",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-llm-deepseek",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-llm-deepseek",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-llm-deepseek@0.1.1-rc.2_a4f32a8d2888fcc753211ed9471efdc6/node_modules/@deepseek-ai/dsh-llm-deepseek",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "4d919cec96dd511db44bfc9eee26bdba19dfaaf9eb2ef5cd2788e6d385be1cd3",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "eed9492246cc6451f060de211768d3128388046478deae7f1959de7cde56ea82",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-agent-default-model",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-agent-default-model",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-agent-default-model@0.1.1-rc.2_cffd0b3811dd3fb50ded7f3d23c3fd53/node_modules/@deepseek-ai/dsh-agent-default-model",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "584001c0295a60b907c6118eb7f5da29ed85095d563e19669736d87536d08cd0",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "3f9ec5b953658fa1d0b3684b404a8da62ed61b5770ca8dd6b72ce937bae21ecf",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-api-gateway",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.1-rc.2_b6700999316794178df1eb7155dc0a46/node_modules/@deepseek-ai/dsh-api-gateway",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-api-gateway@0.1.1-rc.2_@deepseek-ai+cordis@4.0.1_@deepseek-ai+dsh-clie_589a9bcbaefa93b267d467a3607f6172/node_modules/@deepseek-ai/dsh-api-gateway",
+      "mapping_match": true,
+      "declared_parent": "dsh-base",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "2fa7595b121c14805a4fc1e83c0cc0ceff5660f21c995a93a30e1dd5ea543652",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "266fd319e360e9237382be7c180f83b60e1706740b652df768189bae8fc87798",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-api-remotes",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-api-remotes",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-api-remotes@0.1.1-rc.2_0037c360ed8ef45e74e856e82932995e/node_modules/@deepseek-ai/dsh-api-remotes",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "c659c35186ac4503ff34264ae09b89986cc8fa8351330b9089f5b0a3d6ce698e",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "5406e17c29e42b81ebb8c36030a67de3db19d4d94bace10052b924d72a10e756",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-host-apiproxy",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-host-apiproxy",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-host-apiproxy@0.1.1-rc.2_7a1c54e2b954eca6f88bad802758761b/node_modules/@deepseek-ai/dsh-host-apiproxy",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "156d33df741f8cad7ccce2ade30eb6ca241001a5cb68510423dcd99804b6275d",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/index.js",
+          "sha256": "8e32ffc951f499849c155e30cb30813af5ed7abb11008653125092299b693d9f",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "name": "dsh-client-ui-settings-models",
+      "version": "0.1.1-rc.2",
+      "logical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-web-app@0.1.1-rc.2_ce3874dffedb66ab726b823cc1dadab8/node_modules/@deepseek-ai/dsh-client-ui-settings-models",
+      "canonical": "/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-client-ui-settings-models@0.1.1-rc.2_6ea45dce772d8d764ff9d4e073210778/node_modules/@deepseek-ai/dsh-client-ui-settings-models",
+      "mapping_match": true,
+      "declared_parent": "dsh-web-app",
+      "dependency_declaration": "^0.1.1-rc.2",
+      "files": [
+        {
+          "relative_path": "package.json",
+          "sha256": "050fcc1cadb0e6bcb8bada85039a636864ebfea16228212d1ffd07def3fe8818",
+          "digest_match": true
+        },
+        {
+          "relative_path": "lib/client.js",
+          "sha256": "c3b9a2d2d074c600c10553a4b15e294082f5851dd4a834d06ddb268b310d18de",
+          "digest_match": true
+        }
+      ],
+      "status": "PASS"
+    }
+  ],
+  "scope": "VM105 explicit installed public-source pins only; no installed JavaScript execution",
+  "source_version": "0.1.1-rc.2",
+  "expected_packages": 28,
+  "expected_files": 56,
+  "method": "Single strict SSH attempt; in-memory pinned Inspection definitions; exact ledger allowlist; nofollow root:root trusted canonical ancestors; held descriptors and path metadata rechecked before/after; double SHA-256 reads; logical symlinks rechecked; manifest identity and parent dependency declaration verified. No directory crawl or VM write.",
+  "inspector_sha256": "fcddc77c890b289e28c609fa30b3b41f6c060a73c5c4ea3ab69b468a130df424",
+  "ledger_sha256": "a7ab0f1d371c7283a6b5e8441b05c4312b6fff86f2b7e2fddd154ced0a863ae2",
+  "cutover_plan_sha256": "a51d5342e59ee981d4fa8a90ed077dc7f73cc22c637fd4fd7f43336bd802f5f3",
+  "not_proven": [
+    "runtime readiness",
+    "cutover execution or acceptance",
+    "credential readiness or authentication provenance",
+    "usable provider route or inference acceptance"
+  ],
+  "owner_readiness": "MISSING; source verification grants no cutover authority",
+  "execution": {
+    "ssh_argv": [
+      "ssh",
+      "-i",
+      "C:/Users/chatc/.ssh/codex-prox01-vms-ed25519",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "IdentitiesOnly=yes",
+      "-o",
+      "StrictHostKeyChecking=yes",
+      "-o",
+      "ConnectTimeout=10",
+      "dsh@192.168.1.139",
+      "/usr/bin/python3.12 -I -"
+    ],
+    "interpreter": "/usr/bin/python3.12 -I",
+    "remote_attempts": 1,
+    "remote_exit_code": null,
+    "checker_body_reference": "Current task /root/source_revalidation, functions.exec exec_command result chunk b59868: exact local allowlist parser and in-memory remote checker are preserved in the preceding tool invocation. Inspection definitions were the pinned helper prefix before def inspect(, never its source-emitting CLI.",
+    "local_allowlist_validation": {
+      "package_count": 28,
+      "file_count": 56,
+      "syntax_compile": "PASS"
+    },
+    "returned_remote_summary": {
+      "status": "PASS",
+      "package_count": 28,
+      "file_count": 56
+    },
+    "remote_payload_sha256": "0bda43c10c158fb3cf4d6e51c9e58c34f5d11534bc01042d6e10d8c7144a305d",
+    "durable_copy_verification": "PowerShell and embedded Python syntax PASS; offline allowlist and remote syntax compilation PASS; exact 28 package mappings and 56 pins match successful receipt. No additional remote attempt.",
+    "reuse_limit": "Historical result is not overall execution acceptance. Hardened checker was tested offline only. Its original-destination preflight refused before SSH; parent subsequently authorized one-line destination-only adjustment for a separate future receipt. No further source-lane remote attempt occurred.",
+    "remote_exit_code_evidence": "NOT RETAINED; prior value 0 was an unsupported inference and is withdrawn",
+    "local_wrapper_exit_code": 0,
+    "original_stdout_summary": {
+      "status": "PASS",
+      "package_count": 28,
+      "file_count": 56
+    },
+    "persisted_historical_checker_sha256": "475024654702bb5511cacf1e4b1c8e743f1165d0eec1f8d6a3b91e0ffa09b43f",
+    "historical_checker_reference": "Exact original command remains in task tool invocation producing exec_command chunk b59868; its first durable copy had the persisted_historical_checker_sha256, before the separately reviewed local transport/pin/exit hardening."
+  },
+  "source_checks_reported": "PASS",
+  "execution_acceptance": "NOT PROVEN: original SSH return code was captured in memory but not retained in output or receipt",
+  "hardened_checker": {
+    "path": "scripts/Test-VM105SourcePins.ps1",
+    "status": "OFFLINE_TESTED prior to destination-only adjustment; final one-line review pending",
+    "tests": {
+      "input_pin_drift_rejected": true,
+      "nonzero_ssh_with_pass_stdout_rejected": true,
+      "malformed_json_rejected": true,
+      "incomplete_pass_schema_rejected": true,
+      "mocked_nonzero_process_exit_checks": 4,
+      "self_test_exit_code": 0,
+      "existing_receipt_preflight_exit_code": 1,
+      "additional_remote_attempts": 0
+    },
+    "changes": "Pin exact inspector/ledger/cutover input bytes before SSH; reject existing receipt destination before SSH; require zero SSH exit and exact PASS result schema; isolated unoptimized local Python; propagate failures through PowerShell exit. Remote source inspection and allowlist remain unchanged.",
+    "pre_destination_adjustment_sha256": "513afb819b25d326e44a0e7fcf5b57ae165b0d11a50c3ce4936226dafb545e61",
+    "sha256": "de951d9c6de0367c752a05c4fd4462ffbb4abca1fe4318255118e2dbf98b4676",
+    "destination_adjustment": "One-line destination-only change to docs/evidence/vm105-v1-source-revalidation-2026-09-09.json after the offline tests and independent review of pre_destination_adjustment_sha256. No source-lane SSH rerun; parent owns any fresh execution. Original result and qualification preserved."
+  }
+}

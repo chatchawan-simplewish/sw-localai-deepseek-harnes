@@ -39,6 +39,8 @@ Unchanged from [the authoritative roadmap](../../.planning/ROADMAP.md); these ar
 
 No old-profile content was read; no live mutation, candidate startup or candidate API probe occurred. Installed-source pins were **not freshly revalidated in this pass**. Static preparation remains accepted; runtime and full-plan credentials/routes remain **NOT PROVEN**.
 
+Follow-up at 2026-09-09 00:10 Asia/Bangkok: [fresh source receipt](vm105-v1-source-revalidation-2026-09-09.json) verifies 28 package identities/dependency mappings and 56 file pins with retained SSH exit 0; independent review accepted source/transport proof only. The [earlier source attempt](vm105-v1-source-revalidation-2026-09-08.json) retains its missing-exit qualification. [The bounded checker](../../scripts/Test-VM105SourcePins.ps1) passed four offline rejection cases and four nonzero-exit checks. Its fixed receipt destination now exists, so reuse stops before SSH; any future source check needs a separately reviewed fresh receipt destination. Immediate action-time revalidation and owner cutover readiness remain required. Full-plan progress remains 09/21.
+
 ## Bounded execution addendum
 
 Independent review `/root/switch_review` found the switch conditionally ready, requiring a fixed timeout execution receipt and an unoptimized interpreter pin. This record fixes the proposed bounds; it does not grant execution authority. Revalidate all mutable baseline facts, including the scoped environment-input proof, candidate integrity and packet installed-source pins immediately before any authorized stop.
