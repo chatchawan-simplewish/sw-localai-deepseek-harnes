@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import fs from 'node:fs';
+import net from 'node:net';
+import path from 'node:path';
 
 const owner = await import('./native-codex-owner.mjs').catch(() => ({}));
 const terminal = await import('./native-codex-terminal.mjs').catch(() => ({}));
@@ -182,6 +184,45 @@ test('owned socket cleanup preserves identity conflicts before Node automatic un
   current = { ...identity, ino: 3 };
   owner.releaseSocket(server, { uid: 1000, fd: 10, anchored: '/proc/self/fd/10/owner.sock' }, identity);
   assert.deepEqual(actions, ['retained']);
+});
+test('apply returns its disposer when context becomes inactive during pending listen', async t => {
+  // Linux binding is unavailable on this Windows runner; keep apply and cleanup real.
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  t.after(() => Object.defineProperty(process, 'platform', platform));
+  if (!process.getuid) {
+    process.getuid = () => 1000;
+    t.after(() => { delete process.getuid; });
+  }
+  const uid = process.getuid(); let bound = false; let listenDone; let closes = 0; let fdCloses = 0;
+  if (path !== path.posix) for (const method of ['isAbsolute', 'normalize', 'basename', 'dirname']) t.mock.method(path, method, path.posix[method]);
+  const directory = { uid, mode: 0o40700, dev: 1, ino: 2, isSymbolicLink: () => false, isDirectory: () => true };
+  const socket = { uid, mode: 0o140600, dev: 1, ino: 3, isSymbolicLink: () => false, isSocket: () => true };
+  t.mock.method(fs, 'lstatSync', file => {
+    if (file.endsWith('/owner.sock')) {
+      if (!bound) throw Object.assign(Error('absent'), { code: 'ENOENT' });
+      return socket;
+    }
+    return directory;
+  });
+  t.mock.method(fs, 'openSync', () => 10);
+  t.mock.method(fs, 'fstatSync', () => directory);
+  t.mock.method(fs, 'chmodSync', () => {});
+  t.mock.method(fs, 'unlinkSync', () => { bound = false; });
+  t.mock.method(fs, 'closeSync', () => { fdCloses++; });
+  const server = new EventEmitter();
+  server.listen = (_path, callback) => { listenDone = () => { bound = true; server.listening = true; callback(); }; };
+  server.close = callback => { closes++; server.listening = false; callback(); };
+  server.unref = () => {};
+  t.mock.method(net, 'createServer', () => server);
+  const ctx = { credentials: {}, authorization: {}, on() {} };
+  const pending = owner.apply(ctx, { socketPath: '/private/owner.sock' });
+  ctx.on = () => { throw Error('inactive context'); };
+  listenDone();
+  const dispose = await pending;
+  assert.equal(bound, true);
+  dispose(); dispose();
+  assert.equal(bound, false); assert.equal(closes, 1); assert.equal(fdCloses, 1);
 });
 test('terminal protocol renders data safely, restores on withdrawal and disconnect, rejects unsafe frames', async () => {
   assert.equal(typeof terminal.ownerTerminal, 'function');

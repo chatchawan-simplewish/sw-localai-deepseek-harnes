@@ -217,7 +217,6 @@ export async function apply(ctx, config) {
     fs.chmodSync(held.anchored, 0o600);
     checkMetadata(fs.lstatSync(held.anchored), held.uid, 'socket');
     server.on('error', dispose);
-    ctx.on('dispose', dispose);
     return dispose;
   } catch { dispose(); throw fail('OWNER_BRIDGE_UNAVAILABLE'); }
 }
