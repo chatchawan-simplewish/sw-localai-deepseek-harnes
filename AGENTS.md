@@ -4,7 +4,7 @@
 
 - Project: DeepSeek Harness, a local-AI harness for this repository.
 - Repository: `C:\Users\chatc\Projects\sw-localai-deepseek-harnes`.
-- Repository URL: not yet established; do not invent one. Record the verified remote when one exists.
+- Repository URL: https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git
 
 ## Rule precedence
 
