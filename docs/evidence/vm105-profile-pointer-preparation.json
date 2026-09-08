@@ -16,11 +16,11 @@
   },
   "overallVerdict": "BLOCKED",
   "selectorDiscovery": {
-    "capturedAt": "2026-09-08T10:42:59.2148708Z",
+    "capturedAt": "2026-09-08T12:36:57.2621231Z",
     "installedVersion": "0.1.1-rc.2",
     "verdict": "BLOCKED",
     "blockers": [
-      "Installed wrapper fixed entrypoint contains an @ scope segment rejected by the required fail-closed entrypoint parser; selector semantics were not inspected or guessed"
+      "Fixed wrapper interpreter /opt/node-v24.19.0-linux-x64/bin/node is owned by dsh:dsh rather than required root:root; bounded discovery stopped before installed entrypoint or package source inspection"
     ],
     "installedEntrypoint": null,
     "baseline": {
@@ -87,12 +87,12 @@
     },
     "selector": null,
     "candidateBlueprint": null,
-    "selectorDigest": "8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4",
+    "selectorDigest": "ADB1FD7758B30059D83D4DD7A3E47FD232AE7551F0E36D63F35DD44AF604076F",
     "review": {
-      "status": "ACCEPTED",
-      "reviewedAt": "2026-09-08T11:16:12.3581231Z",
-      "reviewer": "/root/vm105_pointer_task1_reviewer",
-      "reviewedDigest": "8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4",
+      "status": "PENDING",
+      "reviewedAt": null,
+      "reviewer": null,
+      "reviewedDigest": null,
       "findings": []
     }
   },

@@ -51,9 +51,14 @@ function Assert-StrictPosixPath {
     Assert-True (-not [string]::IsNullOrWhiteSpace($Path)) 'posix-path-empty'
     Assert-True ($Path[0] -ceq '/') 'posix-path-relative'
     Assert-True ($Path -notmatch '\\|//|(^|/)\.\.?(/|$)|[\x00-\x1f]') 'posix-path-shape'
-    Assert-True ($Root -match '^/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$') 'posix-root-shape'
-    $inside = $Path.StartsWith("$Root/",[StringComparison]::Ordinal)
+    $installedRoot='/opt/deepseek-harness'
+    $ordinaryPattern='^/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$'
+    $installedPattern='^/opt/deepseek-harness(?:/(?:[A-Za-z0-9._-]+|@[a-z0-9][a-z0-9._-]*))*$'
+    $allowNpmScope=$Root -ceq $installedRoot -or $Root.StartsWith("$installedRoot/",[StringComparison]::Ordinal)
+    Assert-True ($(if($allowNpmScope){$Root -cmatch $installedPattern}else{$Root -cmatch $ordinaryPattern})) 'posix-root-shape'
+    $inside=$Path.StartsWith("$Root/",[StringComparison]::Ordinal)
     Assert-True ($inside -or ($AllowRoot -and $Path -ceq $Root)) 'posix-path-root'
+    Assert-True ($(if($allowNpmScope){$Path -cmatch $installedPattern}else{$Path -cmatch $ordinaryPattern})) 'posix-path-segment'
 }
 
 function Assert-StrictPosixRelativePath {
@@ -454,7 +459,35 @@ function Test-SyntheticSecretScanner {
     $category=Get-SecretFindingCategory $Text
     if($category){"finding category=$category"}
 }
+function Test-InstalledPathContract {
+    $failures=[Collections.Generic.List[string]]::new()
+    $valid=@(
+        [pscustomobject]@{name='ordinary installed path';path='/opt/deepseek-harness/package/dist/index.js';root='/opt/deepseek-harness/package'},
+        [pscustomobject]@{name='scoped npm path';path='/opt/deepseek-harness/node_modules/@deepseek-ai/harness/dist/index.js';root='/opt/deepseek-harness/node_modules/@deepseek-ai/harness'}
+    )
+    foreach($case in $valid){
+        try{Assert-StrictPosixPath $case.path $case.root}
+        catch{$failures.Add("valid $($case.name) rejected: $($_.Exception.Message)")}
+    }
+    $invalid=@(
+        [pscustomobject]@{name='arbitrary at';path='/opt/deepseek-harness/pkg@scope/index.js';root='/opt/deepseek-harness'},
+        [pscustomobject]@{name='empty scope';path='/opt/deepseek-harness/@/index.js';root='/opt/deepseek-harness'},
+        [pscustomobject]@{name='uppercase scope';path='/opt/deepseek-harness/@DeepSeek/index.js';root='/opt/deepseek-harness'},
+        [pscustomobject]@{name='leading punctuation scope';path='/opt/deepseek-harness/@-deepseek/index.js';root='/opt/deepseek-harness'},
+        [pscustomobject]@{name='scope outside installed root';path='/usr/local/bin/@deepseek-ai/dsh';root='/usr/local/bin'},
+        [pscustomobject]@{name='traversal';path='/opt/deepseek-harness/@deepseek-ai/../index.js';root='/opt/deepseek-harness'},
+        [pscustomobject]@{name='shell metacharacter';path='/opt/deepseek-harness/@deepseek-ai/pkg;id/index.js';root='/opt/deepseek-harness'},
+        [pscustomobject]@{name='interpolation';path='/opt/deepseek-harness/@deepseek-ai/$(id)/index.js';root='/opt/deepseek-harness'}
+    )
+    foreach($case in $invalid){
+        try{Assert-StrictPosixPath $case.path $case.root;$failures.Add("accepted $($case.name)")}
+        catch{}
+    }
+    Assert-True ($failures.Count-eq0) "scoped-package-path contract failures: $($failures-join', ')"
+}
+
 if ($SelfTest) {
+    Test-InstalledPathContract
 $script:NegativeTestCount=0;$positiveCount=0;$good=New-SyntheticPreparationRecord
 function Sync-SelectorDigest { param([object]$Record) $Record.selectorDiscovery.selectorDigest=Get-CanonicalStageDigest $Record.selectorDiscovery @('selectorDigest','review');$Record.selectorDiscovery.review.reviewedDigest=$Record.selectorDiscovery.selectorDigest }
 function Attach-Candidate { param([object]$Record,[string]$FailAt='',[switch]$Continue) $Record.candidatePreparation=New-SyntheticCandidateResult $Record $FailAt -ContinueAfterFailure:$Continue;$Record.overallVerdict=if($Record.candidatePreparation.verdict-ceq'PASS'){'CANDIDATE_STATIC_PASS'}else{'BLOCKED'} }
