@@ -4,7 +4,7 @@
 
 **Goal:** Prove or block the installed whole-profile selector, prepare the fixed secret-free candidate only after selector proof, and hand off independently reviewed cutover requirements without building or executing cutover.
 
-**Architecture:** One typed JSON record carries sanitized selector proof, read-only future-cutover prerequisite status, the candidate blueprint, and static preparation results. A dependency-free validator enforces proof-source separation and fail-closed policy; a bounded initializer can write only the fixed candidate tree and can never operate the service or systemd. Cutover code, root mutation commands, maintenance restart, post-cutover evidence, and credential work are deliberately excluded and require a separate follow-up plan after this preparation succeeds and fresh cutover authority is granted.
+**Architecture:** One typed JSON record carries sanitized selector proof, read-only future-cutover prerequisite status, the candidate blueprint, and static preparation results. A dependency-free validator enforces proof-source separation and fail-closed policy; a bounded initializer can write only the fixed candidate tree and can never mutate the service or systemd. Cutover code, root mutation commands, maintenance restart, post-cutover evidence, and credential work are deliberately excluded and require a separate follow-up plan after this preparation succeeds and fresh cutover authority is granted.
 
 **Tech Stack:** PowerShell 7 and .NET standard library, Windows OpenSSH client, POSIX shell/coreutils already installed on VM105, JSON, Markdown, Git.
 
@@ -99,7 +99,8 @@ Candidate check parsers return only these typed safe results:
 | --- | --- | --- |
 | `selector-gate` | `SelectorGateV1` | `selectorDigest`, `selectorVerdict`, `reviewStatus`, `reviewedDigest` |
 | `target-preflight` | `TargetPreflightV1` | `parentAbsent`, `rootAbsent`, `ancestorsSafe` |
-| `create-parent`, `create-root`, `write-blueprint`, `metadata` | `CandidateMetadataV1` | `path`, `objectType`, `symlink`, `owner`, `group`, `mode`, `linkCount`, `aclBroad`, `unexpectedMount`, `contentSha256` |
+| `create-parent`, `create-root`, directory `metadata` | `CandidateDirectoryMetadataV1` | `path`, `objectType`, `symlink`, `owner`, `group`, `mode`, `aclBroad`, `unexpectedMount`; directories have no link-count-one rule |
+| `write-blueprint`, file `metadata` | `CandidateFileMetadataV1` | `path`, `objectType`, `symlink`, `owner`, `group`, `mode`, `linkCount`, `aclBroad`, `unexpectedMount`, `contentSha256`; regular files require `linkCount: 1` |
 | `static-validation` | `StaticValidationV1` | `supported`, `exitCode`, `parsedResult`; unsupported is `NOT PROVEN` unless it weakens isolation, then `BLOCKED` |
 | `secret-scan` | `SecretScanV1` | `filesScanned`, `findingCount`, `categories`; matching values are never present |
 | `service-unchanged` | `ServiceBaselineV1` | `activeState`, `subState`, `user`, `group`, `execStart`, `workingDirectory`, `umask`, `result`, `nRestarts`, `matchesBaseline` |
@@ -153,7 +154,7 @@ function Assert-ExactKeys {
 function Assert-Throws {
     param([scriptblock]$Action, [string]$Pattern)
     try { & $Action; throw 'Expected rejection was not raised' }
-    catch { Assert-True ($_.Exception.Message -match $Pattern) "Wrong rejection category" }
+    catch { Assert-True ($_.Exception.Message -match $Pattern) "Wrong rejection category"; $script:NegativeTestCount++ }
 }
 
 function Copy-SyntheticRecord {
@@ -166,14 +167,54 @@ function Get-UpperSha256 {
     return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
 }
 
+function Assert-StrictPosixPath {
+    param([string]$Path,[string]$Root,[switch]$AllowRoot)
+    Assert-True (-not [string]::IsNullOrWhiteSpace($Path)) 'posix-path-empty'
+    Assert-True ($Path[0] -ceq '/') 'posix-path-relative'
+    Assert-True ($Path -notmatch '\\|//|(^|/)\.\.?(/|$)|[\x00-\x1f]') 'posix-path-shape'
+    Assert-True ($Root -match '^/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$') 'posix-root-shape'
+    $inside = $Path.StartsWith("$Root/",[StringComparison]::Ordinal)
+    Assert-True ($inside -or ($AllowRoot -and $Path -ceq $Root)) 'posix-path-root'
+}
+
+function Assert-StrictPosixRelativePath {
+    param([string]$Path)
+    Assert-True (-not [string]::IsNullOrWhiteSpace($Path)) 'relative-path-empty'
+    Assert-True ($Path[0] -cne '/') 'relative-path-rooted'
+    Assert-True ($Path -notmatch '\\|//|(^|/)\.\.?(/|$)|[\x00-\x1f;&|`$<>]') 'relative-path-shape'
+}
+
+function ConvertTo-CanonicalNode {
+    param([object]$Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [string] -or $Value -is [ValueType]) { return $Value }
+    if ($Value -is [Collections.IDictionary]) {
+        $ordered=[ordered]@{}; foreach($key in @($Value.Keys | Sort-Object)){ $ordered[[string]$key]=ConvertTo-CanonicalNode $Value[$key] }; return $ordered
+    }
+    if ($Value -is [Collections.IEnumerable]) { return @($Value | ForEach-Object { ConvertTo-CanonicalNode $_ }) }
+    $object=[ordered]@{}; foreach($property in @($Value.psobject.Properties.Name | Sort-Object)){ $object[$property]=ConvertTo-CanonicalNode $Value.$property }; return $object
+}
+
+function Get-CanonicalStageDigest {
+    param([object]$Stage,[string[]]$OmitTopLevelKeys)
+    $copy=[ordered]@{}
+    foreach($property in @($Stage.psobject.Properties.Name | Sort-Object)){
+        if($OmitTopLevelKeys -ccontains $property){continue}
+        $copy[$property]=ConvertTo-CanonicalNode $Stage.$property
+    }
+    return Get-UpperSha256 ([Text.Encoding]::UTF8.GetBytes(($copy | ConvertTo-Json -Depth 100 -Compress)))
+}
+
 function Assert-InstalledSourceRef {
     param([object]$Ref, [string]$PackageRoot)
-    Assert-ExactKeys $Ref @('sourceClass','path','sha256','lineStart','lineEnd','claim') 'installedSourceRef'
     Assert-True ($Ref.sourceClass -ceq 'installed-source') 'proof-source-class'
-    Assert-True ([IO.Path]::IsPathFullyQualified([string]$Ref.path)) 'installed-source-path'
+    Assert-ExactKeys $Ref @('sourceClass','path','sha256','lineStart','lineEnd','claim') 'installedSourceRef'
+    if($Ref.path -ceq '/usr/local/bin/dsh'){Assert-StrictPosixPath $Ref.path '/usr/local/bin' }
+    else { Assert-StrictPosixPath $Ref.path $PackageRoot -AllowRoot }
     Assert-True (($Ref.path -ceq '/usr/local/bin/dsh') -or $Ref.path.StartsWith("$PackageRoot/", [StringComparison]::Ordinal)) 'installed-source-root'
     Assert-True ($Ref.sha256 -match '^[A-F0-9]{64}$') 'installed-source-digest'
     Assert-True (($Ref.lineStart -ge 1) -and ($Ref.lineEnd -ge $Ref.lineStart)) 'installed-source-lines'
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Ref.claim)) 'installed-source-claim'
 }
 
 function Assert-SanitizedUnitRef {
@@ -182,10 +223,18 @@ function Assert-SanitizedUnitRef {
     if($SelectorKey -match '^[A-Z][A-Z0-9_]{1,63}$'){$allowed += $SelectorKey}
     Assert-ExactKeys $Ref @('sourceClass','observationId','capturedAt','propertyAllowlist','observations','claim') 'sanitizedUnitRef'
     Assert-True ($Ref.sourceClass -ceq 'sanitized-unit') 'proof-source-class'
+    Assert-True (@($Ref.propertyAllowlist).Count -gt 0) 'unit-property-allowlist-empty'
+    Assert-True (@($Ref.propertyAllowlist | Select-Object -Unique).Count -eq @($Ref.propertyAllowlist).Count) 'unit-property-allowlist-duplicate'
+    foreach($name in @($Ref.propertyAllowlist)){Assert-True ($allowed -ccontains [string]$name) 'unit-property-allowlist'}
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($item in @($Ref.observations)) {
         Assert-ExactKeys $item @('name','value') 'sanitizedUnitObservation'
-        Assert-True ($allowed -ccontains [string]$item.name) 'unit-property-allowlist'
+        Assert-True ($Ref.propertyAllowlist -ccontains [string]$item.name) 'unit-property-allowlist'
+        Assert-True ($seen.Add([string]$item.name)) 'unit-property-duplicate'
+        Assert-True (-not [string]::IsNullOrWhiteSpace([string]$item.value)) 'unit-property-empty'
     }
+    Assert-True ($seen.Count -eq @($Ref.propertyAllowlist).Count) 'unit-property-incomplete'
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Ref.claim)) 'unit-claim-empty'
 }
 
 function Assert-PrivilegeReceiptRef {
@@ -193,7 +242,31 @@ function Assert-PrivilegeReceiptRef {
     Assert-ExactKeys $Ref @('sourceClass','operationId','capturedAt','queryUser','sudoPath','targetExecutable','targetArgv','noninteractive','result','exitCode','rawOutputStored','claim') 'privilegeReceiptRef'
     Assert-True ($Ref.sourceClass -ceq 'privilege-receipt') 'proof-source-class'
     Assert-True (($Ref.queryUser -ceq 'dsh') -and $Ref.noninteractive -and -not $Ref.rawOutputStored) 'privilege-receipt-safety'
+    Assert-True ($Ref.sudoPath -ceq '/usr/bin/sudo') 'privilege-receipt-sudo'
     Assert-True (@('ALLOWED','DENIED') -ccontains [string]$Ref.result) 'privilege-receipt-result'
+    Assert-True (($Ref.exitCode -eq 0) -eq ($Ref.result -ceq 'ALLOWED')) 'privilege-receipt-exit'
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$Ref.claim)) 'privilege-receipt-claim'
+}
+
+function Assert-PrivilegeSeam {
+    param([object[]]$Receipts,[string]$FutureFile)
+    $expected=[ordered]@{
+        'future-install'=@('/usr/bin/install','-o','root','-g','root','-m','0644','/dev/stdin',$FutureFile)
+        'future-remove'=@('/usr/bin/rm','-f','--',$FutureFile)
+        'future-stop'=@('/usr/bin/systemctl','stop','deepseek-harness.service')
+        'future-start'=@('/usr/bin/systemctl','start','deepseek-harness.service')
+        'future-reload'=@('/usr/bin/systemctl','daemon-reload')
+        'future-status'=@('/usr/bin/systemctl','show','deepseek-harness.service')
+    }
+    Assert-True ($Receipts.Count -eq 6) 'privilege-receipt-count'
+    Assert-True (@($Receipts.operationId | Select-Object -Unique).Count -eq 6) 'privilege-receipt-duplicate'
+    foreach($receipt in $Receipts){
+        Assert-PrivilegeReceiptRef $receipt
+        Assert-True ($expected.Contains([string]$receipt.operationId)) 'privilege-receipt-id'
+        $spec=$expected[[string]$receipt.operationId]
+        Assert-True ($receipt.targetExecutable -ceq $spec[0]) 'privilege-receipt-executable'
+        Assert-True ((@($receipt.targetArgv) -join "`0") -ceq (@($spec[1..($spec.Count-1)]) -join "`0")) 'privilege-receipt-argv'
+    }
 }
 
 function Test-PreparationEvidence {
@@ -201,10 +274,29 @@ function Test-PreparationEvidence {
     Assert-True ($Evidence.schemaVersion -eq 1) 'schema-version'
     Assert-True ($Evidence.workflowId -ceq 'vm105-profile-preparation') 'workflow-id'
     Assert-True ($Evidence.target.candidateRoot -ceq '/home/dsh/.dsh-profiles/vm105-provider-v1') 'candidate-root'
-    Assert-True (-not $Evidence.selectorDiscovery.installedEntrypoint.wrapperSymlink -and -not $Evidence.selectorDiscovery.installedEntrypoint.entrypointSymlink) 'installed-symlink'
-    $packageRoot = [string]$Evidence.selectorDiscovery.installedEntrypoint.packageRoot
+    $installed=$Evidence.selectorDiscovery.installedEntrypoint
+    Assert-ExactKeys $installed @('wrapperPath','wrapperType','wrapperSymlink','wrapperOwner','wrapperGroup','wrapperMode','wrapperLinkCount','wrapperSha256','entrypointPath','entrypointType','entrypointSymlink','entrypointOwner','entrypointGroup','entrypointMode','entrypointLinkCount','entrypointSha256','packageRoot','packageName','packageVersion','proofRefs') 'installedEntrypoint'
+    $packageRoot=[string]$installed.packageRoot
+    Assert-StrictPosixPath $packageRoot '/opt/deepseek-harness' -AllowRoot
+    Assert-True ($installed.wrapperPath -ceq '/usr/local/bin/dsh' -and $installed.wrapperType -ceq 'regular file' -and -not $installed.wrapperSymlink -and $installed.wrapperOwner -ceq 'root' -and $installed.wrapperGroup -ceq 'root' -and $installed.wrapperMode -ceq '0755' -and $installed.wrapperLinkCount -eq 1 -and $installed.wrapperSha256 -match '^[A-F0-9]{64}$') 'installed-wrapper-fields'
+    Assert-StrictPosixPath $installed.entrypointPath $packageRoot
+    Assert-True ($installed.entrypointType -ceq 'regular file' -and -not $installed.entrypointSymlink -and $installed.entrypointOwner -ceq 'root' -and $installed.entrypointGroup -ceq 'root' -and $installed.entrypointMode -ceq '0644' -and $installed.entrypointLinkCount -eq 1 -and $installed.entrypointSha256 -match '^[A-F0-9]{64}$') 'installed-entrypoint-fields'
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$installed.packageName) -and -not [string]::IsNullOrWhiteSpace([string]$installed.packageVersion)) 'installed-package-fields'
+    Assert-True (@($installed.proofRefs).Count -gt 0) 'installed-proof-empty'; foreach($ref in @($installed.proofRefs)){Assert-InstalledSourceRef $ref $packageRoot}
+    $baseline=$Evidence.selectorDiscovery.baseline
+    Assert-ExactKeys $baseline @('repositoryOrigin','branch','capturedAt','hostname','address','sshHostKeyIdentity','installedVersion','service','listeners','localHttp','ufw','directLanDenied') 'selectorBaseline'
+    Assert-SanitizedUnitRef $baseline.service ([string]$Evidence.selectorDiscovery.selector.name)
+    foreach($listener in @($baseline.listeners)){Assert-ExactKeys $listener @('address','port','protocol') 'baselineListener';Assert-True (@('127.0.0.1','::1')-ccontains[string]$listener.address -and $listener.port-eq3080 -and $listener.protocol-ceq'tcp') 'baseline-listener'}
+    Assert-ExactKeys $baseline.localHttp @('url','statusCode','exitCode') 'baselineHttp'; Assert-ExactKeys $baseline.ufw @('active','defaults','ruleIds','tcp3080Allowed') 'baselineUfw'; Assert-ExactKeys $baseline.directLanDenied @('source','destination','port','denied','timeoutMs') 'baselineDirectLan'
+    Assert-True ($baseline.localHttp.statusCode-eq200 -and $baseline.localHttp.exitCode-eq0 -and $baseline.ufw.active -and -not $baseline.ufw.tcp3080Allowed -and $baseline.directLanDenied.denied -and $baseline.directLanDenied.timeoutMs-ge1 -and $baseline.directLanDenied.timeoutMs-le5000) 'baseline-network'
+    $selector=$Evidence.selectorDiscovery.selector
+    Assert-True (-not[string]::IsNullOrWhiteSpace([string]$selector.name) -and -not[string]::IsNullOrWhiteSpace([string]$selector.precedence)) 'selector-fields'
+    Assert-StrictPosixPath $selector.absoluteCandidateValue '/home/dsh/.dsh-profiles' ; Assert-True (@($selector.futureUnitSelectorLines).Count-gt0) 'selector-unit-lines'
+    Assert-ExactKeys $selector.effectiveProfileProbe @('executable','argv') 'effectiveProfileProbe'; Assert-StrictPosixPath $selector.effectiveProfileProbe.executable $packageRoot; Assert-True (@($selector.effectiveProfileProbe.argv).Count-gt0) 'effective-profile-probe'
     foreach ($proofName in @('absolutePath','precedence','nonMerge')) {
-        foreach ($ref in @($Evidence.selectorDiscovery.selector.proof.$proofName)) {
+        $semanticRefs=@($Evidence.selectorDiscovery.selector.proof.$proofName)
+        Assert-True ($semanticRefs.Count -gt 0) "missing-$proofName"
+        foreach ($ref in $semanticRefs) {
             Assert-InstalledSourceRef $ref $packageRoot
         }
     }
@@ -216,22 +308,60 @@ function Test-PreparationEvidence {
         }
     }
     $compatibility=$Evidence.selectorDiscovery.selector.proof.serviceCompatibility
-    foreach($ref in @($compatibility.installed)){Assert-InstalledSourceRef $ref $packageRoot}
-    foreach($ref in @($compatibility.unit)){Assert-SanitizedUnitRef $ref ([string]$Evidence.selectorDiscovery.selector.name)}
-    $policy=$Evidence.selectorDiscovery.candidateBlueprint.policyAssertions
+    Assert-True (@($compatibility.installed).Count -gt 0 -and @($compatibility.unit).Count -gt 0) 'missing-service-compatibility'
+    foreach($ref in @($compatibility.installed)){Assert-InstalledSourceRef $ref $packageRoot}; foreach($ref in @($compatibility.unit)){Assert-SanitizedUnitRef $ref ([string]$Evidence.selectorDiscovery.selector.name)}
+    $blueprint=$Evidence.selectorDiscovery.candidateBlueprint
+    Assert-ExactKeys $blueprint @('directories','files','staticValidation','policyAssertions') 'candidateBlueprint'
+    $policy=$blueprint.policyAssertions
+    Assert-ExactKeys $policy @('bindHost','port','activeProviderRoutes','automaticFallback','providerSelectionConfigured','oauthStateConfigured','hermesReferences') 'policyAssertions'
     Assert-True ($policy.bindHost -ceq '127.0.0.1' -and $policy.port -eq 3080 -and $policy.activeProviderRoutes -eq 0 -and -not $policy.automaticFallback -and -not $policy.providerSelectionConfigured -and -not $policy.oauthStateConfigured -and -not $policy.hermesReferences) 'candidate-policy'
-    foreach($directory in @($Evidence.selectorDiscovery.candidateBlueprint.directories)){Assert-True ($directory.mode -ceq '0700' -and $directory.relativePath -notmatch '(^|/)\.\.(/|$)|^/') 'candidate-directory'}
-    foreach($file in @($Evidence.selectorDiscovery.candidateBlueprint.files)){Assert-True (([Convert]::ToInt32($file.mode,8) -band 63) -eq 0 -and $file.relativePath -notmatch '(^|/)\.\.(/|$)|^/') 'candidate-file'}
-    Assert-True ($Evidence.selectorDiscovery.selectorDigest -ceq $Evidence.selectorDiscovery.review.reviewedDigest) 'selector-review-digest'
-    foreach ($ref in @($Evidence.cutoverPrerequisites.privilegeSeam.receipts)) {
-        Assert-PrivilegeReceiptRef $ref
+    $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($directory in @($blueprint.directories)){
+        Assert-ExactKeys $directory @('relativePath','owner','group','mode','contentSource','sourceRefs') 'candidateDirectory'
+        Assert-StrictPosixRelativePath $directory.relativePath; Assert-True ($paths.Add([string]$directory.relativePath)) 'candidate-path-duplicate'
+        Assert-True ($directory.owner -ceq 'dsh' -and $directory.group -ceq 'dsh' -and $directory.mode -ceq '0700' -and @('installed-default','approved-setting')-ccontains[string]$directory.contentSource) 'candidate-directory'
+        Assert-True (@($directory.sourceRefs).Count -gt 0) 'candidate-source-empty'; foreach($ref in @($directory.sourceRefs)){Assert-InstalledSourceRef $ref $packageRoot}
     }
+    foreach($file in @($blueprint.files)){
+        Assert-ExactKeys $file @('relativePath','owner','group','mode','contentLines','contentSha256','contentSource','sourceRefs') 'candidateFile'
+        Assert-StrictPosixRelativePath $file.relativePath; Assert-True ($paths.Add([string]$file.relativePath)) 'candidate-path-duplicate'
+        Assert-True ($file.owner -ceq 'dsh' -and $file.group -ceq 'dsh' -and ([Convert]::ToInt32($file.mode,8) -band 63) -eq 0 -and @('installed-default','approved-setting')-ccontains[string]$file.contentSource) 'candidate-file'
+        $bytes=[Text.Encoding]::UTF8.GetBytes((@($file.contentLines)-join "`n")+"`n"); Assert-True ((Get-UpperSha256 $bytes) -ceq $file.contentSha256) 'candidate-content-digest'
+        Assert-True (@($file.sourceRefs).Count -gt 0) 'candidate-source-empty'; foreach($ref in @($file.sourceRefs)){Assert-InstalledSourceRef $ref $packageRoot}
+    }
+    $static=$blueprint.staticValidation
+    Assert-ExactKeys $static @('supported','executable','argv','timeoutSeconds','parser','acceptedResults','sourceRefs') 'staticValidation'
+    Assert-True ($static.timeoutSeconds -ge 1 -and $static.timeoutSeconds -le 30) 'static-timeout'
+    if($static.supported){Assert-StrictPosixPath $static.executable $packageRoot; Assert-True (@($static.argv).Count -gt 0 -and @($static.acceptedResults).Count -gt 0) 'static-contract'}
+    else {Assert-True ($null -eq $static.executable -and @($static.argv).Count -eq 0 -and $static.parser -ceq 'NoneV1' -and @($static.acceptedResults).Count -eq 0) 'static-disabled-contract'}
+    foreach($ref in @($static.sourceRefs)){Assert-InstalledSourceRef $ref $packageRoot}
+    $selectorExpected=Get-CanonicalStageDigest $Evidence.selectorDiscovery @('selectorDigest','review')
+    Assert-True ($Evidence.selectorDiscovery.selectorDigest -ceq $selectorExpected) 'selector-stage-digest'
+    Assert-True ($Evidence.selectorDiscovery.selectorDigest -ceq $Evidence.selectorDiscovery.review.reviewedDigest) 'selector-review-digest'
+    Assert-PrivilegeSeam @($Evidence.cutoverPrerequisites.privilegeSeam.receipts) ([string]$Evidence.target.futureDropInFile)
     if ($Stage -in @('Candidate','Closeout')) {
+        Assert-ExactKeys $Evidence.candidatePreparation @('selectorDigest','candidateDigest','startedAt','finishedAt','verdict','checks','mutationLedger','runtimeVerdict','blockers','review') 'candidatePreparation'
+        Assert-True ($Evidence.candidatePreparation.selectorDigest -ceq $Evidence.selectorDiscovery.selectorDigest) 'candidate-selector-digest'
         Assert-True ($Evidence.candidatePreparation.runtimeVerdict -ceq 'NOT PROVEN') 'runtime-verdict'
+        Assert-True ($Evidence.candidatePreparation.candidateDigest -ceq (Get-CanonicalStageDigest $Evidence.candidatePreparation @('candidateDigest','review'))) 'candidate-stage-digest'
         $blocked=$false
+        $expectedCheckIds=@('selector-gate','target-preflight','create-parent','create-root','write-blueprint','metadata','static-validation','secret-scan','service-unchanged','network-unchanged')
+        $checkIndex=0
         foreach($check in @($Evidence.candidatePreparation.checks)){
+            Assert-ExactKeys $check @('order','id','result','observedAt','parser','safeObservation','failureState') 'candidateCheck'
+            Assert-True ($check.order -eq $checkIndex+1 -and $check.id -ceq $expectedCheckIds[$checkIndex] -and @('PASS','BLOCKED')-ccontains[string]$check.result -and -not[string]::IsNullOrWhiteSpace([string]$check.parser) -and $check.failureState-ceq'BLOCKED') 'candidate-check-fields'
             if($blocked){throw 'continued-after-block'}
             if($check.result -ceq 'BLOCKED'){$blocked=$true}
+            $checkIndex++
+        }
+        if($Evidence.candidatePreparation.verdict-ceq'PASS'){Assert-True ($checkIndex-eq10) 'candidate-check-count'}
+        $last=0
+        foreach($entry in @($Evidence.candidatePreparation.mutationLedger)){
+            Assert-ExactKeys $entry @('order','operation','path','contentSha256','result','at','secretObserved') 'mutationLedgerEntry'
+            Assert-True ($entry.order -eq ++$last -and @('CREATE_DIRECTORY','WRITE_FILE') -ccontains [string]$entry.operation -and @('PASS','BLOCKED') -ccontains [string]$entry.result -and -not $entry.secretObserved) 'mutation-ledger-fields'
+            if($entry.path -ceq '/home/dsh/.dsh-profiles'){Assert-True ($entry.operation -ceq 'CREATE_DIRECTORY' -and $null -eq $entry.contentSha256) 'mutation-ledger-parent'}
+            elseif($entry.path -ceq $Evidence.target.candidateRoot){Assert-True ($entry.operation -ceq 'CREATE_DIRECTORY' -and $null -eq $entry.contentSha256) 'mutation-ledger-root'}
+            else {Assert-StrictPosixPath $entry.path $Evidence.target.candidateRoot; if($entry.operation -ceq 'CREATE_DIRECTORY'){Assert-True ($null -eq $entry.contentSha256) 'mutation-ledger-directory'}else{Assert-True ($entry.contentSha256 -match '^[A-F0-9]{64}$') 'mutation-ledger-file'}}
         }
     }
 }
@@ -262,16 +392,22 @@ function New-SyntheticPreparationRecord {
         )
         claim = 'synthetic safe unit facts'
     }
-    $privilege = [pscustomobject]@{
-        sourceClass = 'privilege-receipt'; operationId = 'synthetic-install'; capturedAt = $time
-        queryUser = 'dsh'; sudoPath = '/usr/bin/sudo'; targetExecutable = '/usr/bin/install'
-        targetArgv = @('-m','0644','/dev/stdin','/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf')
-        noninteractive = $true; result = 'DENIED'; exitCode = 1; rawOutputStored = $false
-        claim = 'synthetic denied privilege'
-    }
+    $futureFile='/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf'
+    $privilegeSpecs=@(
+        @('future-install','/usr/bin/install','-o','root','-g','root','-m','0644','/dev/stdin',$futureFile),
+        @('future-remove','/usr/bin/rm','-f','--',$futureFile),
+        @('future-stop','/usr/bin/systemctl','stop','deepseek-harness.service'),
+        @('future-start','/usr/bin/systemctl','start','deepseek-harness.service'),
+        @('future-reload','/usr/bin/systemctl','daemon-reload'),
+        @('future-status','/usr/bin/systemctl','show','deepseek-harness.service')
+    )
+    $privileges=@($privilegeSpecs | ForEach-Object {[pscustomobject]@{
+        sourceClass='privilege-receipt';operationId=$_[0];capturedAt=$time;queryUser='dsh';sudoPath='/usr/bin/sudo';targetExecutable=$_[1]
+        targetArgv=@($_[2..($_.Count-1)]);noninteractive=$true;result='DENIED';exitCode=1;rawOutputStored=$false;claim='synthetic denied privilege'
+    }})
     $contentLines = @('server:','  host: 127.0.0.1','  port: 3080','providers: []','automaticFallback: false')
     $contentBytes = [Text.Encoding]::UTF8.GetBytes(($contentLines -join "`n") + "`n")
-    return [pscustomobject]@{
+    $record=[pscustomobject]@{
         schemaVersion = 1; workflowId = 'vm105-profile-preparation'
         target = [pscustomobject]@{
             hostname='deepseek-harness-01';address='192.0.2.105';sshHostKeyIdentity='SHA256:synthetic'
@@ -314,15 +450,18 @@ function New-SyntheticPreparationRecord {
                 staticValidation=[pscustomobject]@{supported=$false;executable=$null;argv=@();timeoutSeconds=1;parser='NoneV1';acceptedResults=@();sourceRefs=@($source)}
                 policyAssertions=[pscustomobject]@{bindHost='127.0.0.1';port=3080;activeProviderRoutes=0;automaticFallback=$false;providerSelectionConfigured=$false;oauthStateConfigured=$false;hermesReferences=$false}
             }
-            selectorDigest=$digest;review=[pscustomobject]@{status='ACCEPTED';reviewedAt=$time;reviewer='synthetic-reviewer';reviewedDigest=$digest;findings=@()}
+            selectorDigest=$null;review=[pscustomobject]@{status='ACCEPTED';reviewedAt=$time;reviewer='synthetic-reviewer';reviewedDigest=$null;findings=@()}
         }
         cutoverPrerequisites=[pscustomobject]@{
-            observedAt=$time;verdict='BLOCKED';privilegeSeam=[pscustomobject]@{verdict='BLOCKED';receipts=@($privilege)}
+            observedAt=$time;verdict='BLOCKED';privilegeSeam=[pscustomobject]@{verdict='BLOCKED';receipts=$privileges}
             dropInDirectory=[pscustomobject]@{path='/etc/systemd/system/deepseek-harness.service.d';exists=$false;realDirectory=$false;owner=$null;group=$null;mode=$null;linkStatus='absent';broadAcl=$null;unexpectedMount=$null;verdict='BLOCKED'}
             blockers=@('Synthetic privilege seam denied')
         }
         candidatePreparation=$null;closeout=$null;operationLedger=@()
     }
+    $record.selectorDiscovery.selectorDigest=Get-CanonicalStageDigest $record.selectorDiscovery @('selectorDigest','review')
+    $record.selectorDiscovery.review.reviewedDigest=$record.selectorDiscovery.selectorDigest
+    return $record
 }
 
 function New-SyntheticCandidateResult {
@@ -337,15 +476,34 @@ function New-SyntheticCandidateResult {
         if ($result -ceq 'BLOCKED') { $blocked = $true }
     }
     $verdict = if ($blocked) { 'BLOCKED' } else { 'PASS' }
-    return [pscustomobject]@{selectorDigest=('A'*64);candidateDigest=('B'*64);startedAt='2026-09-08T00:00:00Z';finishedAt='2026-09-08T00:00:01Z';verdict=$verdict;checks=@($checks);mutationLedger=@();runtimeVerdict='NOT PROVEN';blockers=@();review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()}}
+    $candidate=[pscustomobject]@{selectorDigest=('A'*64);candidateDigest=$null;startedAt='2026-09-08T00:00:00Z';finishedAt='2026-09-08T00:00:01Z';verdict=$verdict;checks=@($checks);mutationLedger=@();runtimeVerdict='NOT PROVEN';blockers=@();review=[pscustomobject]@{status='PENDING';reviewedAt=$null;reviewer=$null;reviewedDigest=$null;findings=@()}}
+    $candidate.candidateDigest=Get-CanonicalStageDigest $candidate @('candidateDigest','review')
+    return $candidate
 }
 ```
 
 The self-test body uses only synthetic values and must include concrete cross-class and continuation assertions:
 
 ```powershell
+$script:NegativeTestCount=0;$positiveCount=0
 $good = New-SyntheticPreparationRecord
 Test-PreparationEvidence $good 'Selector'
+$positiveCount++
+Assert-StrictPosixPath '/opt/deepseek-harness/package/index.js' '/opt/deepseek-harness'
+Assert-Throws { Assert-StrictPosixPath 'opt/deepseek-harness/x' '/opt/deepseek-harness' } 'posix-path-relative'
+Assert-Throws { Assert-StrictPosixPath '/opt/deepseek-harness/../etc' '/opt/deepseek-harness' } 'posix-path-shape'
+Assert-Throws { Assert-StrictPosixPath '/opt//deepseek-harness/x' '/opt/deepseek-harness' } 'posix-path-shape'
+Assert-Throws { Assert-StrictPosixPath '/opt/deepseek-harness\x' '/opt/deepseek-harness' } 'posix-path-shape'
+Assert-Throws { Assert-StrictPosixPath '/tmp/x' '/opt/deepseek-harness' } 'posix-path-root'
+
+$missingAbsolute=Copy-SyntheticRecord $good; $missingAbsolute.selectorDiscovery.selector.proof.absolutePath=@()
+Assert-Throws { Test-PreparationEvidence $missingAbsolute 'Selector' } 'absolutePath'
+$missingPrecedence=Copy-SyntheticRecord $good; $missingPrecedence.selectorDiscovery.selector.proof.precedence=@()
+Assert-Throws { Test-PreparationEvidence $missingPrecedence 'Selector' } 'precedence'
+$missingNonMerge=Copy-SyntheticRecord $good; $missingNonMerge.selectorDiscovery.selector.proof.nonMerge=@()
+Assert-Throws { Test-PreparationEvidence $missingNonMerge 'Selector' } 'nonMerge'
+$missingCompatibility=Copy-SyntheticRecord $good; $missingCompatibility.selectorDiscovery.selector.proof.serviceCompatibility.installed=@()
+Assert-Throws { Test-PreparationEvidence $missingCompatibility 'Selector' } 'service-compatibility'
 
 $wrongSelectorClass = Copy-SyntheticRecord $good
 $wrongSelectorClass.selectorDiscovery.selector.proof.nonMerge[0] = $wrongSelectorClass.cutoverPrerequisites.privilegeSeam.receipts[0]
@@ -365,6 +523,8 @@ Assert-Throws { Test-PreparationEvidence $unsafeBlueprint 'Selector' } 'candidat
 
 $continuedAfterFailure = Copy-SyntheticRecord $good
 $continuedAfterFailure.candidatePreparation = New-SyntheticCandidateResult -FailAt 'write-blueprint' -ContinueAfterFailure
+$continuedAfterFailure.candidatePreparation.selectorDigest=$continuedAfterFailure.selectorDiscovery.selectorDigest
+$continuedAfterFailure.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $continuedAfterFailure.candidatePreparation @('candidateDigest','review')
 Assert-Throws { Test-PreparationEvidence $continuedAfterFailure 'Candidate' } 'continued-after-block'
 
 $outsideSource = Copy-SyntheticRecord $good
@@ -373,7 +533,20 @@ Assert-Throws { Test-PreparationEvidence $outsideSource 'Selector' } 'installed-
 
 $linkedWrapper = Copy-SyntheticRecord $good
 $linkedWrapper.selectorDiscovery.installedEntrypoint.wrapperSymlink = $true
-Assert-Throws { Test-PreparationEvidence $linkedWrapper 'Selector' } 'installed-symlink'
+Assert-Throws { Test-PreparationEvidence $linkedWrapper 'Selector' } 'installed-wrapper-fields'
+
+$wrongInstalledFields=Copy-SyntheticRecord $good; $wrongInstalledFields.selectorDiscovery.installedEntrypoint.entrypointOwner='dsh'
+Assert-Throws { Test-PreparationEvidence $wrongInstalledFields 'Selector' } 'installed-entrypoint-fields'
+
+$duplicateUnit=Copy-SyntheticRecord $good; $duplicateUnit.selectorDiscovery.selector.proof.serviceCompatibility.unit[0].observations[1].name='User'
+Assert-Throws { Test-PreparationEvidence $duplicateUnit 'Selector' } 'unit-property-duplicate'
+
+$fivePrivileges=Copy-SyntheticRecord $good; $fivePrivileges.cutoverPrerequisites.privilegeSeam.receipts=@($fivePrivileges.cutoverPrerequisites.privilegeSeam.receipts[0..4])
+Assert-Throws { Test-PreparationEvidence $fivePrivileges 'Selector' } 'privilege-receipt-count'
+$wrongPrivilegeArgv=Copy-SyntheticRecord $good; $wrongPrivilegeArgv.cutoverPrerequisites.privilegeSeam.receipts[0].targetArgv[1]='dsh'
+Assert-Throws { Test-PreparationEvidence $wrongPrivilegeArgv 'Selector' } 'privilege-receipt-argv'
+$wrongPrivilegeResult=Copy-SyntheticRecord $good; $wrongPrivilegeResult.cutoverPrerequisites.privilegeSeam.receipts[0].result='ALLOWED'
+Assert-Throws { Test-PreparationEvidence $wrongPrivilegeResult 'Selector' } 'privilege-receipt-exit'
 
 $wrongRoot = Copy-SyntheticRecord $good
 $wrongRoot.target.candidateRoot = '/home/dsh/other'
@@ -383,21 +556,43 @@ $wideFile = Copy-SyntheticRecord $good
 $wideFile.selectorDiscovery.candidateBlueprint.files[0].mode = '0644'
 Assert-Throws { Test-PreparationEvidence $wideFile 'Selector' } 'candidate-file'
 
+$wrongChildKeys=Copy-SyntheticRecord $good; $wrongChildKeys.selectorDiscovery.candidateBlueprint.files[0] | Add-Member -NotePropertyName extra -NotePropertyValue 'x'
+Assert-Throws { Test-PreparationEvidence $wrongChildKeys 'Selector' } 'candidateFile keys'
+$duplicatePath=Copy-SyntheticRecord $good; $duplicatePath.selectorDiscovery.candidateBlueprint.files[0].relativePath='state'
+Assert-Throws { Test-PreparationEvidence $duplicatePath 'Selector' } 'candidate-path-duplicate'
+$contentMismatch=Copy-SyntheticRecord $good; $contentMismatch.selectorDiscovery.candidateBlueprint.files[0].contentSha256='B'*64
+Assert-Throws { Test-PreparationEvidence $contentMismatch 'Selector' } 'candidate-content-digest'
+$wrongCandidateSource=Copy-SyntheticRecord $good; $wrongCandidateSource.selectorDiscovery.candidateBlueprint.files[0].sourceRefs[0]=$wrongCandidateSource.cutoverPrerequisites.privilegeSeam.receipts[0]
+Assert-Throws { Test-PreparationEvidence $wrongCandidateSource 'Selector' } 'installedSourceRef'
+
+$stageDrift=Copy-SyntheticRecord $good; $stageDrift.selectorDiscovery.installedVersion='drift'
+Assert-Throws { Test-PreparationEvidence $stageDrift 'Selector' } 'selector-stage-digest'
+
 $digestDrift = Copy-SyntheticRecord $good
 $digestDrift.selectorDiscovery.review.reviewedDigest = 'B' * 64
 Assert-Throws { Test-PreparationEvidence $digestDrift 'Selector' } 'selector-review-digest'
 
 $runtimeClaim = Copy-SyntheticRecord $good
 $runtimeClaim.candidatePreparation = New-SyntheticCandidateResult -FailAt ''
+$runtimeClaim.candidatePreparation.selectorDigest=$runtimeClaim.selectorDiscovery.selectorDigest
 $runtimeClaim.candidatePreparation.runtimeVerdict = 'PASS'
+$runtimeClaim.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $runtimeClaim.candidatePreparation @('candidateDigest','review')
 Assert-Throws { Test-PreparationEvidence $runtimeClaim 'Candidate' } 'runtime-verdict'
+
+$badLedger=Copy-SyntheticRecord $good; $badLedger.candidatePreparation=New-SyntheticCandidateResult -FailAt ''; $badLedger.candidatePreparation.selectorDigest=$badLedger.selectorDiscovery.selectorDigest
+$badLedger.candidatePreparation.mutationLedger=@([pscustomobject]@{order=1;operation='SYSTEMCTL';path='/home/dsh/.dsh-profiles/vm105-provider-v1';contentSha256=$null;result='PASS';at='2026-09-08T00:00:00Z';secretObserved=$false})
+$badLedger.candidatePreparation.candidateDigest=Get-CanonicalStageDigest $badLedger.candidatePreparation @('candidateDigest','review')
+Assert-Throws { Test-PreparationEvidence $badLedger 'Candidate' } 'mutation-ledger-fields'
 
 Assert-Throws { Test-NonExecutableHandoff "systemctl stop deepseek-harness.service`nNOT PROVEN`nno authority" } 'executable-handoff'
 $safeHandoff = "Preparation ready; no authority granted.`nRuntime remains NOT PROVEN."
 Test-NonExecutableHandoff $safeHandoff
+$positiveCount++
 
 $captured = & { Test-SyntheticSecretScanner 'api_key: synthetic_nonempty_value' } 2>&1 | Out-String
 Assert-True ($captured -notmatch 'synthetic_nonempty_value') 'secret-output-suppression'
+Assert-True ($positiveCount -eq 2 -and $script:NegativeTestCount -eq 32) 'self-test-count-drift'
+"SELF_TEST_PASS positive=$positiveCount negative=$script:NegativeTestCount"
 ```
 
 `New-SyntheticPreparationRecord`, `New-SyntheticCandidateResult`, and `Test-SyntheticSecretScanner` are private functions in the same script. The record factory must populate every Shared Preparation Contract field with the fixed synthetic hostname `deepseek-harness-01`, documentation address `192.0.2.105`, `/opt/deepseek-harness/package/index.js`, all five installed-source store proofs, zero routes, fallback false, one denied privilege receipt, and no secret-shaped data; the candidate-result factory emits the ten ordered check IDs and stops its ledger at the requested failed check.
@@ -418,7 +613,7 @@ Implement canonical JSON, uppercase SHA-256, exact schema checks, and a value-su
 10. Closeout handoff containing executable/argv/command/script fields or implying cutover/credential authority.
 11. Suppressed scanner output accidentally containing the synthetic secret value.
 
-Run `./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest` before completing validator logic. Expected RED: nonzero exit with `Expected rejection was not raised`. After implementing the private factories plus all assertions, expected GREEN: exit 0 with `SELF_TEST_PASS positive=2 negative=13`, and no synthetic value in output.
+Run `./scripts/Test-VM105ProfilePreparation.ps1 -SelfTest` before completing validator logic. Expected RED: nonzero exit with `Expected rejection was not raised`. After implementing the private factories plus all assertions, expected GREEN: exit 0 with `SELF_TEST_PASS positive=2 negative=32`, matching the 32 explicit `Assert-Throws` calls above, and no synthetic value in output.
 
 - [ ] **Step 2: Revalidate repository, VM, service, listener, and wrapper metadata read-only**
 
@@ -488,9 +683,58 @@ function ConvertFrom-SanitizedUnitLines {
 $unitRef = ConvertFrom-SanitizedUnitLines $unitLines
 $unitMap = @{}; foreach ($item in $unitRef.observations) { $unitMap[$item.name] = $item.value }
 if ($unitMap.User -cne 'dsh' -or $unitMap.Group -cne 'dsh' -or $unitMap.ActiveState -cne 'active' -or $unitMap.SubState -cne 'running') { throw 'Unexpected service baseline' }
+
+function ConvertFrom-ListenerLines {
+    param([string[]]$Lines)
+    $items=foreach($line in $Lines){
+        if($line -notmatch '^LISTEN\s+\d+\s+\d+\s+(\S+):3080\s+'){throw 'Malformed listener observation'}
+        $address=$Matches[1].Trim('[',']')
+        if(@('127.0.0.1','::1') -cnotcontains $address){throw 'Non-loopback listener'}
+        [pscustomobject]@{address=$address;port=3080;protocol='tcp'}
+    }
+    if(@($items).Count -eq 0){throw 'Missing listener'}
+    return @($items)
+}
+
+function Get-LocalHttpObservation {
+    param([scriptblock]$Reader)
+    $token=((& $Reader @('/usr/bin/curl','--silent','--show-error','--output','/dev/null','--max-time','5','--write-out','HTTP%{http_code}','http://127.0.0.1:3080/'))-join '')
+    if($token -notmatch '^HTTP([0-9]{3})$'){throw 'Malformed local HTTP observation'}
+    return [pscustomobject]@{url='http://127.0.0.1:3080/';statusCode=[int]$Matches[1];exitCode=0}
+}
+
+function ConvertFrom-UfwLines {
+    param([string[]]$Lines)
+    $active=$false;$defaults=$null;$ids=[Collections.Generic.List[string]]::new();$tcp3080=$false
+    foreach($line in $Lines){
+        if($line -match '^Status:\s+(active|inactive)$'){$active=$Matches[1]-ceq'active';continue}
+        if($line -match '^Default:\s+(.+)$'){$defaults=($Matches[1]-replace '\s+','-').ToLowerInvariant();continue}
+        if($line -match '^\[\s*(\d+)\]\s+(.+)$'){$ids.Add("rule-$($Matches[1])");if($Matches[2]-match '(^|\s)3080(/tcp)?\s+.*ALLOW'){$tcp3080=$true}}
+    }
+    if($null -eq $defaults){throw 'Malformed UFW observation'}
+    return [pscustomobject]@{active=$active;defaults=$defaults;ruleIds=@($ids);tcp3080Allowed=$tcp3080}
+}
+
+function Get-DirectLanObservation {
+    param([string]$Source,[string]$Destination,[int]$Port=3080,[int]$TimeoutMs=1500)
+    $client=[Net.Sockets.TcpClient]::new();$cts=[Threading.CancellationTokenSource]::new($TimeoutMs)
+    try{$client.ConnectAsync($Destination,$Port,$cts.Token).GetAwaiter().GetResult();$denied=$false}catch{$denied=$true}finally{$client.Dispose();$cts.Dispose()}
+    return [pscustomobject]@{source=$Source;destination=$Destination;port=$Port;denied=$denied;timeoutMs=$TimeoutMs}
+}
+
+$listeners=ConvertFrom-ListenerLines $listenerLines
+$localHttp=Get-LocalHttpObservation {param($argv) Invoke-StrictSsh $argv}
+$ufw=ConvertFrom-UfwLines (Invoke-StrictSsh @('/usr/bin/sudo','-n','/usr/sbin/ufw','status','numbered'))
+$directLan=Get-DirectLanObservation 'controller-lan' '192.168.1.139'
+$baseline=[pscustomobject]@{
+    repositoryOrigin=$expectedOrigin;branch='codex/vm105-authoritative-roadmap';capturedAt=(Get-Date).ToUniversalTime().ToString('o')
+    hostname=$hostname;address='192.168.1.139';sshHostKeyIdentity='accepted-known-host';installedVersion=$version
+    service=$unitRef;listeners=$listeners;localHttp=$localHttp;ufw=$ufw;directLanDenied=$directLan
+}
+if($localHttp.statusCode -ne 200 -or -not $ufw.active -or $ufw.tcp3080Allowed -or -not $directLan.denied){throw 'Network baseline mismatch'}
 ```
 
-Expected parsed result: eleven unique allowlisted observations; `User=dsh`, `Group=dsh`, `ActiveState=active`, `SubState=running`, and no environment or unknown property.
+Expected typed result: eleven unique allowlisted service observations; one or more loopback-only TCP/3080 listeners; local HTTP `{ statusCode: 200, exitCode: 0 }`; active UFW with `tcp3080Allowed: false`; and bounded direct-LAN `{ denied: true, timeoutMs: 1500 }`. No raw UFW, curl, listener, or socket error text enters evidence.
 
 - [ ] **Step 3: Verify the wrapper and discover only from its fixed installed entrypoint**
 
@@ -501,21 +745,26 @@ Build selector semantic proof exclusively from `installedSourceRef` records. Pro
 Use this fail-closed parser and package-root walk; it returns `BLOCKED` instead of guessing:
 
 ```powershell
+function ConvertFrom-InstalledFileMetadata {
+    param([string]$Line,[string]$ExpectedPath,[string]$RequiredOwner,[string]$RequiredGroup)
+    $parts=$Line -split '\|',6
+    if($parts.Count-ne 6 -or $parts[0]-cne $ExpectedPath -or $parts[1]-cne 'regular file' -or $parts[2]-cne $RequiredOwner -or $parts[3]-cne $RequiredGroup -or [int]$parts[5]-ne 1){throw 'BLOCKED installed file metadata'}
+    if(([Convert]::ToInt32($parts[4],8)-band 18)-ne 0){throw 'BLOCKED writable installed file'}
+    return [pscustomobject]@{path=$parts[0];type=$parts[1];symlink=$false;owner=$parts[2];group=$parts[3];mode=('0'+$parts[4]);linkCount=[int]$parts[5]}
+}
+
 function Get-VerifiedInstalledEntrypoint {
     $statLine = (Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--','/usr/local/bin/dsh')) -join ''
-    $parts = $statLine -split '\|',6
-    if ($parts.Count -ne 6 -or $parts[0] -cne '/usr/local/bin/dsh' -or $parts[1] -cne 'regular file' -or $parts[2] -cne 'root' -or $parts[3] -cne 'root' -or [int]$parts[5] -ne 1) { throw 'BLOCKED wrapper metadata' }
-    if (([Convert]::ToInt32($parts[4],8) -band 18) -ne 0) { throw 'BLOCKED writable wrapper' }
+    $wrapper=ConvertFrom-InstalledFileMetadata $statLine '/usr/local/bin/dsh' 'root' 'root'
     $wrapperLines = Invoke-StrictSsh @('/usr/bin/cat','--','/usr/local/bin/dsh')
     $meaningful = @($wrapperLines | Where-Object { $_ -and $_ -notmatch '^#!' -and $_ -notmatch '^set -e(?:u)?$' })
     if ($meaningful.Count -ne 1) { throw 'BLOCKED wrapper shape' }
     $match = [regex]::Match($meaningful[0], '^exec\s+(?:(/[A-Za-z0-9._/-]+)\s+)?(/opt/deepseek-harness/[A-Za-z0-9._/-]+)(?:\s+"\$@")?\s*$')
     if (-not $match.Success -or $meaningful[0] -match '\$\(|`|\$\{') { throw 'BLOCKED wrapper entrypoint' }
     $entrypoint = $match.Groups[2].Value
+    Assert-StrictPosixPath $entrypoint '/opt/deepseek-harness'
     $entryStat = (Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$entrypoint)) -join ''
-    $entryParts = $entryStat -split '\|',6
-    if ($entryParts.Count -ne 6 -or $entryParts[0] -cne $entrypoint -or $entryParts[1] -cne 'regular file' -or [int]$entryParts[5] -ne 1) { throw 'BLOCKED entrypoint metadata' }
-    if (([Convert]::ToInt32($entryParts[4],8) -band 18) -ne 0) { throw 'BLOCKED writable entrypoint' }
+    $entry=ConvertFrom-InstalledFileMetadata $entryStat $entrypoint 'root' 'root'
     $current = $entrypoint.Substring(0,$entrypoint.LastIndexOf('/'))
     $packageRoot = $null
     while ($current.StartsWith('/opt/deepseek-harness/',[StringComparison]::Ordinal) -or $current -ceq '/opt/deepseek-harness') {
@@ -528,8 +777,8 @@ function Get-VerifiedInstalledEntrypoint {
     $wrapperSha=((Invoke-StrictSsh @('/usr/bin/sha256sum','--','/usr/local/bin/dsh')) -join '').Split(' ')[0].ToUpperInvariant()
     $entrySha=((Invoke-StrictSsh @('/usr/bin/sha256sum','--',$entrypoint)) -join '').Split(' ')[0].ToUpperInvariant()
     return [pscustomobject]@{
-        wrapperPath='/usr/local/bin/dsh';wrapperType=$parts[1];wrapperSymlink=$false;wrapperOwner=$parts[2];wrapperGroup=$parts[3];wrapperMode=$parts[4];wrapperLinkCount=[int]$parts[5];wrapperSha256=$wrapperSha
-        entrypointPath=$entrypoint;entrypointType=$entryParts[1];entrypointSymlink=$false;entrypointOwner=$entryParts[2];entrypointGroup=$entryParts[3];entrypointMode=$entryParts[4];entrypointLinkCount=[int]$entryParts[5];entrypointSha256=$entrySha
+        wrapperPath=$wrapper.path;wrapperType=$wrapper.type;wrapperSymlink=$wrapper.symlink;wrapperOwner=$wrapper.owner;wrapperGroup=$wrapper.group;wrapperMode=$wrapper.mode;wrapperLinkCount=$wrapper.linkCount;wrapperSha256=$wrapperSha
+        entrypointPath=$entry.path;entrypointType=$entry.type;entrypointSymlink=$entry.symlink;entrypointOwner=$entry.owner;entrypointGroup=$entry.group;entrypointMode=$entry.mode;entrypointLinkCount=$entry.linkCount;entrypointSha256=$entrySha
         packageRoot=$packageRoot;packageName=$package.name;packageVersion=$package.version
     }
 }
@@ -591,14 +840,14 @@ $privilegeReceipts = @(
 
 function Get-DropInDirectoryObservation {
     $path='/etc/systemd/system/deepseek-harness.service.d'
-    try { $stat=(Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a|%h','--',$path)) -join '' }
+    try { $stat=(Invoke-StrictSsh @('/usr/bin/stat','-c','%n|%F|%U|%G|%a','--',$path)) -join '' }
     catch { return [pscustomobject]@{path=$path;exists=$false;realDirectory=$false;owner=$null;group=$null;mode=$null;linkStatus='absent';broadAcl=$null;unexpectedMount=$null;verdict='BLOCKED'} }
-    $parts=$stat -split '\|',6
-    if ($parts.Count -ne 6) { throw 'Malformed drop-in directory metadata' }
+    $parts=$stat -split '\|',5
+    if ($parts.Count -ne 5) { throw 'Malformed drop-in directory metadata' }
     $acl=Invoke-StrictSsh @('/usr/bin/getfacl','-cp','--',$path)
     $mount=(Invoke-StrictSsh @('/usr/bin/findmnt','-n','-o','TARGET','--target',$path)) -join ''
     $broadAcl=@($acl | Where-Object { $_ -match '^(group|other|mask)::.*w' }).Count -gt 0
-    $safe=($parts[1] -ceq 'directory' -and $parts[2] -ceq 'root' -and $parts[3] -ceq 'root' -and $parts[4] -ceq '755' -and [int]$parts[5] -eq 1 -and -not $broadAcl -and $mount -ceq '/')
+    $safe=($parts[1] -ceq 'directory' -and $parts[2] -ceq 'root' -and $parts[3] -ceq 'root' -and $parts[4] -ceq '755' -and -not $broadAcl -and $mount -ceq '/')
     [pscustomobject]@{path=$path;exists=$true;realDirectory=($parts[1] -ceq 'directory');owner=$parts[2];group=$parts[3];mode=$parts[4];linkStatus='not-link';broadAcl=$broadAcl;unexpectedMount=($mount -cne '/');verdict=$(if($safe){'PASS'}else{'BLOCKED'})}
 }
 
@@ -713,7 +962,7 @@ function Invoke-InitializerSelfTest {
 
 Require exactly one mode. Before constructing SSH, reject a non-`PASS`/unaccepted selector, digest drift, unsafe or existing target/parent, blueprint/hash/path/mode/reference failure, provider/OAuth/secret content, and every destination outside `/home/dsh/.dsh-profiles/vm105-provider-v1`. Inject a fake SSH adapter only in self-test.
 
-Fail each post-create operation in turn: parent creation, candidate-root creation, each directory/file write, metadata verification, static validation, secret scan, and unchanged-service/network check. After the first failure, assert `candidatePreparation.verdict: BLOCKED`, no later write, no cleanup/remove/repair, no service/systemd command, and no old-profile operation. Preserve candidate paths already created before failure for review. The positive synthetic run executes every planned candidate write once and zero service/systemd operations.
+Fail each post-create operation in turn: parent creation, candidate-root creation, each directory/file write, metadata verification, static validation, secret scan, and unchanged-service/network check. After the first failure, assert `candidatePreparation.verdict: BLOCKED`, no later write, no cleanup/remove/repair, no service lifecycle or privileged mutation, and no old-profile operation. Preserve candidate paths already created before failure for review. The positive synthetic run executes every planned candidate write once and only the two exact read-only baseline queries.
 
 Expected RED from `./scripts/Initialize-VM105ProviderProfile.ps1 -AcceptedSelectorDigest ('A'*64) -SelfTest`: nonzero exit with `continued after failure` until stop-on-first-failure is implemented. Expected GREEN: exit 0 with `SELF_TEST_PASS failures=8 positive=1` and zero SSH calls.
 
@@ -728,7 +977,7 @@ The `-Prepare` path first reruns the Task 1 selector validator and revalidates V
 5. Read only newly created candidate files through the value-suppressing scanner.
 6. Revalidate the existing service is active and unchanged, loopback-only, locally healthy, UFW unchanged with no TCP 3080 allowance, and direct LAN TCP 3080 denied.
 
-The initializer has no service/systemd/sudo command and rejects such an operation in evidence or adapter input. It never starts Harness against the candidate. Any post-create failure records `BLOCKED`, stops remaining writes, and leaves the candidate untouched for review; it does not delete, repair, or normalize it.
+The initializer rejects every service lifecycle or privilege-changing command. Its only systemd/sudo argv are the exact read-only `systemctl show` and `sudo -n ufw status numbered` baselines. It never starts Harness against the candidate. Any post-create failure records `BLOCKED`, stops remaining writes, and leaves the candidate untouched for review; it does not delete, repair, or normalize it.
 
 Implement path confinement and atomic SSH/stdin transfer with these concrete functions:
 
@@ -738,17 +987,43 @@ $sshBaseArgs=@('-i',$SshKey,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o',
 
 function Resolve-CandidatePath {
     param([string]$RelativePath)
-    if(-not $RelativePath -or $RelativePath.StartsWith('/') -or $RelativePath -match '(^|/)\.\.(/|$)|[\x00-\x1f;&|`$<>]'){throw 'unsafe candidate path'}
-    $normalized=($RelativePath -replace '\\','/').Trim('/')
-    $absolute="$candidateRoot/$normalized"
-    if(-not $absolute.StartsWith("$candidateRoot/",[StringComparison]::Ordinal)){throw 'candidate path escape'}
+    Assert-StrictPosixRelativePath $RelativePath
+    $absolute="$candidateRoot/$RelativePath"
+    Assert-StrictPosixPath $absolute $candidateRoot
     return $absolute
+}
+
+function ConvertFrom-CandidateMetadata {
+    param([string]$StatLine,[string[]]$AclLines,[string]$MountTarget,[string]$ExpectedPath,[ValidateSet('directory','file')][string]$Kind,[string]$ContentSha256)
+    $parts=$StatLine -split '\|',6
+    if($parts.Count-ne 6 -or $parts[0]-cne $ExpectedPath -or $parts[2]-cne 'dsh' -or $parts[3]-cne 'dsh'){throw 'candidate metadata mismatch'}
+    $isDirectory=$parts[1]-ceq'directory';$isFile=$parts[1]-ceq'regular file'
+    if(($Kind-eq'directory'-and(-not $isDirectory-or $parts[4]-cne'700'))-or($Kind-eq'file'-and(-not $isFile-or([Convert]::ToInt32($parts[4],8)-band 63)-ne 0-or[int]$parts[5]-ne 1))){throw 'candidate object mismatch'}
+    $broadAcl=@($AclLines|Where-Object{$_-match'^(group|other|mask)::.*w'}).Count-gt 0
+    $unexpectedMount=($MountTarget-cne'/')
+    if($broadAcl-or$unexpectedMount){throw 'candidate metadata unsafe'}
+    if($Kind-eq'directory'){
+        return [pscustomobject]@{path=$ExpectedPath;objectType='directory';symlink=$false;owner='dsh';group='dsh';mode='0700';aclBroad=$false;unexpectedMount=$false}
+    }
+    if($ContentSha256-notmatch'^[A-F0-9]{64}$'){throw 'candidate file digest missing'}
+    return [pscustomobject]@{path=$ExpectedPath;objectType='regular file';symlink=$false;owner='dsh';group='dsh';mode=('0'+$parts[4]);linkCount=1;aclBroad=$false;unexpectedMount=$false;contentSha256=$ContentSha256}
+}
+
+function Add-MutationLedgerEntry {
+    param([Collections.Generic.List[object]]$Ledger,[ValidateSet('CREATE_DIRECTORY','WRITE_FILE')][string]$Operation,[string]$Path,[string]$ContentSha256,[ValidateSet('PASS','BLOCKED')][string]$Result)
+    if($Path-cne'/home/dsh/.dsh-profiles'){Assert-StrictPosixPath $Path $candidateRoot -AllowRoot}
+    if($Operation-ceq'CREATE_DIRECTORY' -and $null-ne$ContentSha256){throw 'directory digest forbidden'}
+    if($Operation-ceq'WRITE_FILE' -and $ContentSha256-notmatch'^[A-F0-9]{64}$'){throw 'file digest required'}
+    $Ledger.Add([pscustomobject]@{order=$Ledger.Count+1;operation=$Operation;path=$Path;contentSha256=$ContentSha256;result=$Result;at=(Get-Date).ToUniversalTime().ToString('o');secretObserved=$false})
 }
 
 function Invoke-SshProcess {
     param([string[]]$RemoteArgv,[byte[]]$StandardInput,[int]$TimeoutSeconds=30)
-    $deny=@('sudo','systemctl','service','initctl','shutdown','reboot')
-    if($deny -contains [IO.Path]::GetFileNameWithoutExtension($RemoteArgv[0])){throw 'service/systemd/sudo command forbidden'}
+    $joined=@($RemoteArgv)-join "`0"
+    $readOnlySystemctl=@('/usr/bin/systemctl','show','deepseek-harness.service','--property=User,Group,ExecStart,WorkingDirectory,UMask,FragmentPath,DropInPaths,ActiveState,SubState,Result,NRestarts','--no-pager')-join "`0"
+    $readOnlyUfw=@('/usr/bin/sudo','-n','/usr/sbin/ufw','status','numbered')-join "`0"
+    if($RemoteArgv[0]-in @('/usr/bin/systemctl','/usr/bin/sudo') -and $joined-cne$readOnlySystemctl -and $joined-cne$readOnlyUfw){throw 'lifecycle or privileged command forbidden'}
+    if($RemoteArgv[0]-in @('/usr/sbin/service','/sbin/initctl','/sbin/shutdown','/sbin/reboot')){throw 'lifecycle command forbidden'}
     $psi=[Diagnostics.ProcessStartInfo]::new((Get-Command ssh.exe).Source)
     $psi.UseShellExecute=$false;$psi.RedirectStandardInput=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
     foreach($arg in @($sshBaseArgs+'--'+$RemoteArgv)){[void]$psi.ArgumentList.Add($arg)}
@@ -762,19 +1037,25 @@ function Invoke-SshProcess {
 }
 
 function Write-CandidateFile {
-    param([object]$File)
+    param([object]$File,[Collections.Generic.List[object]]$Ledger)
     $path=Resolve-CandidatePath $File.relativePath
     $bytes=[Text.Encoding]::UTF8.GetBytes((@($File.contentLines)-join "`n")+"`n")
     $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
     if($digest -cne $File.contentSha256){throw 'candidate content digest mismatch'}
     [void](Invoke-SshProcess @('/usr/bin/install','-m',[string]$File.mode,'/dev/stdin',$path) $bytes)
+    Add-MutationLedgerEntry $Ledger 'WRITE_FILE' $path $digest 'PASS'
 }
 
+$ledger=[Collections.Generic.List[object]]::new()
 [void](Invoke-SshProcess @('/usr/bin/install','-d','-m','0700','--','/home/dsh/.dsh-profiles','/home/dsh/.dsh-profiles/vm105-provider-v1') $null)
+Add-MutationLedgerEntry $ledger 'CREATE_DIRECTORY' '/home/dsh/.dsh-profiles' $null 'PASS'
+Add-MutationLedgerEntry $ledger 'CREATE_DIRECTORY' $candidateRoot $null 'PASS'
 foreach($directory in @($record.selectorDiscovery.candidateBlueprint.directories)){
-    [void](Invoke-SshProcess @('/usr/bin/install','-d','-m','0700','--',(Resolve-CandidatePath $directory.relativePath)) $null)
+    $directoryPath=Resolve-CandidatePath $directory.relativePath
+    [void](Invoke-SshProcess @('/usr/bin/install','-d','-m','0700','--',$directoryPath) $null)
+    Add-MutationLedgerEntry $ledger 'CREATE_DIRECTORY' $directoryPath $null 'PASS'
 }
-foreach($file in @($record.selectorDiscovery.candidateBlueprint.files)){Write-CandidateFile $file}
+foreach($file in @($record.selectorDiscovery.candidateBlueprint.files)){Write-CandidateFile $file $ledger}
 ```
 
 Preflight must establish both fixed directories are absent before the single `install -d` call; if either exists, do not call it. Unknown selector or static-validator syntax is never embedded above. After the validator confirms `staticValidation.executable` is package-owned and its atomic argv contains the fixed candidate value, invoke exactly:
@@ -788,7 +1069,23 @@ if($static.supported){
 }
 ```
 
-Collect metadata with fixed `/usr/bin/stat -c %n|%F|%U|%G|%a|%h`, `/usr/bin/getfacl -cp`, `/usr/bin/findmnt -n -o TARGET --target`, and `/usr/bin/sha256sum --` argv for each newly created path. Parse into `CandidateMetadataV1`; never persist raw output. Reuse the Task 1 allowlisted `systemctl show`, listener, HTTP, UFW, and bounded `.NET TcpClient` readers without any lifecycle command. Expected result is ten ordered checks: checks 1-8 `PASS`, service/network equality checks `PASS`, `runtimeVerdict=NOT PROVEN`, and a mutation ledger containing only fixed-path `CREATE_DIRECTORY`/`WRITE_FILE` entries.
+Collect metadata with fixed `/usr/bin/stat -c %n|%F|%U|%G|%a|%h`, `/usr/bin/getfacl -cp`, `/usr/bin/findmnt -n -o TARGET --target`, and `/usr/bin/sha256sum --` argv for each newly created path. Pass directories and files separately to `ConvertFrom-CandidateMetadata`; directory link count is deliberately ignored, while regular files require link count one. Call `Add-MutationLedgerEntry` immediately after each attempted mutation and never persist raw output.
+
+Reuse the Task 1 bounded readers and compare their typed output, not raw text:
+
+```powershell
+$currentUnit=ConvertFrom-SanitizedUnitLines (Invoke-SshProcess @('/usr/bin/systemctl','show','deepseek-harness.service','--property=User,Group,ExecStart,WorkingDirectory,UMask,FragmentPath,DropInPaths,ActiveState,SubState,Result,NRestarts','--no-pager') $null)
+$currentListeners=ConvertFrom-ListenerLines (Invoke-SshProcess @('/usr/bin/ss','-lntH','sport = :3080') $null)
+$currentHttp=Get-LocalHttpObservation {param($argv) Invoke-SshProcess $argv $null}
+$currentUfw=ConvertFrom-UfwLines (Invoke-SshProcess @('/usr/bin/sudo','-n','/usr/sbin/ufw','status','numbered') $null)
+$currentDirect=Get-DirectLanObservation 'controller-lan' '192.168.1.139'
+$current=[pscustomobject]@{service=$currentUnit;listeners=$currentListeners;localHttp=$currentHttp;ufw=$currentUfw;directLanDenied=$currentDirect}
+$before=ConvertTo-CanonicalNode ([pscustomobject]@{service=$record.selectorDiscovery.baseline.service;listeners=$record.selectorDiscovery.baseline.listeners;localHttp=$record.selectorDiscovery.baseline.localHttp;ufw=$record.selectorDiscovery.baseline.ufw;directLanDenied=$record.selectorDiscovery.baseline.directLanDenied})
+$after=ConvertTo-CanonicalNode $current
+if(($before|ConvertTo-Json -Depth 100 -Compress)-cne($after|ConvertTo-Json -Depth 100 -Compress)){throw 'baseline changed during candidate preparation'}
+```
+
+Expected typed result: the exact Task 1 service/listener/local-HTTP/UFW/direct-LAN observations compare equal after ignoring only their capture timestamps; no lifecycle command occurs. The ten ordered checks are 1-8 `PASS`, service/network equality checks `PASS`, `runtimeVerdict=NOT PROVEN`, and the ledger contains only fixed-path `CREATE_DIRECTORY`/`WRITE_FILE` entries.
 
 - [ ] **Step 3: Run self-tests and prepare only after selector acceptance**
 
@@ -824,7 +1121,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Existing Phase 3 evidence scan failed' }
 git diff --check -- 'scripts/Initialize-VM105ProviderProfile.ps1' 'docs/evidence/vm105-profile-pointer-preparation.json'
 ```
 
-A fresh independent reviewer checks exact-path confinement, selector digest, blueprint equivalence, ownership/modes/links/ACL/mounts, value suppression, zero service/systemd operations, no old-profile data flow, zero routes, fallback disabled, and runtime `NOT PROVEN`. Record acceptance against `candidateDigest`, rerun checks, and commit only:
+A fresh independent reviewer checks exact-path confinement, selector digest, blueprint equivalence, ownership/modes/links/ACL/mounts, value suppression, zero service lifecycle or privileged mutations, only the two allowlisted read-only baseline queries, no old-profile data flow, zero routes, fallback disabled, and runtime `NOT PROVEN`. Record acceptance against `candidateDigest`, rerun checks, and commit only:
 
 ```powershell
 git add -- 'scripts/Initialize-VM105ProviderProfile.ps1' 'docs/evidence/vm105-profile-pointer-preparation.json'
