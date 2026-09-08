@@ -1,6 +1,6 @@
 # Requirements: DeepSeek Harness
 
-**Defined:** 2026-09-08  
+**Defined:** 2026-09-08
 **Core Value:** Every configured provider route must be secure, explicit, independently attributable, and fail closed before it is trusted.
 
 ## v1 Requirements

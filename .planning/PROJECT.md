@@ -12,8 +12,8 @@ Every configured provider route must be secure, explicit, independently attribut
 
 ### Validated
 
-- ✓ **BASE-01 (Phase 1)**: Repository path, GitHub remote, branch, local and remote commits, and dirty state are recorded from fresh revalidation — checkpoint `927ec51`.
-- ✓ **BASE-02 (Phase 1)**: VM105 identity, service, loopback listener, local HTTP response, Harness version, cloud-init, and UFW baseline are recorded from fresh revalidation — redacted record `10bd057`.
+- ✓ **BASE-01 (Phase 1)**: Repository path, GitHub remote, branch, local and remote commits, and dirty state are recorded in the tracked [VM105 evidence record](../docs/evidence/vm105-deployment-2026-08-23-redacted.md#repository-source-baseline--captured-2026-09-08-0748-asiabangkok).
+- ✓ **BASE-02 (Phase 1)**: VM105 identity, service, loopback listener, local HTTP response, Harness version, cloud-init, and UFW baseline are recorded in the tracked [VM105 evidence record](../docs/evidence/vm105-deployment-2026-08-23-redacted.md#vm105-current-measurements--2026-09-08).
 - ✓ **EVID-01 (Phase 1)**: An expressly redacted VM105 deployment record with provenance and no credential values is committed — `10bd057`.
 - ✓ **PLAN-01 (Phase 1)**: Authoritative project, requirements, roadmap, state, phase totals, and continuation context are established — `8ccf3df` and this reconciliation.
 - ✓ **GOV-01 (Phase 1)**: Operating-rules checklist matches verified Git delivery evidence — `abbaff9f`, `0cbd61a`, and `927ec51`.

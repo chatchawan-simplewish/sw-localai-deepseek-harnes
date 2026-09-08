@@ -81,4 +81,4 @@ Expected: the commit contains only `AGENTS.md`.
 ### Reconciliation Evidence
 
 - Delivery commits: `abbaff9f` (initial contract), `0cbd61a` (repository URL verification), and `927ec51` (rule examples).
-- Fresh validation: the Phase 1 reconciliation PowerShell check in `.superpowers/sdd/2026-09-08-phase-1-authority-evidence/task-2-brief.md` exited `0` on 2026-09-08, confirming four checked steps and clean whitespace.
+- Fresh validation: the complete reconciliation check in tracked `docs/superpowers/plans/2026-09-08-phase-1-authority-evidence.md` exited `0` on 2026-09-08, confirming four checked steps and clean whitespace.

@@ -1,6 +1,6 @@
 # VM105 orchestration environment design
 
-Date: 2026-09-08  
+Date: 2026-09-08
 Repository: `chatchawan-simplewish/sw-localai-deepseek-harnes`
 
 ## Goal

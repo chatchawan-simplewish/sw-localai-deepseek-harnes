@@ -99,13 +99,32 @@ proves provider, model, and reasoning selection.
 
 ## Current revalidation evidence — 2026-09-08
 
-Git checkpoint: `927ec51ec4c6bdd69f5fd50ecd4a6eb5ec73e7c1`.
+### Repository source baseline — captured 2026-09-08 07:48 Asia/Bangkok
+
+This is the source-checkout baseline captured before the later isolated-branch
+commits in `C:\Users\chatc\Projects\sw-localai-deepseek-harnes\.worktrees\vm105-authoritative-roadmap`.
+It is not a claim about the later isolated branch.
+
+| Field | Captured value |
+| --- | --- |
+| Source checkout | `C:\Users\chatc\Projects\sw-localai-deepseek-harnes` |
+| Remote | `https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git` |
+| Branch | `main` |
+| Local `HEAD` | `927ec51ec4c6bdd69f5fd50ecd4a6eb5ec73e7c1` |
+| Remote `origin/main` | `927ec51ec4c6bdd69f5fd50ecd4a6eb5ec73e7c1` |
+| Dirty result | `0` |
+
+### VM105 current measurements — 2026-09-08
+
+These are current revalidation measurements, distinct from the historical
+2026-08-23 deployment evidence above.
 
 | Check | Result | Evidence / boundary |
 | --- | --- | --- |
-| VM identity and state | **PASS** | VM105 is the verified `deepseek-harness-01` target |
-| Service | **PASS** | `deepseek-harness.service` is enabled and active |
-| Listener and local HTTP | **PASS** | Loopback listener and local HTTP verification succeeded |
+| VM identity and address | **PASS** | Hostname `deepseek-harness-01`; address `192.168.1.139` |
+| Harness version | **PASS** | `0.1.1-rc.2` |
+| Service | **PASS** | `deepseek-harness.service` is enabled and active; `Result=success`; `NRestarts=0` |
+| Listener and local HTTP | **PASS** | Listener exactly `127.0.0.1:3080`; local HTTP `200` |
 | Cloud-init | **PASS** | Current status completed without errors |
 | pnpm version | **WARN** | Current `11.22.0` differs from historical `11.7.0`; no mutation made |
 | UFW SSH rules | **PASS** | Exactly `192.168.1.161 -> TCP 22` (Bell-PC2 SSH) and `192.168.1.141 -> TCP 22` (VM104/Hermes SSH) |
