@@ -1,0 +1,7 @@
+scripts/Invoke-VM105CandidateCutover.py text eol=lf
+scripts/test_vm105_candidate_cutover.py text eol=lf
+scripts/native-codex-owner.mjs text eol=lf
+scripts/native-codex-terminal.mjs text eol=lf
+scripts/native-codex-owner.test.mjs text eol=lf
+scripts/test-native-codex-owner-linux.mjs text eol=lf
+scripts/Test-VM105NativeBridgeLinux.py text eol=lf
