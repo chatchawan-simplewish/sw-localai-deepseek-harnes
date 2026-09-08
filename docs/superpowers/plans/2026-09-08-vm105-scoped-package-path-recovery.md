@@ -335,27 +335,33 @@ function Assert-RunnerCheck { param([bool]$Condition,[string]$Message) if(-not $
 $quoted=(@('stat','-c','%n|%F|%U|%G|%a|%h','--','/path with space',"quote'value",'$(id);|&') | ForEach-Object{ConvertTo-PosixShellLiteral $_}) -join ' '
 Assert-RunnerCheck ($quoted -ceq "'stat' '-c' '%n|%F|%U|%G|%a|%h' '--' '/path with space' 'quote'`"'`"'value' '`$(id);|&'") 'POSIX argv quoting check failed'
 
-$localPsi=[Diagnostics.ProcessStartInfo]::new((Get-Command pwsh).Source)
-$localPsi.UseShellExecute=$false
-$localPsi.RedirectStandardOutput=$true
-$localPsi.RedirectStandardError=$true
-foreach($arg in @('-NoProfile','-Command',"[Console]::Out.Write('o'*131072);[Console]::Error.Write('e'*131072)")){[void]$localPsi.ArgumentList.Add($arg)}
-$localProcess=[Diagnostics.Process]::Start($localPsi)
+$pwshPath=(Microsoft.PowerShell.Core\Get-Command pwsh).Source
+$savedGetCommand=${function:Get-Command}
+$savedSshOptionArgs=$sshOptionArgs;$savedSshDestination=$sshDestination
 try{
-    $localOutTask=$localProcess.StandardOutput.ReadToEndAsync()
-    $localErrTask=$localProcess.StandardError.ReadToEndAsync()
-    Assert-RunnerCheck ($localProcess.WaitForExit(10000)) 'async pipe drain timed out'
-    $localOut=$localOutTask.GetAwaiter().GetResult()
-    $localErr=$localErrTask.GetAwaiter().GetResult()
-    Assert-RunnerCheck ($localProcess.ExitCode-eq0 -and $localOut.Length-eq131072 -and $localErr.Length-eq131072) 'async pipe drain content mismatch'
-}finally{if(-not $localProcess.HasExited){$localProcess.Kill($true)};$localProcess.Dispose()}
+    ${function:Get-Command}={param($Name) if($Name-ceq'ssh.exe'){return [pscustomobject]@{Source=$pwshPath}};Microsoft.PowerShell.Core\Get-Command $Name}
+    $sshOptionArgs=@('-NoProfile','-Command',"[Console]::Out.Write('o'*131072);[Console]::Error.Write('e'*131072);exit 0 #")
+    $sshDestination='ignored'
+    $localResult=Invoke-StrictSsh @('ignored') -TimeoutSeconds 10
+    Assert-RunnerCheck ($localResult.ExitCode-eq0 -and $localResult.RawStdout.Length-eq131072) 'actual SSH helper async pipe drain failed'
+}finally{
+    $sshOptionArgs=$savedSshOptionArgs;$sshDestination=$savedSshDestination
+    if($null-eq$savedGetCommand){Remove-Item Function:Get-Command}else{${function:Get-Command}=$savedGetCommand}
+}
 
 $raw="first`n`nthird`n"
 $preserved=ConvertTo-PreservedSourceLines $raw
 Assert-RunnerCheck ($preserved.Count-eq4 -and $preserved[1]-ceq'' -and $preserved[3]-ceq'' -and (($preserved -join "`n")-ceq$raw)) 'raw stdout line preservation failed'
 
-Assert-StrictPosixPath '/opt/deepseek-harness' '/opt/deepseek-harness' -AllowRoot
-try{Assert-StrictPosixPath '/opt/deepseek-harness-other' '/opt/deepseek-harness' -AllowRoot;throw 'installed sibling accepted'}catch{if($_.Exception.Message-ceq'installed sibling accepted'){throw}}
+$savedScalar=${function:Get-StrictSshScalar};$script:scalarCalls=0
+try{
+    ${function:Get-StrictSshScalar}={param([string[]]$RemoteArgv) [void]($script:scalarCalls++);if($RemoteArgv[0]-ceq'/usr/bin/readlink'){return $RemoteArgv[-1]};return "$($RemoteArgv[-1])|directory|root|root|755"}
+    Assert-RootOwnedInstalledDirectory '/opt/deepseek-harness'
+    $rootCalls=$script:scalarCalls
+    $siblingBlocked=$false
+    try{Assert-RootOwnedInstalledDirectory '/opt/deepseek-harness-other'}catch{$siblingBlocked=$true}
+    Assert-RunnerCheck ($rootCalls-eq2 -and $siblingBlocked -and $script:scalarCalls-eq$rootCalls) 'actual directory helper AllowRoot boundary failed'
+}finally{${function:Get-StrictSshScalar}=$savedScalar}
 
 $noop={param($Path) [void]$Path}
 $script:probe=0
@@ -370,13 +376,14 @@ foreach($case in @([pscustomobject]@{Name='unsafe';Probe=$unsafe},[pscustomobjec
     Assert-RunnerCheck $blocked "$($case.Name) manifest case did not stop"
 }
 
-$sourceReads=0
+$savedScalar=${function:Get-StrictSshScalar};$savedInvoke=${function:Invoke-StrictSsh};$script:sourceReads=0;$script:scalarReads=0
 try{
-    $resolved='/redirected/usr/local/bin/dsh'
-    if($resolved-cne'/usr/local/bin/dsh'){throw 'BLOCKED wrapper symlink path'}
-    $sourceReads++
-}catch{}
-Assert-RunnerCheck ($sourceReads-eq0) 'wrapper source read followed canonical mismatch'
+    ${function:Get-StrictSshScalar}={param([string[]]$RemoteArgv) [void]($script:scalarReads++);return '/redirected/usr/local/bin/dsh'}
+    ${function:Invoke-StrictSsh}={param([string[]]$RemoteArgv) [void]($script:sourceReads++);throw 'source read unexpectedly reached'}
+    $wrapperBlocked=$false
+    try{[void](Get-VerifiedInstalledEntrypoint)}catch{$wrapperBlocked=$true}
+    Assert-RunnerCheck ($wrapperBlocked -and $script:scalarReads-eq1 -and $script:sourceReads-eq0) 'actual wrapper helper read after canonical mismatch'
+}finally{${function:Get-StrictSshScalar}=$savedScalar;${function:Invoke-StrictSsh}=$savedInvoke}
 ```
 
 Read only those verified package-owned source files in memory. Preserve each file's raw stdout, split it with `ConvertTo-PreservedSourceLines` only when deriving exact one-based line ranges, and obtain its exact digest separately with the verified `sha256sum -- <path>` call before constructing an `installedSourceRef`. Never trim or rejoin source text. Selector `PASS` still requires direct installed-source proof for absolute path support, precedence, non-merge behavior, service compatibility, and all five mutable-store classes. Query only the proven selector key from effective unit metadata. If any claim, file boundary, ownership, link status, name/version, or selector behavior is missing or ambiguous, stop source inspection and record a precise `BLOCKED` reason; do not search another installation root, home directory, service environment, log, network package source, or current profile.
@@ -516,9 +523,10 @@ EVIDENCE_PASS stage=Selector
 Run:
 
 ```powershell
-& ./scripts/Test-VM105ProfilePreparation.ps1 -EvidencePath 'docs/evidence/vm105-profile-pointer-preparation.json' -Stage Selector
+if(-not $evidencePath){$evidencePath='docs/evidence/vm105-profile-pointer-preparation.json'}
+& (Get-Command pwsh).Source -NoProfile -File './scripts/Test-VM105ProfilePreparation.ps1' -EvidencePath $evidencePath -Stage Selector
 if($LASTEXITCODE-ne0){throw 'Selector validation failed; recovery remains stopped'}
-$record=Get-Content -Raw -LiteralPath 'docs/evidence/vm105-profile-pointer-preparation.json' | ConvertFrom-Json -DateKind String
+$record=Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json -DateKind String
 $accepted=$record.selectorDiscovery.review.status -ceq 'ACCEPTED' -and
           $record.selectorDiscovery.review.reviewedDigest -ceq $record.selectorDiscovery.selectorDigest
 $resumeTask2=$accepted -and $record.selectorDiscovery.verdict -ceq 'PASS'
@@ -531,13 +539,24 @@ $resumeTask2=$accepted -and $record.selectorDiscovery.verdict -ceq 'PASS'
 if(-not $accepted){throw 'Recovery outcome lacks accepted independent review'}
 ```
 
-Before using the real record, prove locally that a stale reviewed digest cannot reach the resume decision. This fixture uses the validator result as the first gate and performs no file or remote writes:
+Before using the real record, prove locally that a stale reviewed digest cannot reach the resume decision. This fixture copies the accepted evidence to a temporary local file, changes only its reviewed digest, invokes the actual validator through the exact Step 10 block extracted from this plan, and removes the temporary file. It performs no remote writes:
 
 ```powershell
-$resumeDecisionReached=$false
-$syntheticValidatorExit=1
-if($syntheticValidatorExit-ne0){$syntheticStopped=$true}else{$resumeDecisionReached=$true}
-if(-not $syntheticStopped -or $resumeDecisionReached){throw 'Stale-digest fixture reached resume decision'}
+$planPath='docs/superpowers/plans/2026-09-08-vm105-scoped-package-path-recovery.md'
+$planText=Get-Content -Raw -LiteralPath $planPath
+$gateMatch=[regex]::Match($planText,'(?ms)^```powershell\r?\n(?<gate>if\(-not \$evidencePath\).*?Recovery outcome lacks accepted independent review''\}\r?\n)^```\s*$')
+if(-not $gateMatch.Success){throw 'Unable to extract exact Step 10 gate'}
+$gate=[scriptblock]::Create($gateMatch.Groups['gate'].Value)
+$tempEvidence=New-TemporaryFile
+try{
+    $stale=Get-Content -Raw -LiteralPath 'docs/evidence/vm105-profile-pointer-preparation.json' | ConvertFrom-Json -DateKind String
+    $stale.selectorDiscovery.review.reviewedDigest=('0'*64)
+    [IO.File]::WriteAllText($tempEvidence.FullName,($stale | ConvertTo-Json -Depth 100)+"`n",[Text.UTF8Encoding]::new($false))
+    $evidencePath=$tempEvidence.FullName
+    $gateStopped=$false
+    try{& $gate}catch{$gateStopped=$_.Exception.Message -ceq 'Selector validation failed; recovery remains stopped'}
+    if(-not $gateStopped){throw 'Actual Step 10 gate did not stop stale reviewed digest'}
+}finally{Remove-Item -LiteralPath $tempEvidence.FullName -Force}
 ```
 
 If `originalPlanTask2` is `MAY_RESUME`, hand the exact accepted selector digest back to the original plan and resume at Task 2 only. If it is `STOPPED`, report the accepted blockers and take no further action. Neither branch authorizes candidate creation, cutover, service/systemd work, credentials, or any other prohibited operation during this recovery task.
