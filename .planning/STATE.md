@@ -52,14 +52,14 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ### Pending Todos
 
-- Await owner readiness for fresh interactive credentials before replacing the usable pilot with the reviewed candidate. Static preparation and independent review are complete; runtime acceptance is pending. See `docs/evidence/vm105-provider-candidate.json` and `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`.
+- Await owner readiness for fresh interactive credentials before replacing the usable pilot. Isolated runtime and fresh post-smoke graph/configuration proof passed independent review; normal-service cutover acceptance is pending. Use `docs/evidence/vm105-post-smoke-evidence-2026-09-09.json` and `docs/superpowers/plans/2026-09-09-vm105-post-smoke-cutover-amendment.md`. The original pristine preparation receipt is historical.
 - Complete and independently review the normal-service cutover execution helper. Fresh durable post-smoke graph/configuration proof and the amendment design have been independently accepted. Isolated startup verification passed; normal-service cutover and route prerequisites remain separate.
 - Retain RX `WARN`: corrected tracing observed drop reasons, but counter attribution and application impact are NOT PROVEN. No firewall/sysctl remedy is justified by these observations.
 
 ### Blockers/Concerns
 
 - Phase 2: The VM104-to-VM105 firewall-rule origin is proven, but current operational need is `NOT PROVEN`; the rule remains unchanged and removal is not authorized.
-- Phase 2: RX drops increased by 36 in 45 seconds; impact and cause are unresolved (`WARN`).
+- Phase 2: The historical September8 observation recorded36 RX drops in45seconds; it is not the latest sample or proof of continuous increase. The September9 corrected trace recorded23 with cause/counter attribution/application impact unresolved (`WARN`); see `docs/evidence/vm105-rx-drop-diagnosis-2026-09-09.md`.
 - Phase 3: FW-01 evidence work completed `BLOCKED`; six routes remain blocked and no firewall rule was added.
 - Phase 3: Plan 03-02 Task 2 did not start because the exact effective credential store, supported native Codex login surface, provider identities, and the six route blockers remain unresolved; no credential/OAuth gate was presented.
 - Phase 3: `/home/dsh/.dsh/phase-03-provider-backup-20260908T110706` is an empty owner-only VM105 backup destination; no credential state was copied.

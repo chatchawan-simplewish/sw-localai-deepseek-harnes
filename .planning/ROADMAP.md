@@ -56,7 +56,7 @@ Evidence tasks:
 
 Evidence tasks:
 - [x] **NET-01 — NOT PROVEN**: `dsh` added the VM104-to-VM105 SSH rule through `sudo` at 2026-08-24T15:00:31Z for Hermes administrative access, followed by three `hermes-admin` logins that day. No active session or reference appeared in today's scanned VM104 automation, so current need is not proven; the unchanged rule has no deletion authorization.
-- [x] **NET-02 — WARN**: Timestamped observation found 36 additional RX drops in 45 seconds, proving the counter is currently increasing.
+- [x] **NET-02 — WARN**: September8 observation found36 additional RX drops in45seconds, proving increase during that interval. The September9 corrected trace recorded23; cause, counter attribution and application impact remain unresolved. Neither sample establishes continuous increase. See `docs/evidence/vm105-rx-drop-diagnosis-2026-09-09.md`.
 - [x] **UI-01 — PASS**: The verified `Codex-Chrome-Bell-PC2` profile visibly loaded the Harness onboarding page through Bell-PC2 SSH forward PID 42076; loopback HTTP returned 200 with Harness identity while direct `192.168.1.139:3080` remained unreachable.
 
 ### Phase 3: Provider Prerequisites

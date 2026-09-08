@@ -17,7 +17,7 @@
 
 - [ ] **NET-01**: The origin, exact scope, and current need of the VM104-to-VM105 SSH firewall permission are established before any change is proposed.
 - [ ] **NET-02**: Multiple timestamped VM105 RX-drop samples establish whether the counter is increasing during observation or only historical.
-- [ ] **UI-01**: Bell-PC2 can open the Harness Web UI through an owner-controlled SSH local forward while direct LAN TCP 3080 remains denied.
+- [x] **UI-01**: Bell-PC2 can open the Harness Web UI through an owner-controlled SSH local forward while direct LAN TCP 3080 remains denied. Existing PASS reconciled with roadmap/traceability; no evidence-task count change.
 - [x] **FW-01**: Every added firewall permission is limited to the verified source, destination, protocol, and port required by one proven provider route, with rollback recorded. Evidence task completed with a `BLOCKED` outcome; zero permissions were added.
 
 ### Provider configuration
