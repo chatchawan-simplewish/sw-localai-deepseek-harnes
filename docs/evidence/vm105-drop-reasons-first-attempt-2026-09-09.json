@@ -1,0 +1,20 @@
+{
+  "status": "NOT PROVEN",
+  "scope": "First bounded eth0 drop-reason observation; parser rejected output",
+  "timezone": "Asia/Bangkok",
+  "helper_sha256": "b1d269289ea95dc24e4680e289898c92386444a0c9d687d848c9f5b9b518eb37",
+  "execution_receipt": "7ae7c3",
+  "ssh_helper_exit": 1,
+  "before": {"utc": "2026-09-08T17:35:41.495608+00:00", "rx_dropped": 7959},
+  "after": {"utc": "2026-09-08T17:36:12.984650+00:00", "rx_dropped": 7983},
+  "rx_dropped_delta": 24,
+  "trace_window_seconds": 30,
+  "process": {"returncode": 0, "cleanup_reaped": true, "elapsed_seconds": 31.487, "failure": null},
+  "failure": "preflight_or_parse_failed",
+  "counts": [],
+  "raw_trace_output_retained": false,
+  "diagnosis": "Blank-line incompatibility is the supported explanation: the original parser rejects blank lines. A separate BEGIN-only synthetic probe on the installed bpftrace v0.20.2 returned two blank lines followed by the two expected JSON maps, exit 0 and zero stderr bytes. That compatibility proof does not reconstruct the discarded packet-trace output.",
+  "synthetic_probe_receipt": "0e2a9c",
+  "synthetic_probe_observed_utc": "2026-09-08T17:39:11+00:00",
+  "limits": "No drop reasons, RX-counter attribution, or application impact proven by this attempt. Later corrected observations must have separate receipts. No network or firewall settings changed."
+}

@@ -1,0 +1,28 @@
+{
+  "status": "OBSERVED",
+  "acceptance": "WARN; RX-counter attribution and application impact NOT PROVEN",
+  "helper_sha256": "875da2224c6099bdc33cc6b3b7d7544075293c2faef8ae3bf1d5de06a2fdda9f",
+  "execution_receipt": "9d2d3e",
+  "ssh_helper_exit": 0,
+  "timezone": "Asia/Bangkok",
+  "before": {"rx_dropped": 8348, "utc": "2026-09-08T17:44:13.390569+00:00"},
+  "after": {"rx_dropped": 8371, "utc": "2026-09-08T17:44:44.882251+00:00"},
+  "counts": [
+    {"count": 26, "name": "NOT_SPECIFIED", "reason": 2},
+    {"count": 15, "name": "NETFILTER_DROP", "reason": 8},
+    {"count": 23, "name": "UNHANDLED_PROTO", "reason": 56}
+  ],
+  "interface": "eth0",
+  "mode": "apply",
+  "parse_shape": {"blank_segments": 3, "json_records": 2, "map_records": 2, "other_json_records": 0},
+  "process": {"cleanup_reaped": true, "elapsed_seconds": 31.49, "failure": null, "returncode": 0},
+  "rx_dropped_delta": 23,
+  "version_process": {"cleanup_reaped": true, "elapsed_seconds": 0.029, "failure": null, "returncode": 0},
+  "window_seconds": 30,
+  "compile_receipt": "785efa",
+  "compile_exit": 0,
+  "independent_helper_review": "rx_evidence_review accepted exact helper hash after offline self-test; one separately recorded observation only",
+  "independent_evidence_review": "rx_evidence_review accepted both receipts as scoped evidence on 2026-09-09 Asia/Bangkok; WARN remains. Parent applied its first-attempt wording qualification and linked the historical collection to later observations.",
+  "interpretation": "UNHANDLED_PROTO count equals the surrounding RX-drop delta in this sample. This is consistent with a contribution but does not establish causal counter attribution; total observed free reasons are 64, not 23. Reason tracing and before/after counter intervals differ. NETFILTER_DROP does not identify a specific firewall rule or legitimate request.",
+  "limits": "No packets, payloads, addresses, credentials, or raw trace output retained. No inference or application traffic test. No firewall or network mutations. Original failed observation remains separately NOT PROVEN. No further observation retry authorized by this review."
+}
