@@ -12,7 +12,7 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 1 of 2 in current phase
 Status: Plan 03-01 completed with FW-01 `BLOCKED`; Plan 03-02 Task 1 was independently accepted after one fix round, but CRED-01 remains `BLOCKED / NOT PROVEN` and Phase 3 is not `PASS`.
-Last activity: 2026-09-08 — Owner explicitly accepted the dormant default with zero active providers for preparation only. Fresh candidate integrity/private-mode and unchanged-service checks passed; independent review confirms preparation complete under that amendment. The pilot is unchanged; runtime, cutover and credentials remain pending. See `docs/evidence/vm105-original-preparation-goal-audit.md`. Historical strict BLOCKED evidence is retained.
+Last activity: 2026-09-09 02:07 Asia/Bangkok — Contained read-only preflight passed and was independently reviewed/published at268cdde:432 installed packages,2011 edges, four exact optional peers, external ancestor absence and FD restoration verified. Candidate startup has not occurred. A separately reviewed v2 isolated startup design is being implemented; historical failed attempts remain preserved. Latest parent operational readback at01:45 showed unchanged active pilot PID829/NRestarts0, absent candidate unit, Running tunnel task, loopback3080 PID33528 and HTTP200; fresh checks are required before/after startup. Fresh credentials, owner-ready cutover and all nine route outcomes remain NOT PROVEN.
 
 Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
@@ -53,7 +53,8 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 ### Pending Todos
 
 - Await owner readiness for fresh interactive credentials before replacing the usable pilot with the reviewed candidate. Static preparation and independent review are complete; runtime acceptance is pending. See `docs/evidence/vm105-provider-candidate.json` and `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`.
-- Diagnose the RX-drop increase while preserving the recorded `WARN`.
+- Finish independently reviewed isolated candidate startup verification while preserving the working pilot, then continue route prerequisites that do not need owner authentication.
+- Retain RX `WARN`: corrected tracing observed drop reasons, but counter attribution and application impact are NOT PROVEN. No firewall/sysctl remedy is justified by these observations.
 
 ### Blockers/Concerns
 
@@ -73,7 +74,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 23:38 Asia/Bangkok
-Current work: Preparation-only goal complete after explicit owner amendment, fresh verification and independent review. The concrete cutover packet is ready but unexecuted. CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`; the separate pilot stays usable and its profile stays opaque.
+Last session: 2026-09-09 02:07 Asia/Bangkok
+Current work: Unattended development under renewed owner preapproval. Cutover remains unexecuted. The original smoke apply stopped in preflight; no temporary service was created. Reviewed exact resolver containment now passes read-only preflight. The v2 isolated runtime helper is being implemented and requires independent frozen-code review before its single start. CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`; the separate pilot stays usable and its profile stays opaque. See the 2026-09-09 evidence and unattended handoff for current scope and historical qualifications.
 Resume file: `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`
-Exact next action: Obtain owner readiness for fresh credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. This readiness question concerns loss of usable provider access while awaiting owner-only authentication; agent-authored approval wording does not override routine preapproval. Preserve historical strict evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.
+Exact next action: Review frozen --apply-v2 code against the explicit isolated v2 contract, then revalidate pilot/tunnel and mutable prerequisites before its one bounded attempt. Do not rerun historical --apply. Preserve generated candidate inventory and revise/review pristine cutover preconditions if startup occurs. Before eventually replacing the usable pilot, obtain owner readiness for private credential entry, then execute the reviewed reversible switch and runtime readback with one rollback on failure. This readiness concerns loss of usable provider access while awaiting owner-only authentication; agent-authored approval wording does not override routine preapproval. Preserve historical evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.
