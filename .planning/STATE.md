@@ -10,23 +10,23 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 ## Current Position
 
 Current Phase: 3 of 5 (Provider Prerequisites)
-Plan: 0 of 2 in current phase
-Status: Phase 3 planned in two sequential waves; independent plan review passed after one revision round.
-Last activity: 2026-09-08 — Planned and independently verified Phase 3 provider prerequisites without changing live or browser state.
+Plan: 1 of 2 in current phase
+Status: Plan 03-01 completed with a `BLOCKED / NOT PROVEN` outcome; Phase 3 is not `PASS`.
+Last activity: 2026-09-08 — Closed Plan 03-01 after read-only prerequisite evidence and zero firewall mutations; six routes remain blocked.
 
-Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
+Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
-- **Total - 08/21**
+- **Total - 09/21**
   - **Phase 1 - 05/05** — BASE-01 `PASS`; BASE-02 `PASS`; EVID-01 `PASS`; PLAN-01 `PASS`; GOV-01 `PASS`
   - **Phase 2 - 03/03** — NET-01 `NOT PROVEN` outcome; NET-02 `WARN`; UI-01 `PASS`
-  - **Phase 3 - 00/02**
+  - **Phase 3 - 01/02** — FW-01 completed with `BLOCKED` outcome; CRED-01 remains `NOT PROVEN`
   - **Phase 4 - 00/09**
   - **Phase 5 - 00/02**
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
+- Total plans completed: 1
 - Average duration: Not available
 - Total execution time: Not tracked yet
 
@@ -34,7 +34,7 @@ Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 |-------|-------|----------------|--------|
 | 1. Authority and Evidence | TBD | 05/05 | Evidence complete |
 | 2. Network Facts and Owner Access | TBD | 03/03 | Evidence complete |
-| 3. Provider Prerequisites | 2 | 00/02 | Planned; independent plan review pending |
+| 3. Provider Prerequisites | 2 | 01/02 | In progress; 03-01 completed `BLOCKED / NOT PROVEN` |
 | 4. Route Truth and Fail-Closed Attribution | TBD | 00/09 | Not started |
 | 5. Evidence Closeout and Handoff | TBD | 00/02 | Not started |
 
@@ -51,14 +51,15 @@ Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 
 ### Pending Todos
 
-- Verify provider endpoint/model prerequisites and prepare owner-only credential/native-OAuth entry without exposing values.
+- Execute Plan 03-02 read-only credential-storage and backup-eligibility preparation without creating or entering credentials.
 - Diagnose the RX-drop increase while preserving the recorded `WARN`.
 
 ### Blockers/Concerns
 
 - Phase 2: The VM104-to-VM105 firewall-rule origin is proven, but current operational need is `NOT PROVEN`; the rule remains unchanged and removal is not authorized.
 - Phase 2: RX drops increased by 36 in 45 seconds; impact and cause are unresolved (`WARN`).
-- Phases 3-4: All provider credentials, native OAuth state, firewall routes, provider responses, invalid-credential tests, and automatic attribution remain `NOT PROVEN`.
+- Phase 3: FW-01 evidence work completed `BLOCKED`; six routes remain blocked and no firewall rule was added.
+- Phases 3-4: All provider credentials, native OAuth state, provider responses, invalid-credential tests, and automatic attribution remain `NOT PROVEN`.
 
 ## Deferred Items
 
@@ -68,7 +69,7 @@ Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 08:55 Asia/Bangkok
-Stopped at: Phase 3 plans verified; no live infrastructure or browser state changed.
-Resume file: `.planning/phases/03-provider-prerequisites/03-01-PLAN.md`
-Exact next action: Execute 03-01 read-only route inventory, then stop at its firewall review checkpoint before any rule change.
+Last session: 2026-09-08 10:09 Asia/Bangkok
+Stopped at: Plan 03-01 completed `BLOCKED / NOT PROVEN`; no live firewall or other state changed.
+Resume file: `.planning/phases/03-provider-prerequisites/03-02-PLAN.md`
+Exact next action: Begin Plan 03-02 read-only preparation by inventorying effective VM105 credential-storage metadata and backup eligibility; do not create a key, start OAuth, or enter a secret.

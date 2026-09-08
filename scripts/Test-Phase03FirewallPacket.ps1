@@ -68,12 +68,17 @@ function Check-Packet($Packet) {
     foreach ($field in @('correlatedMachineIdentity','sshHostKeyIdentity','provenance')) { Text-Required $Packet.vm105[$field] }
     foreach ($field in @('listener','service','tunnel','directPort','firewall','management')) { Evidence $Packet.baseline[$field] }
     Require ($Packet.baseline.listener.observation -ceq '127.0.0.1:3080' -and $Packet.baseline.service.observation -ceq 'active' -and $Packet.baseline.directPort.observation -ceq 'denied') 'isolation-baseline-mismatch'
+    Require ($Packet.Contains('routing') -and $Packet.routing -is [System.Collections.IDictionary]) 'missing-routing-policy'
+    Require ($Packet.routing.explicitRequired -is [bool] -and $Packet.routing.explicitRequired) 'explicit-routing-required'
+    Require ($Packet.routing.automaticEnabled -is [bool] -and -not $Packet.routing.automaticEnabled) 'automatic-routing-enabled'
+    Require ($Packet.routing.automaticAttribution -ceq 'NOT PROVEN') 'automatic-attribution-claim'
     Require ($Packet.routes -is [array] -and $Packet.routes.Count -eq 9 -and $Packet.rules -is [array]) 'invalid-route-or-rule-collection'
     $ids = @{}; $blocked = $false
     foreach ($route in $Packet.routes) {
         Require ($route.id -is [string] -and $routeNames.Contains($route.id) -and -not $ids.ContainsKey($route.id)) 'duplicate-or-unknown-route'
         $ids[$route.id] = $true
         Require ($route.name -ceq $routeNames[$route.id]) 'route-name-mismatch'
+        Require ($route.Contains('routeInference') -and $route.routeInference -ceq 'NOT PROVEN') 'route-inference-claim'
         Timestamp $route.capturedAt; Text-Required $route.provenance
         Require ($route.decision -cin @('BLOCKED','NO_FIREWALL_CHANGE','READY_FOR_SINGLE_RULE')) 'invalid-route-decision'
         $matching = @($Packet.rules | Where-Object { $_.route -ceq $route.id })
@@ -204,12 +209,12 @@ function Check-Results($Packet, $Results, [string]$Digest, [string]$SelectedStag
 function Run-SelfTest {
     $time = '2026-01-01T00:00:00Z'
     function E([string]$Observation) { return @{capturedAt=$time;provenance='synthetic in-memory command';observation=$Observation} }
-    $packet = @{schemaVersion=1;capturedAt=$time;vm105=@{hostname='deepseek-harness-01';address='192.0.2.10';correlatedMachineIdentity='synthetic-machine';sshHostKeyIdentity='SHA256:synthetic';capturedAt=$time;provenance='synthetic verified SSH'};baseline=@{};routes=@();rules=@()}
+    $packet = @{schemaVersion=1;capturedAt=$time;routing=@{explicitRequired=$true;automaticEnabled=$false;automaticAttribution='NOT PROVEN'};vm105=@{hostname='deepseek-harness-01';address='192.0.2.10';correlatedMachineIdentity='synthetic-machine';sshHostKeyIdentity='SHA256:synthetic';capturedAt=$time;provenance='synthetic verified SSH'};baseline=@{};routes=@();rules=@()}
     foreach ($name in @('listener','service','tunnel','directPort','firewall','management')) { $packet.baseline[$name] = E 'synthetic observation' }
     $packet.baseline.listener.observation='127.0.0.1:3080'; $packet.baseline.service.observation='active'; $packet.baseline.directPort.observation='denied'
     foreach ($id in $routeNames.Keys) {
         $proof = E 'TCP connect exit 0'; $proof += @{source='192.0.2.10';destination='192.0.2.20';protocol='tcp';port=443;exitCode=0}
-        $packet.routes += @{id=$id;name=$routeNames[$id];decision='NO_FIREWALL_CHANGE';capturedAt=$time;provenance='synthetic inventory';source='192.0.2.10';destination='192.0.2.20';protocol='tcp';port=443;existingPathProof=$proof}
+        $packet.routes += @{id=$id;name=$routeNames[$id];decision='NO_FIREWALL_CHANGE';routeInference='NOT PROVEN';capturedAt=$time;provenance='synthetic inventory';source='192.0.2.10';destination='192.0.2.20';protocol='tcp';port=443;existingPathProof=$proof}
     }
     Check-Packet $packet
     $packet.routes[0].decision='READY_FOR_SINGLE_RULE'
@@ -242,6 +247,12 @@ function Run-SelfTest {
     }
     Check-Results $packet @{packetSha256=$digest;records=@($record,$rollback)} $digest 'Rollback' $rule.id
     $cases = @(
+        @{name='missing-routing';change={param($p,$r) $p.Remove('routing')}},
+        @{name='implicit-routing';change={param($p,$r) $p.routing.explicitRequired=$false}},
+        @{name='automatic-routing';change={param($p,$r) $p.routing.automaticEnabled=$true}},
+        @{name='automatic-attribution-claim';change={param($p,$r) $p.routing.automaticAttribution='PASS'}},
+        @{name='missing-route-inference';change={param($p,$r) $p.routes[0].Remove('routeInference')}},
+        @{name='unsafe-route-inference';change={param($p,$r) $p.routes[0].routeInference='PASS'}},
         @{name='broad-source';change={param($p,$r) $p.rules[0].source='0.0.0.0/0'}},
         @{name='inverse-mismatch';change={param($p,$r) $p.rules[0].commands.inverse.command='sudo -n ufw delete 1'}},
         @{name='missing-rejected-receipt';change={param($p,$r) $r.records[0].executions.Remove('rejectedProbe')}},

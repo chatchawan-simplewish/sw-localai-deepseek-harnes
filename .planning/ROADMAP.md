@@ -16,10 +16,10 @@ Evidence states are `PASS`, `WARN`, `BLOCKED`, and `NOT PROVEN`. A checked evide
 
 ## Evidence Progress Tree
 
-- **Total - 08/21**
+- **Total - 09/21**
   - **Phase 1 - 05/05**
   - **Phase 2 - 03/03**
-  - **Phase 3 - 00/02**
+  - **Phase 3 - 01/02**
   - **Phase 4 - 00/09**
   - **Phase 5 - 00/02**
 
@@ -70,12 +70,12 @@ Evidence tasks:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Verify all route prerequisites and justify exact reversible firewall permissions (wave 1).
+- [x] 03-01-PLAN.md — Completed with `BLOCKED / NOT PROVEN` outcome after read-only verification and zero firewall mutations (wave 1).
 - [ ] 03-02-PLAN.md — Prepare owner-only storage, complete the action-time credential/native-OAuth gate, and verify isolation (wave 2).
 
 Evidence tasks:
 - [ ] **CRED-01 — NOT PROVEN**: All fresh provider credentials and native OAuth state remain unconfigured or unverified.
-- [ ] **FW-01 — NOT PROVEN**: No provider route has yet justified and proven a source-specific firewall addition.
+- [x] **FW-01 — BLOCKED**: The evidence task completed with three verified no-change routes, six blocked routes, and zero firewall additions; the blocked outcome does not make Phase 3 `PASS`.
 
 ### Phase 4: Route Truth and Fail-Closed Attribution
 **Goal**: Every requested provider path is independently attributable, fails closed, and is trusted only to the level directly proven.
@@ -133,6 +133,6 @@ Evidence tasks:
 |-------|-------------------------|----------------|--------|-----------|
 | 1. Authority and Evidence | 05/05 | TBD | Complete | 2026-09-08 |
 | 2. Network Facts and Owner Access | 03/03 | TBD | Complete (pre-roadmap evidence) | 2026-09-08 |
-| 3. Provider Prerequisites | 00/02 | 0/2 | Planned; independent plan review pending | - |
+| 3. Provider Prerequisites | 01/02 | 1/2 | In progress; 03-01 completed `BLOCKED / NOT PROVEN` | - |
 | 4. Route Truth and Fail-Closed Attribution | 00/09 | TBD | Not started | - |
 | 5. Evidence Closeout and Handoff | 00/02 | TBD | Not started | - |

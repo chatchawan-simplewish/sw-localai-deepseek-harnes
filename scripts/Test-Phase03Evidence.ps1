@@ -36,20 +36,21 @@ function Get-Findings([hashtable]$Contents, [string]$SelectedStage) {
             continue
         }
         $lines = [regex]::Split([string]$Contents[$file], '\r?\n')
-        $pending = ''; $pendingIndent = 0; $pendingJson = $false
+        $pending = ''; $pendingIndent = 0; $pendingJson = $false; $pendingEquals = $false
         for ($line = 0; $line -lt $lines.Count; $line++) {
             $categories = @(Find-Categories $lines[$line])
             $indent = [regex]::Match($lines[$line], '^[ \t]*').Length
             $jsonValue = $pendingJson -and $lines[$line] -match '^\s*(?:["{\[]|(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)(?=\s*[,}\]]?\s*$))'
-            if ($pending -and ($jsonValue -or $indent -gt $pendingIndent) -and $lines[$line] -notmatch '^\s*(?:#.*)?$') {
+            if ($pending -and ($pendingEquals -or $jsonValue -or $indent -gt $pendingIndent) -and $lines[$line] -notmatch '^\s*(?:#.*)?$') {
                 $categories += @(Find-Categories ($pending + $lines[$line]))
             }
             foreach ($category in @($categories | Select-Object -Unique)) { '{0}:{1}:{2}' -f $file, ($line + 1), $category }
             if ($lines[$line] -notmatch '^\s*(?:#.*)?$') { $pending = '' }
-            $assignment = [regex]::Match($lines[$line], '(?i)(?:^|[{,])(?<indent>[ \t]*)(?:-[ \t]+)?(?<quote>["'']?)(?:key|api[_-]?key|token|secret|password|client_secret|access_token|refresh_token|id_token|Authorization|Proxy-Authorization)\k<quote>\s*(?<operator>[:=])\s*$')
+            $assignment = [regex]::Match($lines[$line], '(?i)(?:^|[{,])(?<indent>[ \t]*)(?:-[ \t]+)?(?:\$(?:env:)?)?(?<quote>["'']?)(?:key|api[_-]?key|token|secret|password|client_secret|access_token|refresh_token|id_token|Authorization|Proxy-Authorization)\k<quote>\s*(?<operator>[:=])\s*$')
             if ($assignment.Success) {
                 $pending = $lines[$line]; $pendingIndent = $assignment.Groups['indent'].Length
                 $pendingJson = $assignment.Groups['quote'].Value -ceq '"' -and $assignment.Groups['operator'].Value -ceq ':'
+                $pendingEquals = $assignment.Groups['operator'].Value -ceq '='
             }
         }
     }
@@ -91,7 +92,8 @@ try {
             @('api_key:', '  synthetic'), @('api_key:', "  'synthetic'"),
             @('api_key =', '  synthetic'), @("'api_key' =", "  'synthetic'"),
             @("'api_key':", '  synthetic'), @("'api_key':", "  'synthetic'"),
-            @('  api_key:', '    123456789'), @('  - api_key:', '    synthetic')
+            @('  api_key:', '    123456789'), @('  - api_key:', '    synthetic'),
+            @('$api_key =', 'synthetic'), @('$env:API_KEY =', 'synthetic')
         )
         foreach ($case in $continuations) {
             $contents[$files[4]] = $case[0] + "`n" + $case[1]

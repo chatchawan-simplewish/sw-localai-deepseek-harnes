@@ -18,7 +18,7 @@
 - [ ] **NET-01**: The origin, exact scope, and current need of the VM104-to-VM105 SSH firewall permission are established before any change is proposed.
 - [ ] **NET-02**: Multiple timestamped VM105 RX-drop samples establish whether the counter is increasing during observation or only historical.
 - [ ] **UI-01**: Bell-PC2 can open the Harness Web UI through an owner-controlled SSH local forward while direct LAN TCP 3080 remains denied.
-- [ ] **FW-01**: Every added firewall permission is limited to the verified source, destination, protocol, and port required by one proven provider route, with rollback recorded.
+- [x] **FW-01**: Every added firewall permission is limited to the verified source, destination, protocol, and port required by one proven provider route, with rollback recorded. Evidence task completed with a `BLOCKED` outcome; zero permissions were added.
 
 ### Provider configuration
 
@@ -66,7 +66,7 @@ Every v1 requirement maps to exactly one authoritative roadmap phase.
 | NET-02 | Phase 2 | WARN |
 | UI-01 | Phase 2 | PASS |
 | CRED-01 | Phase 3 | NOT PROVEN |
-| FW-01 | Phase 3 | NOT PROVEN |
+| FW-01 | Phase 3 | BLOCKED |
 | PROV-01 | Phase 4 | NOT PROVEN |
 | PROV-02 | Phase 4 | NOT PROVEN |
 | PROV-03 | Phase 4 | NOT PROVEN |
@@ -84,8 +84,8 @@ Every v1 requirement maps to exactly one authoritative roadmap phase.
 - Mapped to phases: 21
 - Unmapped: 0
 - Duplicated mappings: 0
-- Evidence tasks complete: 8/21 (`PASS`: 6, `WARN`: 1, completed with `NOT PROVEN` outcome: 1)
-- Evidence tasks remaining: 13/21 (`NOT PROVEN`: 13, `BLOCKED`: 0)
+- Evidence tasks complete: 9/21 (`PASS`: 6, `WARN`: 1, completed with `NOT PROVEN` outcome: 1, completed with `BLOCKED` outcome: 1)
+- Evidence tasks remaining: 12/21 (`NOT PROVEN`: 12, `BLOCKED`: 0)
 
 ---
 *Requirements defined: 2026-09-08*
