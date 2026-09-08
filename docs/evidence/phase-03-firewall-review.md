@@ -125,3 +125,20 @@ No firewall, credential, OAuth, service, VM, browser, package, route or inferenc
 mutation occurred during this review. The routine choice is to preserve the
 blocked state; only new evidence and a refreshed independently reviewed packet
 can change a route decision.
+
+## Controller acceptance
+
+Accepted by controller `/root` on 2026-09-08 Asia/Bangkok after independently
+rechecking the current packet bytes, validator result, VM105 management baseline,
+direct TCP 3080 denial, route count, and release fields.
+
+- Accepted packet SHA-256: `FF91A5E0D0FB29F7CAFEFFF32B8B3A1A7DD2A76CC087A38E4939435532D361A1`.
+- Accepted approved rule IDs: `[]`.
+- Accepted releasable rule IDs: `[]`.
+- Controller decision: **accept the reviewed non-releasable blocked state only**.
+- Mutation authority: **none**; no add, inverse, postflight, rollback, credential,
+  OAuth, route, or inference action is released by this acceptance.
+
+Any packet-byte, identity, baseline, route, endpoint, source, destination, protocol,
+port, ownership, command, probe, or verdict change invalidates this acceptance and
+requires a new independent review before any live action.
