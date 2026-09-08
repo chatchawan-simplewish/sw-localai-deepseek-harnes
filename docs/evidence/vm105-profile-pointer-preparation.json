@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "workflowId": "vm105-profile-preparation",
+  "target": {
+    "hostname": "deepseek-harness-01",
+    "address": "192.168.1.139",
+    "sshHostKeyIdentity": "accepted-known-host",
+    "service": "deepseek-harness.service",
+    "serviceUser": "dsh",
+    "serviceGroup": "dsh",
+    "candidateRoot": "/home/dsh/.dsh-profiles/vm105-provider-v1",
+    "listenerHost": "127.0.0.1",
+    "listenerPort": 3080,
+    "futureDropInDirectory": "/etc/systemd/system/deepseek-harness.service.d",
+    "futureDropInFile": "/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf"
+  },
+  "overallVerdict": "BLOCKED",
+  "selectorDiscovery": {
+    "capturedAt": "2026-09-08T10:42:59.2148708Z",
+    "installedVersion": "0.1.1-rc.2",
+    "verdict": "BLOCKED",
+    "blockers": [
+      "Installed wrapper fixed entrypoint contains an @ scope segment rejected by the required fail-closed entrypoint parser; selector semantics were not inspected or guessed"
+    ],
+    "installedEntrypoint": null,
+    "baseline": {
+      "repositoryOrigin": "https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git",
+      "branch": "codex/vm105-authoritative-roadmap",
+      "capturedAt": "2026-09-08T10:42:54.3509246Z",
+      "hostname": "deepseek-harness-01",
+      "address": "192.168.1.139",
+      "sshHostKeyIdentity": "accepted-known-host",
+      "installedVersion": "0.1.1-rc.2",
+      "service": {
+        "sourceClass": "sanitized-unit",
+        "observationId": "vm105-effective-unit",
+        "capturedAt": "2026-09-08T10:42:54.3509246Z",
+        "propertyAllowlist": [
+          "User",
+          "Group",
+          "ExecStart",
+          "WorkingDirectory",
+          "UMask",
+          "FragmentPath",
+          "DropInPaths",
+          "ActiveState",
+          "SubState",
+          "Result",
+          "NRestarts"
+        ],
+        "observations": [
+          { "name": "Result", "value": "success" },
+          { "name": "NRestarts", "value": "0" },
+          { "name": "ExecStart", "value": "{ path=/usr/local/bin/dsh ; argv[]=/usr/local/bin/dsh web --host 127.0.0.1 --port 3080 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }" },
+          { "name": "UMask", "value": "0077" },
+          { "name": "WorkingDirectory", "value": "/srv/dsh/workspaces" },
+          { "name": "User", "value": "dsh" },
+          { "name": "Group", "value": "dsh" },
+          { "name": "ActiveState", "value": "active" },
+          { "name": "SubState", "value": "running" },
+          { "name": "FragmentPath", "value": "/etc/systemd/system/deepseek-harness.service" },
+          { "name": "DropInPaths", "value": "" }
+        ],
+        "claim": "Allowlisted effective service baseline"
+      },
+      "listeners": [
+        { "address": "127.0.0.1", "port": 3080, "protocol": "tcp" }
+      ],
+      "localHttp": {
+        "url": "http://127.0.0.1:3080/",
+        "statusCode": 200,
+        "exitCode": 0
+      },
+      "ufw": {
+        "active": true,
+        "defaults": "deny-(incoming),-allow-(outgoing),-disabled-(routed)",
+        "ruleIds": [ "rule-1", "rule-2" ],
+        "tcp3080Allowed": false
+      },
+      "directLanDenied": {
+        "source": "controller-lan",
+        "destination": "192.168.1.139",
+        "port": 3080,
+        "denied": true,
+        "timeoutMs": 1500
+      }
+    },
+    "selector": null,
+    "candidateBlueprint": null,
+    "selectorDigest": "8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4",
+    "review": {
+      "status": "ACCEPTED",
+      "reviewedAt": "2026-09-08T10:42:59.2148708Z",
+      "reviewer": "pending-independent-review",
+      "reviewedDigest": "8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4",
+      "findings": []
+    }
+  },
+  "cutoverPrerequisites": {
+    "observedAt": "2026-09-08T10:42:59.2148708Z",
+    "verdict": "BLOCKED",
+    "privilegeSeam": {
+      "verdict": "PASS",
+      "receipts": [
+        {
+          "sourceClass": "privilege-receipt",
+          "operationId": "future-install",
+          "capturedAt": "2026-09-08T10:42:57.4740857Z",
+          "queryUser": "dsh",
+          "sudoPath": "/usr/bin/sudo",
+          "targetExecutable": "/usr/bin/install",
+          "targetArgv": [ "-o", "root", "-g", "root", "-m", "0644", "/dev/stdin", "/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf" ],
+          "noninteractive": true,
+          "result": "ALLOWED",
+          "exitCode": 0,
+          "rawOutputStored": false,
+          "claim": "Read-only existing privilege query"
+        },
+        {
+          "sourceClass": "privilege-receipt",
+          "operationId": "future-remove",
+          "capturedAt": "2026-09-08T10:42:57.7553840Z",
+          "queryUser": "dsh",
+          "sudoPath": "/usr/bin/sudo",
+          "targetExecutable": "/usr/bin/rm",
+          "targetArgv": [ "-f", "--", "/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf" ],
+          "noninteractive": true,
+          "result": "ALLOWED",
+          "exitCode": 0,
+          "rawOutputStored": false,
+          "claim": "Read-only existing privilege query"
+        },
+        {
+          "sourceClass": "privilege-receipt",
+          "operationId": "future-stop",
+          "capturedAt": "2026-09-08T10:42:58.0405753Z",
+          "queryUser": "dsh",
+          "sudoPath": "/usr/bin/sudo",
+          "targetExecutable": "/usr/bin/systemctl",
+          "targetArgv": [ "stop", "deepseek-harness.service" ],
+          "noninteractive": true,
+          "result": "ALLOWED",
+          "exitCode": 0,
+          "rawOutputStored": false,
+          "claim": "Read-only existing privilege query"
+        },
+        {
+          "sourceClass": "privilege-receipt",
+          "operationId": "future-start",
+          "capturedAt": "2026-09-08T10:42:58.3414379Z",
+          "queryUser": "dsh",
+          "sudoPath": "/usr/bin/sudo",
+          "targetExecutable": "/usr/bin/systemctl",
+          "targetArgv": [ "start", "deepseek-harness.service" ],
+          "noninteractive": true,
+          "result": "ALLOWED",
+          "exitCode": 0,
+          "rawOutputStored": false,
+          "claim": "Read-only existing privilege query"
+        },
+        {
+          "sourceClass": "privilege-receipt",
+          "operationId": "future-reload",
+          "capturedAt": "2026-09-08T10:42:58.6243582Z",
+          "queryUser": "dsh",
+          "sudoPath": "/usr/bin/sudo",
+          "targetExecutable": "/usr/bin/systemctl",
+          "targetArgv": [ "daemon-reload" ],
+          "noninteractive": true,
+          "result": "ALLOWED",
+          "exitCode": 0,
+          "rawOutputStored": false,
+          "claim": "Read-only existing privilege query"
+        },
+        {
+          "sourceClass": "privilege-receipt",
+          "operationId": "future-status",
+          "capturedAt": "2026-09-08T10:42:58.8967449Z",
+          "queryUser": "dsh",
+          "sudoPath": "/usr/bin/sudo",
+          "targetExecutable": "/usr/bin/systemctl",
+          "targetArgv": [ "show", "deepseek-harness.service" ],
+          "noninteractive": true,
+          "result": "ALLOWED",
+          "exitCode": 0,
+          "rawOutputStored": false,
+          "claim": "Read-only existing privilege query"
+        }
+      ]
+    },
+    "dropInDirectory": {
+      "path": "/etc/systemd/system/deepseek-harness.service.d",
+      "exists": false,
+      "realDirectory": false,
+      "owner": null,
+      "group": null,
+      "mode": null,
+      "linkStatus": "absent",
+      "broadAcl": null,
+      "unexpectedMount": null,
+      "verdict": "BLOCKED"
+    },
+    "blockers": [
+      "Future drop-in directory is absent"
+    ]
+  },
+  "candidatePreparation": null,
+  "closeout": null,
+  "operationLedger": []
+}
