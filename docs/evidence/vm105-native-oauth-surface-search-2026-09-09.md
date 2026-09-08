@@ -1,0 +1,63 @@
+# VM105 native OAuth surface search — 2026-09-09
+
+Repository: https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git. This is the separate bounded CLI/TUI follow-up to `vm105-native-oauth-readiness-2026-09-09.md`; that file is unchanged by this lane.
+
+**Result: no callable Harness-native owner login entrypoint was established in the inspected launcher, argument handoff, profile boot and headless runner. The backend authorization interaction seam remains unresolved. This is not proof that every installed package lacks such a surface.**
+
+- First-window additional public source files - 08/08 budget consumed; that window stopped before another file.
+- Separate final declaration follow-up: one startup file consumed; no additional imported file needed. The first window's eight-file provenance remains unchanged.
+- Existing root manifest and app-boot manifest/source were reused with ledger hash checks.
+- Native OAuth, effective isolated storage, owner consent, authenticated model access and runtime acceptance remain NOT PROVEN. No custom integration or profile was created.
+
+## Concrete findings
+
+1. Root `package.json:14–20` declares the dsh bin and packaged lib files; dependencies declare cmdline and headless. `lib/bin.js:6–35,72–107,123–150` owns profile selection, the web alias, plugin management and configuration dumps. It passes inner arguments to the selected profile. There is no direct login command established here. Its tui help example explicitly says custom profile; it is not evidence that a TUI bundle is shipped.
+2. The bin's explicit import leads through `lib/profile-boot-BnJoK_kl.js:1–2` to `lib/profile-boot-DG5t9aNs.js`. The latter at140–144,166–170,220–254 prepares the chosen profile, composes layers and supplies cmdline arguments to the booted tree. It is an application launcher, not an owner authorization interaction implementation. Running it would read/create profile state and boot plugins; it was not run.
+3. The declared `dsh-cmdline/lib/index.js:26–29,54–65` provides immutable arguments and dispatches an app-supplied commander grammar. It does not itself implement an authentication conversation. It requires an actual app plugin to supply actions and prompts.
+4. The already-pinned `dsh-app-boot/lib/index.js:322–334` ships only web and headless profile templates. At539–550, an absent profile with no shipped template errors rather than supplying a TUI implementation. Existing user-created profiles could supply other bundles; no profile metadata or content was inspected, so their existence or behavior is unknown.
+5. The declared headless package describes a one-shot Agent/Session runner. Its `lib/index.js:18–23,63–98,105–115` requires a model selection and task, creates an agent, runs its user task, flushes the session and prints the result. This is not an established login-only path and must not be invoked as an authentication probe: it can run inference and tools.
+6. `dsh-headless/cordis.patch.yml:22–35` declares a separate `@deepseek-ai/dsh-headless/startup` entry that parses headless arguments and supplies the task. Its manifest exports that entry to `lib/startup.js` at21–24. The first eight-file window stopped before this file; the separately authorized final follow-up below closes that exact declaration gap.
+7. The final follow-up's complete `dsh-headless/lib/startup.js:20–24,32–39` defines only help and a `[task...]` positional, joins the task words and publishes the task to the runner. It implements no login subcommand or authorization interaction. A word such as login in that positional would be task text sent into the previously traced Agent runner, not a native credential-entry command. Its only imports are commander and the already-inspected cmdline parser; no uninspected startup/interaction helper is directly imported. No application or commander code was executed.
+
+## Scope and next action
+
+Independent review: `native_oauth_review` accepted this bounded search on2026-09-09 00:54:55 Asia/Bangkok. It recomputed all twelve retained full-source hashes, checked line counts/declarations and the final startup grammar. It used local public captures only, with no fresh live observation or authentication. No whole-installation absence or runtime acceptance is claimed.
+
+No command is offered to the owner: none was proven suitable for isolated Harness-native login. The installed pi-ai CLI remains the previously documented separate cwd-store path, not a substitute. The actual reachable headless startup grammar is now adjudicated: it is task execution, not authentication. The remaining technical blocker is an established owner interaction adapter attached to the Harness authorization seam: native flow lifecycle, private notice/prompt handling, selected isolated credential-store binding and sanitized committed-record status. The previously inspected internal `AuthorizationService.begin` seam is a potential integration point, not an existing owner command. This bounded search stops here without claiming absence from all installed packages or designing speculative code. Routine preparation/integration decisions remain under standing owner preapproval; actual private authentication and consent require the owner. This lane requests no permission and makes no live change.
+
+## Inspection, timestamp and local search provenance
+
+Remote source receipts below retain VM-reported UTC timestamps, convertible to Asia/Bangkok by adding seven hours. They are source-receipt timestamps, not measured durations. The clock tool independently returned `2026-09-08 17:47:57 UTC` and `2026-09-08 17:48:55 UTC` during this work. Earlier commentary used stale local shell times; those are not the evidence clock, and no VM clock discrepancy is claimed.
+
+The unchanged Inspection helper enforced root ownership, non-writable ancestors, held nofollow descriptors, ACL/capability exclusions, stable link counts, metadata/path identity and double SHA256 reads. Cmdline and headless links were reached only through root manifest dependencies, with root-owned stable symlink checks, canonical installation boundaries, and exact package identity/version checks. The root bin and its two profile-boot modules followed bin/files plus explicit imports; headless entry and patch followed exports/bundle declarations. No generic dependency crawl or rejected base index read occurred.
+
+Strict SSH used the existing approved key, BatchMode=yes, IdentitiesOnly=yes, StrictHostKeyChecking=yes, ConnectTimeout=10, assigned dsh VM105 endpoint and `/usr/bin/python3.12 -I -`. Every local wrapper required SSH exit0. No installed JS/dsh invocation, provider HTTP, profile metadata/content, credentials, pilot state, environment, log, browser, OAuth or VM mutation occurred.
+
+Unlike the earlier excerpt-only UI captures, these four local JSON captures retain full public source text. A local Python check reconstructed SHA256 from every retained source string and matched all eleven file hashes. The case-insensitive predicate `re.search(r'authorization|oauth|\blogin\b', line, re.I)` matched zero lines in each of these eleven files. This reproducible negative text search supports the bounded findings, not a whole-installation absence claim. The terminal display used selected excerpts for brevity; full text remains in the captures.
+
+## Captures and source ledger
+
+- Capture `C:/Users/chatc/.codex/tmp-native-surface-root.json`; VM-reported UTC `2026-09-08T17:46:51.536660+00:00`.
+  - Existing ledger: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh/package.json`; SHA256 `dc930c0b18158f49ae3753ceaf6b1b7ae71dc6c8f45c85a2d679b142024addf7`; 102 lines; auth-pattern matches 0; stable links 2.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh/lib/bin.js`; SHA256 `c0226687bb20f45c603ec6fe50f3de16d1c3510c3a803304ec575ef9bc366c62`; 154 lines; auth-pattern matches 0; stable links 2.
+- Capture `C:/Users/chatc/.codex/tmp-native-surface-dispatch.json`; VM-reported UTC `2026-09-08T17:47:38.929385+00:00`.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh/lib/profile-boot-BnJoK_kl.js`; SHA256 `778c5b338674d986a49972be920c965d28b2c8cac85364ae77f8587070397663`; 2 lines; auth-pattern matches 0; stable links 2.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-cmdline@0.1.1-rc.2_@deepseek-ai+cordis-plugin-loader@1.0.2_@deepseek-a_1bc57e8c58566d7b9c3fbf261d0f481e/node_modules/@deepseek-ai/dsh-cmdline/package.json`; SHA256 `9def9248f99b83aff1df2158869d9aaa7a6796958010533567c8fe92b019fc9c`; 46 lines; auth-pattern matches 0; stable links 2.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-cmdline@0.1.1-rc.2_@deepseek-ai+cordis-plugin-loader@1.0.2_@deepseek-a_1bc57e8c58566d7b9c3fbf261d0f481e/node_modules/@deepseek-ai/dsh-cmdline/lib/index.js`; SHA256 `e631a136c09b1f37f004db8e7d2a5a2b91456d1c17bd88edb8cc8d7abd1e6c41`; 115 lines; auth-pattern matches 0; stable links 2.
+- Capture `C:/Users/chatc/.codex/tmp-native-surface-boot.json`; VM-reported UTC `2026-09-08T17:48:02.068749+00:00`.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh/lib/profile-boot-DG5t9aNs.js`; SHA256 `f83ffea6a4d30cfbe02b41dabcc05104c4ad27bf79c74f601f0ddb6ccdf88969`; 283 lines; auth-pattern matches 0; stable links 2.
+- Capture `C:/Users/chatc/.codex/tmp-native-surface-headless.json`; VM-reported UTC `2026-09-08T17:48:38.589834+00:00`.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-headless@0.1.1-rc.2_6f2d1767c8b04054fa31cea644d40f88/node_modules/@deepseek-ai/dsh-headless/package.json`; SHA256 `f3dc4467bca16c3416468c3d0fd8fcc2d7dfe0596c566a86fccac0c066dfa1c2`; 70 lines; auth-pattern matches 0; stable links 2.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-headless@0.1.1-rc.2_6f2d1767c8b04054fa31cea644d40f88/node_modules/@deepseek-ai/dsh-headless/lib/index.js`; SHA256 `997fe17d783aac2c392df65298aa8180f3748d0a50cc4151de13ae16457986dd`; 118 lines; auth-pattern matches 0; stable links 2.
+  - Additional: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-headless@0.1.1-rc.2_6f2d1767c8b04054fa31cea644d40f88/node_modules/@deepseek-ai/dsh-headless/cordis.patch.yml`; SHA256 `534dc49c84b0fb9c2d3278dc8990f577d57b7a88442941444b58c96ac1a09ba0`; 35 lines; auth-pattern matches 0; stable links 2.
+  - Existing ledger: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-app-boot@0.1.1-rc.2_d7ed335ddbfb7670edc51bd2c8928580/node_modules/@deepseek-ai/dsh-app-boot/package.json`; SHA256 `ccf455c20e4b20687429dc33cac6857630bce5fe76be483bf2871952ae725c47`; 66 lines; auth-pattern matches 0; stable links 2.
+  - Existing ledger: `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-app-boot@0.1.1-rc.2_d7ed335ddbfb7670edc51bd2c8928580/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js`; SHA256 `9d4b7f214cd35b3e8ce4e027b12cca34a416d355577aeacbf08a5b324f0cabb6`; 1216 lines; auth-pattern matches 0; stable links 2.
+
+## Separate final declaration follow-up
+
+This separate follow-up inspected one declared startup file and needed none of its allowance of at most two additional directly imported startup/interaction files. It did not expand or rewrite the preceding eight-file window. The clock tool immediately before the follow-up returned `2026-09-08 17:51:31 UTC`.
+
+- Full-source capture `C:/Users/chatc/.codex/tmp-native-surface-startup.json`; VM-reported UTC `2026-09-08T17:51:58.977855+00:00`.
+- Source `/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh-headless@0.1.1-rc.2_6f2d1767c8b04054fa31cea644d40f88/node_modules/@deepseek-ai/dsh-headless/lib/startup.js`; SHA256 `3da49b082d7f8bf6ec8342d7f5e19a25f62dd55d46a3bc6aaa9b65a9db577958`; 42 lines; stable links2.
+- Parent declaration: previously verified headless package manifest SHA256 `f3dc4467bca16c3416468c3d0fd8fcc2d7dfe0596c566a86fccac0c066dfa1c2`, exports `./startup` to `./lib/startup.js`; freshly matched before this read.
+- Same unchanged guarded Inspection helper and strict SSH interpreter path; wrapper required exit0. Local reconstruction of full-source SHA256 matched. Case-insensitive authorization/oauth/login predicate recorded above matched zero lines. Only public source was read; all original no-runtime/no-profile/no-auth boundaries remain in force.

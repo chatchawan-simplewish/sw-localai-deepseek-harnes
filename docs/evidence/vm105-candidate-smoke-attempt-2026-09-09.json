@@ -1,0 +1,31 @@
+{
+  "status": "BLOCKED",
+  "runtime": "NOT PROVEN",
+  "helper_sha256": "3f163e721470d6eb12d672625a4db050921ba1454fc4510a0ffef2976221df09",
+  "independent_code_review": "candidate_smoke_review accepted exact hash for one bounded isolated attempt after nine offline rejection checks, 29 package mappings and 63 source pins",
+  "execution_receipt": "ecfd10",
+  "ssh_helper_exit": 1,
+  "checkpoints": ["PILOT_ENVIRONMENTFILES_ABSENT_SOURCE_VERIFIED"],
+  "error_code": "UNEXPECTED_FAILURE",
+  "pilot_error_code": "PILOT_PRESERVATION_NOT_PROVEN",
+  "startup_reached": false,
+  "independent_evidence_review": "candidate_smoke_review accepted this bounded failure receipt and separate preservation readbacks at2026-09-09 00:57:21 Asia/Bangkok. Only dedicated read-only preflight diagnosis was approved next; existing startup review permits no retry.",
+  "startup_limit": "Helper reaches systemd-run only after PREFLIGHT_PASS; that checkpoint was not reached. No retry performed.",
+  "independent_parent_readbacks": {
+    "observed_before_utc": "2026-09-08T17:55:43+00:00",
+    "pilot_receipt": "2a0bbe",
+    "pilot_active": true,
+    "pilot_pid": 829,
+    "pilot_start_utc": "2026-09-08T14:41:13+00:00",
+    "pilot_restarts": 0,
+    "candidate_unit_receipt": "e3f08d",
+    "candidate_unit_load_state": "not-found",
+    "candidate_unit_active_state": "inactive",
+    "tunnel_receipt": "c998fb",
+    "task_state": "Running",
+    "listener_address": "127.0.0.1",
+    "listener_pid": 33528,
+    "http_status": 200
+  },
+  "limits": "Separate parent readbacks establish continued pilot/tunnel operation despite the helper's incomplete preservation check. Candidate startup, adapter count, generated containment, ordinary-service compatibility, cutover, credentials and routes remain NOT PROVEN. Preflight failure needs diagnosis without another startup attempt."
+}
