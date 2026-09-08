@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-08T10:09:44+07:00",
+  "packetSha256": "FF91A5E0D0FB29F7CAFEFFF32B8B3A1A7DD2A76CC087A38E4939435532D361A1",
+  "review": {
+    "path": "docs/evidence/phase-03-firewall-review.md",
+    "controllerAcceptance": "RECORDED",
+    "acceptedState": "NON_RELEASABLE_BLOCKED_ONLY",
+    "acceptedApprovedRuleIds": [],
+    "acceptedReleasableRuleIds": [],
+    "mutationAuthority": "NONE"
+  },
+  "release": {
+    "status": "BLOCKED",
+    "eligible": false,
+    "fw01Verdict": "BLOCKED / NOT PROVEN",
+    "rulesInPacket": 0,
+    "approvedRuleIds": [],
+    "releasableRuleIds": [],
+    "executedRuleIds": [],
+    "mutationPerformed": false,
+    "addCommandsExecuted": [],
+    "inverseCommandsExecuted": [],
+    "postflightCommandsExecuted": [],
+    "rollbackCommandsExecuted": []
+  },
+  "validatorApplicability": {
+    "selfTest": {
+      "applicable": true,
+      "exitCode": 0,
+      "result": "PASS",
+      "observation": "Valid blocked, mixed, no-change, rule, postflight and rollback structures; 37 rejection cases"
+    },
+    "preflight": {
+      "applicable": true,
+      "exitCode": 0,
+      "result": "PASS",
+      "observation": "Structural validation only; no mutation release"
+    },
+    "postflight": {
+      "applicable": false,
+      "executed": false,
+      "reason": "No approved or releasable rule ID exists; blocked packets have no releasable receipts"
+    },
+    "rollback": {
+      "applicable": false,
+      "executed": false,
+      "reason": "No rule was added, so there is no plan-owned rule to reverse"
+    },
+    "evidenceSelfTest": {
+      "applicable": true,
+      "executed": true,
+      "exitCode": 0,
+      "result": "PASS",
+      "capturedAt": "2026-09-08T10:14:43+07:00",
+      "observation": "23 detection cases; 14 continuation cases; clean, required-file, allowlist and exact suppressed-report checks"
+    },
+    "evidenceNetwork": {
+      "applicable": true,
+      "executed": true,
+      "exitCode": 0,
+      "result": "PASS",
+      "capturedAt": "2026-09-08T10:14:43+07:00",
+      "observation": "Fixed seven-file allowlist scanned; all five required network outputs exist; no finding reported"
+    },
+    "manualRedactionReview": {
+      "applicable": true,
+      "executed": true,
+      "result": "PASS",
+      "capturedAt": "2026-09-08T10:14:43+07:00",
+      "observation": "All five network evidence and summary outputs reviewed; no secret value, OAuth parameter, authorization header or private-key material found"
+    }
+  },
+  "currentBaseline": {
+    "ssh": {
+      "capturedAt": "2026-09-08T10:09:20+07:00",
+      "strict": true,
+      "exitCode": 0,
+      "hostKeyIdentity": "ED25519 SHA256:sUlbmGFvjHrJtyJku/Nmjd7tn+N3xIdX1eL2R6TJMrw"
+    },
+    "vm105Identity": {
+      "hostname": "deepseek-harness-01",
+      "address": "192.168.1.139",
+      "interface": "eth0",
+      "mac": "bc:24:11:5c:49:52",
+      "matchesAcceptedPacket": true
+    },
+    "service": {
+      "name": "deepseek-harness.service",
+      "activeState": "active",
+      "subState": "running",
+      "unitFileState": "enabled",
+      "result": "success",
+      "restartCount": 0,
+      "user": "dsh",
+      "workingDirectory": "/srv/dsh/workspaces"
+    },
+    "listener": {
+      "count": 1,
+      "observation": "127.0.0.1:3080",
+      "exclusiveLoopback": true
+    },
+    "localHttp": {
+      "url": "http://127.0.0.1:3080",
+      "status": 200,
+      "exitCode": 0
+    },
+    "ownerTunnel": {
+      "capturedAt": "2026-09-08T10:09:44+07:00",
+      "process": "ssh",
+      "processId": 42076,
+      "listeners": [
+        "127.0.0.1:3080",
+        "[::1]:3080"
+      ],
+      "httpStatus": 200,
+      "curlExitCode": 0
+    },
+    "directPort": {
+      "source": "Bell-PC2",
+      "destination": "192.168.1.139",
+      "port": 3080,
+      "tcpConnectionSucceeded": false,
+      "verdict": "DENIED"
+    },
+    "firewall": {
+      "platform": "ufw",
+      "active": true,
+      "defaultIncoming": "deny",
+      "defaultOutgoing": "allow",
+      "defaultRouted": "disabled",
+      "rules": [
+        {
+          "port": 22,
+          "protocol": "tcp",
+          "direction": "in",
+          "action": "allow",
+          "source": "192.168.1.161",
+          "comment": "Bell-PC2 SSH"
+        },
+        {
+          "port": 22,
+          "protocol": "tcp",
+          "direction": "in",
+          "action": "allow",
+          "source": "192.168.1.141",
+          "comment": "Hermes VM104 SSH"
+        }
+      ],
+      "matchesAcceptedPacket": true,
+      "preexistingRulesChanged": false,
+      "newRulesObserved": false
+    },
+    "managementBaselinePreserved": true
+  },
+  "routing": {
+    "explicitRequired": true,
+    "automaticEnabled": false,
+    "automaticAttribution": "NOT PROVEN",
+    "runtimeSettingInspected": false
+  },
+  "routes": [
+    {
+      "id": "OR-AUTO",
+      "decision": "NO_FIREWALL_CHANGE",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE"
+    },
+    {
+      "id": "OR-PARETO-CODE",
+      "decision": "NO_FIREWALL_CHANGE",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE"
+    },
+    {
+      "id": "VM1201-QWEN",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE",
+      "reason": "Current machine identity, intended listener/model, authentication, firewall ownership, destination-seen source and valid unauthorized control are missing"
+    },
+    {
+      "id": "BELL-WORKER",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE",
+      "reason": "Upstream intended model/service and authentication, destination-seen source and valid unauthorized control are missing"
+    },
+    {
+      "id": "TYPHOON-TEXT",
+      "decision": "NO_FIREWALL_CHANGE",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE"
+    },
+    {
+      "id": "TYPHOON-OCR",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE",
+      "reason": "Exact OCR endpoint, request/image translation and installed Harness compatibility are not established"
+    },
+    {
+      "id": "CODEX-LUNA",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE",
+      "reason": "Supported installed human OAuth entry and effective isolated storage are not established"
+    },
+    {
+      "id": "CODEX-TERRA",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE",
+      "reason": "Supported installed human OAuth entry and effective isolated storage are not established"
+    },
+    {
+      "id": "CODEX-SOL",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "mutation": "NONE",
+      "reason": "Supported installed human OAuth entry and effective isolated storage are not established"
+    }
+  ],
+  "limitations": [
+    "Three existing HTTPS transport paths need no firewall change, but no inference route is proven",
+    "Six blocked routes remain unresolved and prevent FW-01 and Phase 3 acceptance",
+    "The direct TCP 3080 check proves connection denial at capture time, not the packet-drop location",
+    "The VM104 SSH rule current need remains NOT PROVEN and the rule is unchanged",
+    "No credential, OAuth, provider, route, inference, service, VM, browser, package or model mutation occurred"
+  ]
+}

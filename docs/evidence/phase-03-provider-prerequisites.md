@@ -15,10 +15,10 @@ Initial tracked/untracked status was empty.
 
 FW-01: **BLOCKED**. This is preparation evidence, not network release or phase completion.
 The packet contains zero additions, three supported existing HTTPS paths, and six
-blocked routes. Preflight validates their structure and safety, while explicit
-releaseEligible=false and empty approved/releasable rule lists prevent release. An independent
-reviewer and controller must accept a concrete packet digest before any mutation.
-No review approval, results receipt, or phase summary is fabricated here.
+blocked routes. Independent review and controller acceptance bind exact packet digest
+`FF91A5E0D0FB29F7CAFEFFF32B8B3A1A7DD2A76CC087A38E4939435532D361A1` to
+`approvedRuleIds=[]` and `releasableRuleIds=[]`. This accepts only the non-releasable
+blocked state: no add, inverse, postflight or rollback command is authorized.
 
 ## Fresh management baseline
 
@@ -186,23 +186,32 @@ were used. Installed documentation examples were not copied as credential values
 
 ## Verification and remaining gate
 
-Run both in-memory self-tests, then Preflight and the existing Network scanner.
-Self-tests and structural Preflight must pass; Preflight never grants mutation
-release. The Network scanner scans every currently existing allowlisted file and
-reports missing independent-review/results/03-01-summary outputs separately.
-Task 1 current-file redaction acceptance requires zero findings other than these
-missing future outputs; the full Network stage remains incomplete. Task 1 discovery
-can complete with explicitly blocked routes, while FW-01/Phase 3 acceptance remains
-blocked. Do not manufacture receipts or remove scanner requirements.
-Manual redaction review includes this file, packet and both scripts before staging.
+Task 3 revalidated the exact accepted digest and reran the firewall validator
+SelfTest and structural Preflight successfully. At 10:09:20–10:09:44 +07:00,
+strict SSH re-established the accepted ED25519 host identity, hostname, eth0
+address/MAC, service state, exclusive loopback listener, local HTTP 200 and exact
+UFW defaults/two-rule baseline. Bell-PC2 retained the existing ssh tunnel on
+`127.0.0.1:3080` and `::1:3080` with tunneled HTTP 200. A direct TCP probe to
+`192.168.1.139:3080` returned false. No firewall or other live mutation occurred.
+
+Because the packet contains no rule ID, Postflight and Rollback validation are not
+applicable and were not invoked. The genuine zero-mutation result is recorded in
+`phase-03-firewall-results.json`; the Plan summary retains all six blockers and
+FW-01 BLOCKED/NOT PROVEN. At 10:14 +07:00, the evidence scanner SelfTest passed
+all 23 detection and 14 continuation cases, its Network stage exited zero, and
+manual redaction review of all five network outputs found no secret value, OAuth
+parameter, authorization header or private-key material. These checks are rerun
+after the final evidence edit and immediately before staging.
 
 The validator requires installed PowerShell 7.5 or newer (7.6.5 was used), supports
 only canonical inbound TCP UFW additions and refuses other mutation platforms.
 That is sufficient for this zero-addition blocked packet; a future Windows rule
 would need platform-specific validation and renewed independent review.
 
-Next work: resolve exact read-only VM1201 access, prove Bell-PC2 upstream service
-and auth without reading secret configuration, locate a supported installed native
-Codex human sign-in surface, and verify OCR wire compatibility. Then refresh the
-packet, rerun validators, and obtain fresh independent review. No owner credential
-session should begin from this blocked packet.
+Next credential-preparation work is the read-only 03-02 inventory: establish the
+effective VM105 storage path and safe consumer-disconnect/backup eligibility using
+metadata only, while keeping all six blocked routes blocked. Do not create a key,
+start OAuth, type a secret or begin an owner credential session from this packet.
+Separately resolve exact VM1201 access, Bell-PC2 upstream service/auth, a supported
+installed Codex human sign-in surface and OCR wire compatibility before refreshing
+the packet and obtaining new independent review.
