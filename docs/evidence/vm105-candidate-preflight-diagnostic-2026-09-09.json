@@ -1,0 +1,18 @@
+{
+  "status": "DIAGNOSTIC_BLOCKED",
+  "runtime": "NOT PROVEN",
+  "helper_sha256": "7ab3cc53dff157ca035ea48625c779574cce0178a297f9db0ae419719c25baf5",
+  "execution_receipt": "a4e010",
+  "ssh_helper_exit": 1,
+  "errno": 24,
+  "exception_class": "OSError",
+  "fd_hard_limit": 1048576,
+  "fd_soft_limit": 1024,
+  "held_fd_count": 1021,
+  "last_successful_fd_count": 233,
+  "stage": "INSTALLED_CLOSURE",
+  "observed_before_utc": "2026-09-08T18:03:57+00:00",
+  "independent_code_review": "candidate_smoke_review accepted the exact dedicated diagnostic hash with 60-second deadline, unchanged verification bounds, sanitized numeric/error fields and owned descriptor cleanup; no apply path reachable",
+  "interpretation": "EMFILE descriptor exhaustion established during installed-closure verification. This supports the earlier generic preflight failure explanation; the earlier suppressed exception was not retained and is not reconstructed. No candidate service was started.",
+  "next_scope": "Review a verifier-process-only bounded soft-limit remedy; existing runtime review does not permit a startup retry. No host, pilot or candidate-service limit changes."
+}

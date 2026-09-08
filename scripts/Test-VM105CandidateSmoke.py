@@ -815,15 +815,133 @@ def apply():
     return result
 
 
+def diagnostic_error(error):
+    names = {'Blocked', 'TimeoutError', 'OSError', 'FileNotFoundError', 'PermissionError',
+             'ProcessLookupError', 'NotADirectoryError', 'IsADirectoryError', 'JSONDecodeError',
+             'UnicodeDecodeError', 'ValueError', 'KeyError', 'IndexError', 'TypeError'}
+    name = type(error).__name__
+    number = getattr(error, 'errno', None)
+    return {'exception_class': name if name in names else 'OTHER',
+            'errno': number if type(number) is int else None}
+
+
+def preflight_diagnostic():
+    """Read-only reproduction: this entry has no path to apply or unit controls."""
+    result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None,
+              'held_fd_count': 0, 'last_successful_fd_count': None, 'fd_soft_limit': None, 'fd_hard_limit': None}
+    trust, previous_handler = Trusted(), None
+
+    def stage(name):
+        result['stage'] = name
+        try:
+            result['last_successful_fd_count'] = len(os.listdir('/proc/self/fd'))
+        except OSError:
+            pass  # Keep the last successful observation; never raise a descriptor limit.
+
+    def deadline(*unused):
+        raise TimeoutError()
+
+    try:
+        require(sys.platform == 'linux' and sys.version_info[:2] == (3, 12) and sys.flags.optimize == 0,
+                'PYTHON_RUNTIME')
+        require(os.geteuid() == 0 and os.getegid() == 0 and socket.gethostname() == 'deepseek-harness-01',
+                'DIAGNOSTIC_IDENTITY')
+        import resource
+        result['fd_soft_limit'], result['fd_hard_limit'] = resource.getrlimit(resource.RLIMIT_NOFILE)
+        previous_handler = signal.signal(signal.SIGALRM, deadline)
+        signal.alarm(60)
+        stage('SOURCE_PINS')
+        require(SOURCE_PINS, 'SOURCE_PINS_MISSING')
+        for path, digest in SOURCE_PINS.items():
+            require(hashlib.sha256(trust.read(path)).hexdigest() == digest, 'SOURCE_PIN')
+        stage('TOOLS')
+        for path in ('/usr/bin/python3.12', '/usr/bin/nsenter', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/env'):
+            require(os.fstat(trust.open(path, True)).st_mode & 0o111, 'TOOL_EXECUTABLE')
+        stage('PACKAGE_MAPPINGS')
+        for entry in KNOWN_MAPPINGS.values():
+            require(trust.resolve(entry['logical']) == entry['canonical'], 'REVIEWED_LOGICAL_MAPPING')
+        stage('LAUNCHER')
+        launch = '/usr/local/bin/dsh'
+        launch_lines = trust.read(launch).decode('utf-8').splitlines()
+        metadata = os.lstat(launch)
+        require(metadata.st_nlink == 1 and metadata.st_mode & 0o111, 'LAUNCHER_METADATA')
+        require(launch_lines and launch_lines[0] in {'#!/bin/sh', '#!/bin/bash', '#!/usr/bin/bash'}, 'LAUNCHER_SHEBANG')
+        meaningful = [line for line in launch_lines[1:] if line and line not in {'set -e', 'set -eu'}]
+        require(len(meaningful) == 1, 'LAUNCHER_SHAPE')
+        match = re.fullmatch(r'exec (/opt/node-v24\.19\.0-linux-x64/bin/node) (/opt/deepseek-harness/[A-Za-z0-9._/@+-]+) "\$@"', meaningful[0])
+        require(match is not None, 'LAUNCHER_FIXED_EXEC')
+        require(trust.resolve(pp.dirname(match[2])) + '/' + pp.basename(match[2]) == PACKAGE + '/lib/bin.js',
+                'LAUNCHER_REVIEWED_ENTRY')
+        require(trust.digest_runtime(match[1]) == 'bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12',
+                'NODE_RUNTIME_PIN')
+        require(os.stat(match[1]).st_mode & 0o111, 'NODE_EXECUTABLE')
+        stage('PILOT_BASELINE')
+        baseline, pilot, pilot_args, path = pilot_baseline()
+        require(pilot_args[:-5] == [match[1], match[2]], 'PILOT_REVIEWED_ENTRY')
+        stage('PATH_METADATA')
+        for component in path.split(':'):
+            trust.resolve(component, installation=False)
+        stage('HOST_LISTENER')
+        require(not any(row[0].endswith(':0C09') for row in listeners('self')), 'HOST_3081_EXISTS')
+        require(pilot[3] == os.readlink('/proc/self/ns/net'), 'PILOT_NAMESPACE')
+        stage('WORKSPACE_ENV_ABSENCE')
+        require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
+        stage('CANDIDATE_INVENTORY')
+        candidate_inventory()
+        stage('INSTALLED_CLOSURE')
+        closure(trust)
+        stage('UNIT_ABSENCE')
+        require(show(UNIT, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
+        stage('FINAL_CANDIDATE_INVENTORY')
+        candidate_inventory()
+        require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
+        stage('FINAL_HELD_METADATA')
+        trust.verify()
+        result['status'] = 'READ_ONLY_PREFLIGHT_PASS'
+    except Exception as error:
+        result.update(diagnostic_error(error))
+    finally:
+        result['held_fd_count'] = len(trust.held)
+        # Every retained descriptor belongs to this instance. Continue closing even after one error.
+        for fd, _, _ in reversed(list(trust.held.values())):
+            try:
+                os.close(fd)
+            except Exception as error:
+                if result['exception_class'] is None:
+                    result.update(diagnostic_error(error))
+                result['status'] = 'DIAGNOSTIC_BLOCKED'
+        if previous_handler is not None:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous_handler)
+    return result
+
+
 def self_test():
     import contextlib
     import io
     import urllib.request
+    from types import SimpleNamespace
     from unittest.mock import patch
     good = {'DSH_HOME': HOME, 'HOME': '/home/dsh', 'PATH': '/usr/bin'}
     validate_selector(good, '/usr/bin')
     validate_listener([('0100007F:0C09', '77')], {'77'})
     validate_owned({'InvocationID': 'a', 'Description': 'b'}, ('a', 'b'))
+    require(diagnostic_error(OSError(24, 'must never appear in output')) == {'exception_class': 'OSError', 'errno': 24},
+            'SELF_TEST_DIAGNOSTIC_SANITIZATION')
+    def exhausted(*unused):
+        raise OSError(24, 'must never appear in output')
+    fake = SimpleNamespace(held={'mock': (71, None, None)}, read=exhausted)
+    with patch.dict(globals(), {'Trusted': lambda: fake}), \
+         patch.dict(sys.modules, {'resource': SimpleNamespace(RLIMIT_NOFILE=7, getrlimit=lambda _: (1024, 1024))}), \
+         patch.object(sys, 'platform', 'linux'), patch.object(socket, 'gethostname', return_value='deepseek-harness-01'), \
+         patch.object(os, 'geteuid', return_value=0, create=True), patch.object(os, 'getegid', return_value=0, create=True), \
+         patch.object(os, 'listdir', return_value=['one', 'two']), patch.object(os, 'close') as close_fd, \
+         patch.object(signal, 'signal'), patch.object(signal, 'alarm', create=True), patch.object(signal, 'SIGALRM', 14, create=True):
+        diagnostic = preflight_diagnostic()
+        require(diagnostic['status'] == 'DIAGNOSTIC_BLOCKED' and diagnostic['stage'] == 'SOURCE_PINS'
+                and diagnostic['errno'] == 24 and diagnostic['held_fd_count'] == 1
+                and diagnostic['last_successful_fd_count'] == 2, 'SELF_TEST_DIAGNOSTIC_FAILURE')
+        close_fd.assert_called_once_with(71)
     reject_envfile_directives(b'\xef\xbb\xbf[Service]\r\n# Comment\r\nExecStart=/usr/bin/env \\\r\n -i /bin/true\r\n')
     cases = [
         lambda: validate_selector({'HOME': '/home/dsh', 'PATH': '/usr/bin'}, '/usr/bin'),
@@ -873,9 +991,10 @@ if __name__ == '__main__':
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--self-test', action='store_true')
+    modes.add_argument('--preflight-diagnostic', action='store_true')
     args = parser.parse_args()
     try:
-        result = self_test() if args.self_test else apply() if args.apply else {
+        result = self_test() if args.self_test else preflight_diagnostic() if args.preflight_diagnostic else apply() if args.apply else {
             'status': 'CONTRACT_ONLY', 'runtime': 'NOT PROVEN', 'unit': UNIT,
             'candidate': HOME, 'properties': PROPERTIES, 'attempts': 1,
             'required_parent_checks': ['fresh source receipts', 'pilot loopback HTTP before/after', 'tunnel before/after'],
@@ -883,4 +1002,4 @@ if __name__ == '__main__':
     except Exception:
         result = {'status': 'BLOCKED', 'error_code': 'PRECONDITION_OR_SELF_TEST_FAILURE'}
     print(json.dumps(result, sort_keys=True))
-    sys.exit(0 if result['status'] in {'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS'} else 1)
+    sys.exit(0 if result['status'] in {'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS'} else 1)
