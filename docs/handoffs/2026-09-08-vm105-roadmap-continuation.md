@@ -1,7 +1,7 @@
 # DeepSeek Harness VM105 continuation handoff
 
-Generated: 2026-09-08 08:12 Asia/Bangkok  
-Repository: `C:\Users\chatc\Projects\sw-localai-deepseek-harnes`  
+Generated: 2026-09-08 08:12 Asia/Bangkok
+Repository: `C:\Users\chatc\Projects\sw-localai-deepseek-harnes`
 GitHub: `https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git`
 
 ## Git state
