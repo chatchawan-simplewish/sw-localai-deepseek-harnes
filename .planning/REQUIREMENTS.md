@@ -89,4 +89,4 @@ Every v1 requirement maps to exactly one authoritative roadmap phase.
 
 ---
 *Requirements defined: 2026-09-08*
-*Last updated: 2026-09-08 after Phase 1 authority-and-evidence reconciliation*
+*Last updated: 2026-09-08 after Plan 03-01 completed with FW-01 BLOCKED*
