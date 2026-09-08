@@ -12,7 +12,7 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 1 of 2 in current phase
 Status: Plan 03-01 completed with FW-01 `BLOCKED`; Plan 03-02 Task 1 was independently accepted after one fix round, but CRED-01 remains `BLOCKED / NOT PROVEN` and Phase 3 is not `PASS`.
-Last activity: 2026-09-08 — Accepted the blocked Plan 03-02 Task 1 preparation packet; Task 2 did not start and no credential/OAuth gate was presented.
+Last activity: 2026-09-08 — Node ownership repair passed; reviewed pnpm-aware source inspection established a conditional native-profile preparation contract. A fresh secret-free candidate was exclusively created and separately verified. The pilot is unchanged; cutover verification packet is being finalized. Historical strict BLOCKED evidence is retained.
 
 Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
@@ -52,7 +52,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ### Pending Todos
 
-- Obtain a scoped owner decision/replan for the Plan 03-02 pre-gate blockers without inspecting or mutating provenance-unverified secret-bearing state.
+- Finish independent post-creation review and the concrete cutover runtime-readback procedure, then present the separate action-time cutover gate. See `docs/evidence/vm105-provider-candidate.json` and `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`.
 - Diagnose the RX-drop increase while preserving the recorded `WARN`.
 
 ### Blockers/Concerns
@@ -62,7 +62,8 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 - Phase 3: FW-01 evidence work completed `BLOCKED`; six routes remain blocked and no firewall rule was added.
 - Phase 3: Plan 03-02 Task 2 did not start because the exact effective credential store, supported native Codex login surface, provider identities, and the six route blockers remain unresolved; no credential/OAuth gate was presented.
 - Phase 3: `/home/dsh/.dsh/phase-03-provider-backup-20260908T110706` is an empty owner-only VM105 backup destination; no credential state was copied.
-- Phases 3-4: All provider credentials, native OAuth state, provider responses, invalid-credential tests, and automatic attribution remain `NOT PROVEN`.
+- Phases 3-4: Full-plan fresh-profile credentials, native OAuth, route-specific acceptance, invalid-credential tests, and automatic attribution remain `NOT PROVEN`. The separate pilot has an owner-entered OmniRoute key and a successful owner-authorized OpenRouter task; these do not establish full-plan acceptance. See `docs/evidence/vm105-internal-pilot.md`.
+- Separate operational follow-up: automatic SSH reconnect is deployed and independently reviewed, with child-process recovery and HTTP 200 verified. Actual Windows login/Prox-01 reboot recovery remains untested. See `docs/evidence/vm105-pilot-auto-reconnect.md`.
 
 ## Deferred Items
 
@@ -72,7 +73,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 12:09 Asia/Bangkok
-Stopped at: Plan 03-02 Task 1 independently accepted after one fix round; CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`, and Task 2 did not start.
-Resume file: `.planning/phases/03-provider-prerequisites/03-02-PLAN.md`
-Exact next action: Obtain a scoped owner decision/replan to resolve the effective-store, native Codex login-surface, provider-identity, and six route blockers without inspecting or mutating provenance-unverified secret-bearing state.
+Last session: 2026-09-08 23:09 Asia/Bangkok
+Current work: Candidate static verification passed; final independent review and runtime-readback cutover packet are pending. CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`; the separate pilot stays usable and its profile stays opaque.
+Resume file: `docs/superpowers/plans/2026-09-08-vm105-candidate-cutover.md`
+Exact next action: Finish the candidate/cutover review before requesting the separate service-switch approval. Preserve historical strict evidence and full-plan counts; fresh credentials, native Codex login and route tests remain pending.

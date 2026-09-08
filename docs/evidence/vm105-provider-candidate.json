@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "repository": "https://github.com/chatchawan-simplewish/sw-localai-deepseek-harnes.git",
+  "scope": "new reviewed conditional native-profile preparation; historical strict record retained",
+  "candidateHome": "/home/dsh/.dsh-profiles/vm105-provider-v1",
+  "staticVerdict": "PASS",
+  "runtimeVerdict": "NOT PROVEN",
+  "cutoverPerformed": false,
+  "credentialFilesCreated": 0,
+  "envFilesCreated": 0,
+  "ownerUid": 1000,
+  "ownerGid": 1000,
+  "directoryMode": "0700",
+  "fileMode": "0600",
+  "preparationHelper": "scripts/prepare-vm105-provider-candidate.py",
+  "preparationHelperSha256": "1E24CDC5215087E84C2A8F1D1CF78B04CC84B7D7CCC9C7EC50F02A5576F5DE73",
+  "sourceTrace": "docs/evidence/vm105-selector-store-trace.md",
+  "sourceTraceSha256": "A7AB0F1D371C7283A6B5E8441B05C4312B6FFF86F2B7E2FDDD154CED0A863AE2",
+  "files": {
+    "profiles/web/package.json": "210068ddb9ebc4cdf395ebb53020be6ccaaedb917e74dae16296d62394626398",
+    "profiles/web/pnpm-workspace.yaml": "95258a5c24e8cdd4eeb341febcdf58c619293a86859888447c6d556cce99d174",
+    "profiles/web/cordis.yml": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "profiles/web/cordis.patch.yml": "e50562055d3e82ceef90e49ad8cc2502a69c9415d7b60293c2895d93141ae6cf"
+  },
+  "verification": {
+    "linuxSelfTest": "PASS",
+    "exclusiveCreation": "CREATED_VERIFIED",
+    "separateParentTreeHashModeCheck": "PASS",
+    "candidateDirectories": 4,
+    "candidateFiles": 4,
+    "oldProfileContentsRead": false,
+    "servicePidUnchanged": 829,
+    "serviceStartUtcUnchanged": "2026-09-08 14:41:13 UTC",
+    "serviceRestarts": 0,
+    "vmLoopbackHttp": 200,
+    "bellPc2TunnelHttp": 200
+  },
+  "independentPostCreationReview": "ACCEPTED",
+  "independentReviewer": "/root/runtime_recovery_review",
+  "independentReviewAtBangkok": "2026-09-08 23:10:44",
+  "limits": [
+    "Native JSON documents are used as YAML-subset configuration files.",
+    "Static zero-route and no-selection policy is source-derived; runtime readback remains required.",
+    "Intentional read-only project and OS skill inputs are outside profile-state migration.",
+    "Fresh credential configuration and provider tests are not performed.",
+    "Cutover remains a separate action-time approval gate."
+  ]
+}

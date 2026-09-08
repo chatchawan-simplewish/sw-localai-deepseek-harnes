@@ -22,7 +22,7 @@ Every configured provider route must be secure, explicit, independently attribut
 
 - [ ] Explain the VM104-to-VM105 SSH firewall rule before deciding whether it stays.
 - [ ] Determine whether VM105 RX drops are current or historical.
-- [ ] Re-establish the Bell-PC2 SSH tunnel and verify the Web UI.
+- [x] Re-establish the Bell-PC2 SSH tunnel and verify the Web UI; automatic reconnect is installed and process-exit recovery verified (`docs/evidence/vm105-pilot-auto-reconnect.md`).
 - [ ] Configure fresh owner-only credentials and native OAuth without copying Hermes secrets.
 - [ ] Add only route-proven, source-specific firewall permissions.
 - [ ] Verify each route separately, verify invalid credentials fail closed, and keep routing explicit unless black-box attribution passes.
@@ -82,4 +82,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Record remaining `WARN`, `BLOCKED`, and `NOT PROVEN` items.
 
 ---
-*Last updated: 2026-09-08 after Phase 1 authority-and-evidence reconciliation*
+*Last updated: 2026-09-08 after the internal pilot, automatic SSH reconnect, and owner's full-plan resume. Full roadmap remains 09/21.*
