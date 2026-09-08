@@ -1,0 +1,19 @@
+{
+  "recorded_bangkok": "2026-09-09 02:32:54",
+  "helper_sha256": "92403F873A9F9824AA7C190A3F32314D6336E2EAC26B86E79B80CBE4B34F85E1",
+  "tool_receipt": "936920",
+  "ssh_exit_code": 0,
+  "review": "candidate_smoke_review accepted one read-only diagnostic; parent self-test/hash matched",
+  "result": {
+    "proofs": {
+      "EnvironmentFiles": "ABSENT_SOURCE_VERIFIED",
+      "FragmentDirectives": "ABSENT_SOURCE_VERIFIED",
+      "ProspectiveSocket": "NOT_FOUND",
+      "Sockets": "SOCKETS_ABSENT_SOURCE_VERIFIED",
+      "TriggeredBy": "EMITTED_EMPTY"
+    },
+    "runtime_acceptance": "NOT PROVEN",
+    "status": "SOCKET_SOURCE_DIAGNOSTIC_PASS"
+  },
+  "scope": "Existing pilot interface/exact source plus prospective v3 socket-unit absence only. No service start or pilot mutation. Actual future transient source/activation proof must be repeated; historical attempts remain consumed."
+}

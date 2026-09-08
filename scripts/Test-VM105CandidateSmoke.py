@@ -23,6 +23,7 @@ INSTALL = '/opt/deepseek-harness'
 PACKAGE = INSTALL + '/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh'
 UNIT = 'deepseek-harness-candidate-smoke-20260909.service'
 UNIT_V2 = 'deepseek-harness-candidate-smoke-20260909-v2.service'
+UNIT_V3 = 'deepseek-harness-candidate-smoke-20260909-v3.service'
 PILOT = 'deepseek-harness.service'
 FORBIDDEN = {'system.posix_acl_access', 'system.posix_acl_default', 'security.capability'}
 FILES = {
@@ -44,8 +45,9 @@ EFFECTIVE = {k: v for k, v in PROPERTIES.items()
              if k not in {'RuntimeMaxSec', 'TimeoutStartSec', 'TimeoutStopSec', 'MemoryMax', 'CPUQuota'}}
 EFFECTIVE.update({'RuntimeMaxUSec': '2min', 'TimeoutStartUSec': '30s', 'TimeoutStopUSec': '15s',
                   'MemoryMax': '536870912', 'CPUQuotaPerSecUSec': '1s', 'Transient': 'yes',
-                  'PassEnvironment': '', 'JoinsNamespaceOf': '', 'Sockets': ''})
+                  'PassEnvironment': '', 'JoinsNamespaceOf': '', 'Sockets': '', 'TriggeredBy': ''})
 ENV_SOURCE_PROOF = 'ABSENT_SOURCE_VERIFIED'
+SOCKET_SOURCE_PROOF = 'SOCKETS_ABSENT_SOURCE_VERIFIED'
 KNOWN_MAPPINGS = {'@deepseek-ai/dsh': {'logical': '/opt/deepseek-harness/node_modules/@deepseek-ai/dsh',
                       'canonical': '/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh'},
  '@deepseek-ai/dsh-base': {'logical': '/opt/deepseek-harness/node_modules/.pnpm/@deepseek-ai+dsh@0.1.1-rc.2_7adf779e9bedfb2e97ced92905792931/node_modules/@deepseek-ai/dsh-base',
@@ -572,7 +574,7 @@ def command(argv, timeout=10, input=None, fds=()):
     return proc.stdout.decode('utf-8')
 
 
-def reject_envfile_directives(raw):
+def reject_envfile_directives(raw, sockets=False):
     text = raw.decode('utf-8-sig').replace('\r\n', '\n')
     require('\r' not in text and '\0' not in text, 'UNIT_SOURCE_ENCODING')
     pending, section = '', None
@@ -581,6 +583,7 @@ def reject_envfile_directives(raw):
             continue
         line = pending + line
         if line.endswith('\\'):
+            require(not sockets, 'UNIT_SOURCE_CONTINUATION')
             pending = line[:-1] + ' '
             continue
         pending = ''
@@ -594,36 +597,46 @@ def reject_envfile_directives(raw):
         match = re.fullmatch(r'([A-Za-z][A-Za-z0-9]*)\s*=(.*)', line)
         require(section is not None and match is not None, 'UNIT_SOURCE_SYNTAX')
         require(match[1].lower() != 'environmentfile', 'UNIT_SOURCE_ENVIRONMENTFILE')
+        require(not sockets or match[1].lower() != 'sockets', 'UNIT_SOURCE_SOCKETS')
     require(not pending and section is not None, 'UNIT_SOURCE_INCOMPLETE')
 
 
-def envfile_absence_proof(unit):
-    require(unit in {PILOT, UNIT, UNIT_V2}, 'UNIT_SOURCE_TARGET')
+def envfile_absence_proof(unit, sockets=False):
+    require(unit in {PILOT, UNIT, UNIT_V2, UNIT_V3}, 'UNIT_SOURCE_TARGET')
     props = show(unit, ['FragmentPath', 'DropInPaths', 'PassEnvironment'])
     expected = '/etc/systemd/system/' + PILOT if unit == PILOT else '/run/systemd/transient/' + unit
     require(props == {'FragmentPath': expected, 'DropInPaths': '', 'PassEnvironment': ''}, 'UNIT_SOURCE_BOUNDARY')
     source = Trusted()
     try:
-        reject_envfile_directives(source.read(expected))
+        reject_envfile_directives(source.read(expected), sockets=sockets)
+        source.verify()
+        require(show(unit, ['FragmentPath', 'DropInPaths', 'PassEnvironment']) == props, 'UNIT_SOURCE_MAPPING_DRIFT')
         source.verify()
     finally:
         source.close()
-    require(show(unit, ['FragmentPath', 'DropInPaths', 'PassEnvironment']) == props, 'UNIT_SOURCE_MAPPING_DRIFT')
 
 
 def show(unit, keys):
     raw = command(['/usr/bin/systemctl', 'show', unit, '--all', '--no-pager', '--property=' + ','.join(keys)])
     values = dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
-    if set(keys) - set(values) == {'EnvironmentFiles'}:
+    missing = set(keys) - set(values)
+    require(missing <= {'EnvironmentFiles', 'Sockets'}, 'UNIT_PROPERTIES_MISSING')
+    if 'EnvironmentFiles' in missing:
         envfile_absence_proof(unit)
         values['EnvironmentFiles'] = ENV_SOURCE_PROOF
+    if 'Sockets' in missing:
+        envfile_absence_proof(unit, sockets=True)
+        values['Sockets'] = SOCKET_SOURCE_PROOF
+    if 'Sockets' in values:
+        require(values['Sockets'] in {'', SOCKET_SOURCE_PROOF} and ('Sockets' in missing or values['Sockets'] == ''), 'SOCKETS_NOT_EMPTY')
     require(set(values) == set(keys), 'UNIT_PROPERTIES_MISSING')
     return values
 
 
 def effective_properties(unit):
     values = show(unit, list(EFFECTIVE) + ['EnvironmentFiles', 'InvocationID', 'Description', 'MainPID', 'ControlGroup', 'ActiveState'])
-    require(all(values[k] == v for k, v in EFFECTIVE.items()) and values['EnvironmentFiles'] in {'', ENV_SOURCE_PROOF},
+    require(all(values[k] == v for k, v in EFFECTIVE.items() if k != 'Sockets')
+            and values['Sockets'] in {'', SOCKET_SOURCE_PROOF} and values['EnvironmentFiles'] in {'', ENV_SOURCE_PROOF},
             'APPLIED_PROPERTIES')
     return values
 
@@ -978,6 +991,7 @@ def apply(v2=False):
 
 
 DIAGNOSTIC_CODES = frozenset({
+    'UNIT_SOURCE_CONTINUATION', 'UNIT_SOURCE_SOCKETS', 'SOCKETS_NOT_EMPTY', 'SOCKET_SOURCE_INTERFACE', 'SOCKET_UNIT_EXISTS',
     'JOURNAL_SIZE', 'JOURNAL_ROWS', 'JOURNAL_FIELDS', 'JOURNAL_TARGET', 'JOURNAL_VALUE', 'JOURNAL_CURSOR',
     'JOURNAL_UNKNOWN_ENUM', 'JOURNAL_ID', 'JOURNAL_NUMBER', 'JOURNAL_INTERVAL', 'JOURNAL_TIMEOUT', 'JOURNAL_EXIT', 'JOURNAL_NO_EVIDENCE',
     'APPLIED_PROPERTIES',
@@ -1173,6 +1187,29 @@ def diagnostic_error(error):
         code = code if code in DIAGNOSTIC_CODES else 'UNCLASSIFIED_BLOCKED'
     return {'exception_class': name if name in names else 'OTHER',
             'errno': number if type(number) is int else None, 'safe_code': code}
+
+
+def socket_source_diagnostic():
+    result = {'status': 'SOCKET_SOURCE_DIAGNOSTIC_INCOMPLETE', 'proofs': {}, 'runtime_acceptance': 'NOT PROVEN'}
+    try:
+        require(sys.platform == 'linux' and os.geteuid() == 0 and socket.gethostname() == 'deepseek-harness-01',
+                'DIAGNOSTIC_IDENTITY')
+        keys = ['EnvironmentFiles', 'Sockets', 'TriggeredBy', 'PassEnvironment', 'DropInPaths', 'ActiveState']
+        props = show(PILOT, keys)
+        require(props['ActiveState'] == 'active' and props['EnvironmentFiles'] in {'', ENV_SOURCE_PROOF}
+                and props['Sockets'] in {'', SOCKET_SOURCE_PROOF}
+                and props['TriggeredBy'] == props['PassEnvironment'] == props['DropInPaths'] == '', 'SOCKET_SOURCE_INTERFACE')
+        envfile_absence_proof(PILOT, sockets=True)
+        require(show(PILOT, keys) == props, 'UNIT_SOURCE_MAPPING_DRIFT')
+        prospective = UNIT_V3.removesuffix('.service') + '.socket'
+        require(show(prospective, ['LoadState']) == {'LoadState': 'not-found'}, 'SOCKET_UNIT_EXISTS')
+        result['proofs'] = {'EnvironmentFiles': props['EnvironmentFiles'] or 'EMITTED_EMPTY',
+                            'Sockets': props['Sockets'] or 'EMITTED_EMPTY', 'TriggeredBy': 'EMITTED_EMPTY',
+                            'FragmentDirectives': 'ABSENT_SOURCE_VERIFIED', 'ProspectiveSocket': 'NOT_FOUND'}
+        result['status'] = 'SOCKET_SOURCE_DIAGNOSTIC_PASS'
+    except Exception as error:
+        result.update(diagnostic_error(error))
+    return result
 
 
 JOURNAL_FIELDS = ('__REALTIME_TIMESTAMP', '__MONOTONIC_TIMESTAMP', '_PID', '_UID', '_GID', 'UNIT',
@@ -1477,6 +1514,32 @@ def self_test():
     import urllib.request
     from types import SimpleNamespace
     from unittest.mock import patch
+    for omitted in (set(), {'EnvironmentFiles'}, {'Sockets'}, {'EnvironmentFiles', 'Sockets'}):
+        source_calls = []
+        keys = ['EnvironmentFiles', 'Sockets', 'TriggeredBy']
+        with patch.dict(globals(), {'command': lambda *args: ''.join(k + '=\n' for k in keys if k not in omitted),
+                                   'envfile_absence_proof': lambda unit, sockets=False: source_calls.append((unit, sockets))}):
+            shown = show(PILOT, keys)
+        require(shown['EnvironmentFiles'] == (ENV_SOURCE_PROOF if 'EnvironmentFiles' in omitted else '')
+                and shown['Sockets'] == (SOCKET_SOURCE_PROOF if 'Sockets' in omitted else '')
+                and len(source_calls) == len(omitted), 'SELF_TEST_INDEPENDENT_SOURCE_PROOFS')
+    for raw in ('Sockets=unexpected.socket\nTriggeredBy=\nEnvironmentFiles=\n', 'Sockets=\nEnvironmentFiles=\n'):
+        with patch.dict(globals(), {'command': lambda *args: raw, 'envfile_absence_proof': lambda *a, **kw: None}):
+            try:
+                show(PILOT, ['EnvironmentFiles', 'Sockets', 'TriggeredBy'])
+            except Blocked:
+                pass
+            else:
+                raise Blocked('SELF_TEST_SOCKET_INTERFACE_ACCEPTED')
+    for raw in (b'[Service]\nSockets=\n', b'[Service]\nSockets=x.socket\n',
+                b'[Service]\nExecStart=/bin/true \\\n ignored\n', b'.include /other\n'):
+        try:
+            reject_envfile_directives(raw, sockets=True)
+        except Blocked:
+            pass
+        else:
+            raise Blocked('SELF_TEST_SOCKET_DIRECTIVE_ACCEPTED')
+    reject_envfile_directives(b'[Service]\nExecStart=/bin/true\n', sockets=True)
     journal_row = {'_PID': '1', 'UNIT': UNIT_V2, '__REALTIME_TIMESTAMP': '1788895080000000', '_BOOT_ID': 'a' * 32}
     journal_raw = json.dumps(journal_row).encode() + b'\n'
     require(journal_records(journal_raw)[0]['JOB_RESULT'] is None, 'SELF_TEST_JOURNAL_OPTIONAL')
@@ -1870,6 +1933,7 @@ if __name__ == '__main__':
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--apply-v2', action='store_true')
     modes.add_argument('--attempt-journal-diagnostic', action='store_true')
+    modes.add_argument('--socket-source-diagnostic', action='store_true')
     modes.add_argument('--self-test', action='store_true')
     modes.add_argument('--preflight-diagnostic', action='store_true')
     modes.add_argument('--resolver-diagnostic', action='store_true')
@@ -1877,7 +1941,7 @@ if __name__ == '__main__':
     modes.add_argument('--unresolved-census', action='store_true')
     args = parser.parse_args()
     try:
-        result = (self_test() if args.self_test else attempt_journal_diagnostic() if args.attempt_journal_diagnostic else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
+        result = (self_test() if args.self_test else socket_source_diagnostic() if args.socket_source_diagnostic else attempt_journal_diagnostic() if args.attempt_journal_diagnostic else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
                   else preflight_diagnostic(contained_diagnostic=True) if args.contained_preflight_diagnostic
                   else preflight_diagnostic(resolver_diagnostic=True) if args.resolver_diagnostic
                   else preflight_diagnostic() if args.preflight_diagnostic else apply_v2() if args.apply_v2 else apply() if args.apply else {
@@ -1888,4 +1952,4 @@ if __name__ == '__main__':
     except Exception:
         result = {'status': 'BLOCKED', 'error_code': 'PRECONDITION_OR_SELF_TEST_FAILURE'}
     print(json.dumps(result, sort_keys=True))
-    sys.exit(0 if result['status'] in {'ATTEMPT_JOURNAL_COMPLETE', 'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)
+    sys.exit(0 if result['status'] in {'SOCKET_SOURCE_DIAGNOSTIC_PASS', 'ATTEMPT_JOURNAL_COMPLETE', 'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)
