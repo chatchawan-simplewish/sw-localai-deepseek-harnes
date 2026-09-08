@@ -95,4 +95,12 @@ Unknown/malformed/over-bound/external mappings, missing or extra fallback links,
 
 ## Acceptance scope
 
+### Explicit metadata-budget amendment — 2026-09-09 01:15 Asia/Bangkok
+
+The original 256-package/1024-edge bounds above remain historical. Receipt `vm105-candidate-closure-bound-2026-09-09.json` proves the existing traversal encountered1025 edges with231 packages in2091ms, before startup. Independent reviewer `candidate_smoke_review` accepted a bounded in-plan metadata repair under the owner's routine preapproval: replace only the closure budgets with512 package entries and4096 encountered edges, retaining30 seconds and1MiB per manifest. Preserve all63 source pins,29 package mappings, held-descriptor trust and exact fallback checks. No automatic further expansion if a new bound is exceeded.
+
+The verifier process may set its own soft open-file limit to4096 only when the existing hard limit permits it; preserve the hard limit, close owned descriptors and restore/read back the original limits in finally. This corrects the independently diagnosed EMFILE condition; it changes no host, pilot or candidate-service setting. All runtime CPU, RAM, process, network, timeout and containment constraints above remain unchanged.
+
+This amendment permits implementation and frozen-code review, then one new read-only metadata census. It does not authorize a startup retry. A census PASS is metadata preflight evidence only; any subsequent startup requires separate reviewed execution scope. Preserve all failed receipts without rewriting them.
+
 Successful execution may establish `ISOLATED_CANDIDATE_SMOKE_PASS`: API mounting, zero active adapters, expected dormant selection and contained generated state. It does not prove ordinary service sandbox compatibility, owner-tunnel candidate access, selector cutover, credentials, usable provider routing, inference or full-v1 completion. Existing pilot and scheduled tunnel remain operational. The choices to retain the pilot or later perform the separately reviewed owner-ready cutover remain unchanged. Independent review of the actual execution helper and parent acceptance are still pending.

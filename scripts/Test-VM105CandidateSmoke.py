@@ -327,7 +327,7 @@ def closure(trust, stats=None):
                     edges += 1
                     if stats is not None:
                         stats['closure_edge_count'] = edges
-                    require(edges <= 1024 and time.monotonic() <= deadline, 'CLOSURE_BOUND')
+                    require(edges <= 4096 and time.monotonic() <= deadline, 'CLOSURE_BOUND')
                     package_name(name)
                     require(type(version) is str, 'DEPENDENCY_VERSION')
                     if name in links:
@@ -349,7 +349,7 @@ def closure(trust, stats=None):
                         resolved = logical, canonical, child
                         break
                     require(resolved is not None, 'INSTALLED_ONLY_RESOLUTION')
-                    require(len(links) < 256, 'PACKAGE_BOUND')
+                    require(len(links) < 512, 'PACKAGE_BOUND')
                     logical, canonical, child = resolved
                     links[name], canonicals[name] = logical, canonical
                     if stats is not None:
@@ -988,7 +988,7 @@ def self_test():
             and diagnostic_error(Blocked('must never appear in output'))['safe_code'] == 'UNCLASSIFIED_BLOCKED'
             and diagnostic_error(Blocked('PACKAGE_BOUND', 'arbitrary extra text'))['safe_code'] == 'UNCLASSIFIED_BLOCKED'
             and diagnostic_error(ValueError('PACKAGE_BOUND'))['safe_code'] is None, 'SELF_TEST_DIAGNOSTIC_CODE_ALLOWLIST')
-    root_manifest = {'name': '@deepseek-ai/dsh', 'dependencies': {f'p{i}': '*' for i in range(256)}}
+    root_manifest = {'name': '@deepseek-ai/dsh', 'dependencies': {f'p{i}': '*' for i in range(512)}}
     mock_closure = SimpleNamespace(
         read=lambda path: json.dumps(root_manifest if path == PACKAGE + '/package.json' else
                                      {'name': pp.basename(pp.dirname(path)), 'version': '1'}).encode(),
@@ -1001,7 +1001,7 @@ def self_test():
             require(error.args == ('PACKAGE_BOUND',), 'SELF_TEST_CLOSURE_GUARD')
         else:
             raise RuntimeError('package bound accepted')
-    require(counters['closure_package_count'] == 256 and counters['closure_edge_count'] == 256
+    require(counters['closure_package_count'] == 512 and counters['closure_edge_count'] == 512
             and type(counters['closure_elapsed_ms']) is int and counters['closure_elapsed_ms'] >= 0,
             'SELF_TEST_CLOSURE_METRICS')
     def exhausted(*unused):
