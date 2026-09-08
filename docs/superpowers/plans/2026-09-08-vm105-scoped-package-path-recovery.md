@@ -548,6 +548,8 @@ $gateMatch=[regex]::Match($planText,'(?ms)^```powershell\r?\n(?<gate>if\(-not \$
 if(-not $gateMatch.Success){throw 'Unable to extract exact Step 10 gate'}
 $gate=[scriptblock]::Create($gateMatch.Groups['gate'].Value)
 $tempEvidence=New-TemporaryFile
+$hadEvidencePath=Test-Path Variable:evidencePath
+if($hadEvidencePath){$savedEvidencePath=$evidencePath}
 try{
     $stale=Get-Content -Raw -LiteralPath 'docs/evidence/vm105-profile-pointer-preparation.json' | ConvertFrom-Json -DateKind String
     $stale.selectorDiscovery.review.reviewedDigest=('0'*64)
@@ -556,7 +558,13 @@ try{
     $gateStopped=$false
     try{& $gate}catch{$gateStopped=$_.Exception.Message -ceq 'Selector validation failed; recovery remains stopped'}
     if(-not $gateStopped){throw 'Actual Step 10 gate did not stop stale reviewed digest'}
-}finally{Remove-Item -LiteralPath $tempEvidence.FullName -Force}
+}finally{
+    Remove-Item -LiteralPath $tempEvidence.FullName -Force
+    if($hadEvidencePath){$evidencePath=$savedEvidencePath}else{Remove-Variable evidencePath -ErrorAction SilentlyContinue}
+}
+$postFixtureOutput=@(& $gate | Out-String)
+$postFixtureText=$postFixtureOutput-join''
+if((Test-Path -LiteralPath $tempEvidence.FullName) -or $postFixtureText -notmatch 'selectorDigest\s*:\s*8CC8BA324B8FBC4560542A048DD51C4617BDA0C95F4BB73FFE298201D5E2FCA4' -or $postFixtureText -notmatch 'originalPlanTask2\s*:\s*STOPPED'){throw 'Step 10 did not restore original evidence selection after stale fixture'}
 ```
 
 If `originalPlanTask2` is `MAY_RESUME`, hand the exact accepted selector digest back to the original plan and resume at Task 2 only. If it is `STOPPED`, report the accepted blockers and take no further action. Neither branch authorizes candidate creation, cutover, service/systemd work, credentials, or any other prohibited operation during this recovery task.
