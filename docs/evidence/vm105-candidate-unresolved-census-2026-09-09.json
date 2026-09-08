@@ -1,0 +1,62 @@
+{
+  "recorded_bangkok": "2026-09-09 01:56:05",
+  "tool_receipt": "0ff66b",
+  "ssh_exit_code": 0,
+  "helper_sha256": "715BFBF6CD79B33D27AD25113A4D35CA7CF3AE0641B1EC51D6277E0C01D02BAD",
+  "review": "candidate_smoke_review accepted one census before execution; parent self-test passed 19 rejection cases",
+  "receipt_review": "native_oauth_review independently accepted documentary fidelity and the exact four-peer amendment; zero actionable findings. No independent live execution or runtime acceptance.",
+  "status": "UNRESOLVED_CENSUS_COMPLETE",
+  "stage": "FINAL_HELD_METADATA",
+  "census_scope": "REACHABLE_INSTALLED_MANIFESTS_ONLY",
+  "closure_edge_count": 2011,
+  "closure_elapsed_ms": 6382,
+  "closure_package_count": 432,
+  "held_fd_count": 2158,
+  "last_successful_fd_count": 2162,
+  "fd_soft_limit": 1024,
+  "fd_hard_limit": 1048576,
+  "fd_applied_soft_limit": 4096,
+  "fd_applied_hard_limit": 1048576,
+  "fd_restored_soft_limit": 1024,
+  "fd_restored_hard_limit": 1048576,
+  "fd_restoration": "PASS",
+  "unresolved_edges": [
+    {
+      "declaring_manifest_sha256": "0690cbe02511a95d1ff199acf20b5a12ac4dfde1bbe30c82a0de73afa92dffc9",
+      "declaring_package": "@modelcontextprotocol/sdk",
+      "dependency_kind": "peerDependencies",
+      "logical_anchor": "/opt/deepseek-harness/node_modules/.pnpm/node_modules/@modelcontextprotocol/sdk/package.json",
+      "optional_classification": "TRUE",
+      "unresolved_dependency": "@cfworker/json-schema"
+    },
+    {
+      "declaring_manifest_sha256": "a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb",
+      "declaring_package": "ws",
+      "dependency_kind": "peerDependencies",
+      "logical_anchor": "/opt/deepseek-harness/node_modules/.pnpm/node_modules/ws/package.json",
+      "optional_classification": "TRUE",
+      "unresolved_dependency": "bufferutil"
+    },
+    {
+      "declaring_manifest_sha256": "a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb",
+      "declaring_package": "ws",
+      "dependency_kind": "peerDependencies",
+      "logical_anchor": "/opt/deepseek-harness/node_modules/.pnpm/node_modules/ws/package.json",
+      "optional_classification": "TRUE",
+      "unresolved_dependency": "utf-8-validate"
+    },
+    {
+      "declaring_manifest_sha256": "2c7130cb149070446491c0556df3dc35939f8c7f1977fc9c6b6158e151116ac1",
+      "declaring_package": "zustand",
+      "dependency_kind": "peerDependencies",
+      "logical_anchor": "/opt/deepseek-harness/node_modules/.pnpm/node_modules/zustand/package.json",
+      "optional_classification": "TRUE",
+      "unresolved_dependency": "@types/react"
+    }
+  ],
+  "missing_package_transitives": "NOT_ENUMERATED",
+  "resolver_attempted": false,
+  "ancestor_absence_verified": false,
+  "runtime_acceptance": "NOT PROVEN",
+  "scope": "Complete bounded reachable-installed census only. No required or malformed unresolved edge observed; no global-root inspection, Node query, startup, skip acceptance or provider test."
+}

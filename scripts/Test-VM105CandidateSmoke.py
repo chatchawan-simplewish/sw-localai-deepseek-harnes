@@ -7,6 +7,7 @@ import json
 import os
 import posixpath as pp
 import re
+import selectors
 import shlex
 import signal
 import socket
@@ -315,14 +316,58 @@ def unresolved_metadata(name, declaring_name, kind, digest):
             'dependency_kind': kind, 'declaring_manifest_sha256': digest}
 
 
-def closure(trust, stats=None):
+def census_context(anchor, manifest, digest, kind):
+    resolver_path(anchor)
+    require(anchor.startswith(INSTALL + '/') and pp.basename(anchor) == 'package.json', 'RESOLVER_ANCHOR')
+    name = manifest.get('name')
+    package_name(name)
+    require(len(name) <= 214, 'DIAGNOSTIC_PACKAGE_NAME_BOUND')
+    return {'declaring_package': name, 'declaring_manifest_sha256': digest,
+            'logical_anchor': anchor, 'dependency_kind': kind}
+
+
+def optional_classification(manifest, name, kind):
+    if kind != 'peerDependencies' or 'peerDependenciesMeta' not in manifest:
+        return 'MISSING'
+    metadata = manifest['peerDependenciesMeta']
+    if type(metadata) is not dict:
+        return 'MALFORMED'
+    if name not in metadata:
+        return 'MISSING'
+    row = metadata[name]
+    if type(row) is not dict:
+        return 'MALFORMED'
+    if 'optional' not in row:
+        return 'MISSING'
+    return 'TRUE' if row['optional'] is True else 'FALSE' if row['optional'] is False else 'MALFORMED'
+
+
+CONTAINED_EDGES = frozenset({
+    ('@modelcontextprotocol/sdk', '0690cbe02511a95d1ff199acf20b5a12ac4dfde1bbe30c82a0de73afa92dffc9',
+     'peerDependencies', '@cfworker/json-schema', INSTALL + '/node_modules/.pnpm/node_modules/@modelcontextprotocol/sdk/package.json'),
+    ('ws', 'a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb',
+     'peerDependencies', 'bufferutil', INSTALL + '/node_modules/.pnpm/node_modules/ws/package.json'),
+    ('ws', 'a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb',
+     'peerDependencies', 'utf-8-validate', INSTALL + '/node_modules/.pnpm/node_modules/ws/package.json'),
+    ('zustand', '2c7130cb149070446491c0556df3dc35939f8c7f1977fc9c6b6158e151116ac1',
+     'peerDependencies', '@types/react', INSTALL + '/node_modules/.pnpm/node_modules/zustand/package.json'),
+})
+
+
+def closure(trust, stats=None, resolver=None, contained=False, census=False):
     started = time.monotonic()
+    require(not census or stats is not None and resolver is None and not contained, 'CENSUS_MODE_BOUNDARY')
     if stats is not None:
         stats.update(closure_package_count=0, closure_edge_count=0, closure_elapsed_ms=0,
                      unresolved_dependency=None, declaring_manifest_sha256=None,
                      declaring_package=None, dependency_kind=None)
+        if census:
+            stats['unresolved_edges'] = []
     try:
         deadline = started + 30
+        observed = set()
+        if contained:
+            stats['contained_edge_count'] = 0
         root_bytes = trust.read(PACKAGE + '/package.json')
         root = json.loads(root_bytes)
         links = {root['name']: PACKAGE}
@@ -334,6 +379,8 @@ def closure(trust, stats=None):
         while queue:
             anchor, manifest, manifest_digest = queue.popleft()
             for kind in ('dependencies', 'peerDependencies'):
+                if census:
+                    stats['census_context'] = census_context(anchor, manifest, manifest_digest, kind)
                 deps = manifest.get(kind, {})
                 require(type(deps) is dict, 'DEPENDENCY_MAP')
                 for name, version in deps.items():
@@ -362,7 +409,42 @@ def closure(trust, stats=None):
                         resolved = logical, canonical, child, hashlib.sha256(data).hexdigest()
                         break
                     if resolved is None and stats is not None:
+                        if census:
+                            require(len(stats['unresolved_edges']) < 32, 'CENSUS_UNRESOLVED_BOUND')
+                            record = unresolved_metadata(name, manifest.get('name'), kind, manifest_digest)
+                            record.update(logical_anchor=anchor, optional_classification=optional_classification(manifest, name, kind))
+                            stats['unresolved_edges'].append(record)
+                            continue  # Census-only: missing packages and their transitive dependencies remain unproved.
                         stats.update(unresolved_metadata(name, manifest.get('name'), kind, manifest_digest))
+                        if resolver is not None:
+                            edge = (manifest.get('name'), manifest_digest, kind, name, anchor)
+                            if contained:
+                                require(edge in CONTAINED_EDGES, 'RESOLVER_EXACT_EDGE')
+                                require(edge not in observed, 'RESOLVER_SKIP_REPEATED')
+                            else:
+                                require(edge[:4] == (
+                                    '@modelcontextprotocol/sdk', '0690cbe02511a95d1ff199acf20b5a12ac4dfde1bbe30c82a0de73afa92dffc9',
+                                    'peerDependencies', '@cfworker/json-schema'), 'RESOLVER_EXACT_EDGE')
+                            metadata = manifest.get('peerDependenciesMeta')
+                            require(type(metadata) is dict and type(metadata.get(name)) is dict
+                                    and metadata[name].get('optional') is True, 'RESOLVER_OPTIONAL_DECLARATION')
+                            trust.verify()
+                            stats['resolver_attempted'] = True
+                            if contained:
+                                remaining = deadline - time.monotonic()
+                                require(remaining > 0, 'CLOSURE_BOUND')
+                                stats['resolver_paths'] = resolver(anchor, name, min(5, remaining))
+                                require(time.monotonic() <= deadline, 'CLOSURE_BOUND')
+                            else:
+                                stats['resolver_paths'] = resolver(anchor, name)
+                            stats['resolver_anchor'] = anchor
+                            trust.verify()
+                            if contained:
+                                contained_resolver_paths(anchor, stats['resolver_paths'])
+                                observed.add(edge)
+                                stats['contained_edge_count'] = len(observed)
+                                stats['contained_optional_peer_skipped'] = True
+                                continue
                     require(resolved is not None, 'INSTALLED_ONLY_RESOLUTION')
                     require(len(links) < 512, 'PACKAGE_BOUND')
                     logical, canonical, child, child_digest = resolved
@@ -373,6 +455,9 @@ def closure(trust, stats=None):
         trust.verify()
         require(all(canonicals.get(name) == entry['canonical'] for name, entry in KNOWN_MAPPINGS.items()),
                 'REVIEWED_CLOSURE_MAPPING')
+        if contained:
+            require(observed == CONTAINED_EDGES, 'RESOLVER_EXPECTED_EDGES_MISSING')
+            require(time.monotonic() <= deadline, 'CLOSURE_BOUND')
         return links, canonicals
     finally:
         if stats is not None:
@@ -853,7 +938,120 @@ DIAGNOSTIC_CODES = frozenset({
     'DIAGNOSTIC_FD_HARD_LIMIT', 'DIAGNOSTIC_FD_LIMIT_MISMATCH', 'DIAGNOSTIC_FD_RESTORE_MISMATCH',
     'DIAGNOSTIC_PACKAGE_NAME_BOUND',
     'DIAGNOSTIC_DEPENDENCY_KIND', 'DIAGNOSTIC_MANIFEST_DIGEST',
+    'RESOLVER_EXACT_EDGE', 'RESOLVER_OPTIONAL_DECLARATION', 'RESOLVER_PATH', 'RESOLVER_ANCHOR',
+    'RESOLVER_RESPONSE', 'RESOLVER_SIZE', 'RESOLVER_TIMEOUT', 'RESOLVER_EXIT', 'RESOLVER_CLEANUP',
+    'RESOLVER_ANCESTOR_EXISTS', 'RESOLVER_MOUNT_DRIFT', 'RESOLVER_CONTAINED_PATHS',
+    'RESOLVER_SKIP_REPEATED', 'RESOLVER_EXPECTED_EDGES_MISSING',
+    'CENSUS_MODE_BOUNDARY', 'CENSUS_UNRESOLVED_BOUND',
 })
+
+
+RESOLVER_CODE = "const m=require('node:module');process.stdout.write(JSON.stringify(m.createRequire(process.argv[1]).resolve.paths(process.argv[2])));"
+
+
+def resolver_path(value):
+    require(type(value) is str and len(value) <= 4096 and value.startswith('/') and not value.startswith('//')
+            and pp.normpath(value) == value and re.fullmatch(r'/[A-Za-z0-9._/@+-]*', value), 'RESOLVER_PATH')
+
+
+def resolver_output(raw):
+    require(len(raw) <= 16384, 'RESOLVER_SIZE')
+    paths = json.loads(raw)
+    require(type(paths) is list and 0 < len(paths) <= 64, 'RESOLVER_RESPONSE')
+    for path in paths:
+        resolver_path(path)
+    require(len(set(paths)) == len(paths), 'RESOLVER_RESPONSE')
+    return paths
+
+
+def contained_resolver_paths(anchor, paths):
+    installed = list(lookup_paths(anchor))
+    require(installed and paths == installed + ['/opt/node_modules', '/node_modules'],
+            'RESOLVER_CONTAINED_PATHS')
+
+
+def absent_resolver_ancestors(trust):
+    """Hold only the two trusted parents; never traverse the absent search roots."""
+    parents = [(trust.open('/opt'), 'node_modules'), (trust.open('/'), 'node_modules')]
+
+    def mounts():
+        fd = os.open('/proc/self/mountinfo', os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            raw = bounded_read(fd, 1048576).decode('utf-8')
+        finally:
+            os.close(fd)
+        rows = []
+        for line in raw.splitlines():
+            target = re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), line.split()[4])
+            if target in {'/', '/opt', '/opt/node_modules', '/node_modules'}:
+                rows.append(line)
+        return tuple(rows)
+
+    original_mounts = mounts()
+
+    def verify():
+        trust.verify()
+        require(mounts() == original_mounts, 'RESOLVER_MOUNT_DRIFT')
+        for fd, name in parents:
+            try:
+                os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise Blocked('RESOLVER_ANCESTOR_EXISTS')
+        trust.verify()
+    verify()
+    return verify
+
+
+def resolver_query(anchor, dependency, path, no_global=False, timeout=5):
+    """Core Node path-list query only: no package resolution or root inspection."""
+    resolver_path(anchor)
+    require(anchor.startswith(INSTALL + '/') and pp.basename(anchor) == 'package.json'
+            and ((anchor, dependency) in {(e[4], e[3]) for e in CONTAINED_EDGES} if no_global
+                 else dependency == '@cfworker/json-schema'), 'RESOLVER_ANCHOR')
+    arguments = (['/opt/node-v24.19.0-linux-x64/bin/node'] + (['--no-global-search-paths'] if no_global else [])
+                 + ['--input-type=commonjs', '-e', RESOLVER_CODE, anchor, dependency])
+    require(0 < timeout <= 5, 'RESOLVER_TIMEOUT')
+    end = time.monotonic() + timeout
+    proc, poller = None, None
+    try:
+        proc = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                cwd='/srv/dsh/workspaces', env={'HOME': '/home/dsh', 'DSH_HOME': HOME, 'PATH': path},
+                                user=1000, group=1000, extra_groups=[], close_fds=True, pass_fds=())
+        poller = selectors.DefaultSelector()
+        os.set_blocking(proc.stdout.fileno(), False)
+        poller.register(proc.stdout, selectors.EVENT_READ)
+        raw = bytearray()
+        while True:
+            remaining = end - time.monotonic()
+            require(remaining > 0, 'RESOLVER_TIMEOUT')
+            require(poller.select(remaining), 'RESOLVER_TIMEOUT')
+            chunk = os.read(proc.stdout.fileno(), min(4096, 16385 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+            require(len(raw) <= 16384, 'RESOLVER_SIZE')
+        remaining = end - time.monotonic()
+        require(remaining > 0, 'RESOLVER_TIMEOUT')
+        try:
+            code = proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            raise Blocked('RESOLVER_TIMEOUT') from None
+        require(code == 0, 'RESOLVER_EXIT')
+        return resolver_output(raw)
+    finally:
+        try:
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    raise Blocked('RESOLVER_CLEANUP') from None
+        finally:
+            if poller is not None:
+                poller.close()
+            if proc is not None:
+                proc.stdout.close()
 
 
 def diagnostic_error(error):
@@ -870,17 +1068,24 @@ def diagnostic_error(error):
             'errno': number if type(number) is int else None, 'safe_code': code}
 
 
-def preflight_diagnostic():
+def preflight_diagnostic(resolver_diagnostic=False, contained_diagnostic=False, unresolved_census=False):
     """Read-only reproduction: this entry has no path to apply or unit controls."""
     result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None, 'safe_code': None,
               'closure_package_count': None, 'closure_edge_count': None, 'closure_elapsed_ms': None,
               'unresolved_dependency': None, 'declaring_manifest_sha256': None,
               'declaring_package': None, 'dependency_kind': None,
+              'resolver_attempted': False, 'resolver_anchor': None, 'resolver_paths': None,
+              'contained_optional_peer_skipped': False, 'ancestor_absence_verified': False,
               'held_fd_count': 0, 'last_successful_fd_count': None, 'fd_soft_limit': None, 'fd_hard_limit': None,
               'fd_applied_soft_limit': None, 'fd_applied_hard_limit': None,
               'fd_restored_soft_limit': None, 'fd_restored_hard_limit': None,
               'fd_restoration': 'NOT_ATTEMPTED'}
     trust, previous_handler, original_limits, limit_attempted = Trusted(), None, None, False
+    absence_check = None
+    if unresolved_census:
+        result.update(status='UNRESOLVED_CENSUS_INCOMPLETE', unresolved_edges=[], census_context=None,
+                      census_scope='REACHABLE_INSTALLED_MANIFESTS_ONLY', runtime_acceptance='NOT PROVEN',
+                      missing_package_transitives='NOT_ENUMERATED')
 
     def stage(name):
         result['stage'] = name
@@ -893,6 +1098,7 @@ def preflight_diagnostic():
         raise TimeoutError()
 
     try:
+        require(sum((resolver_diagnostic, contained_diagnostic, unresolved_census)) <= 1, 'CENSUS_MODE_BOUNDARY')
         require(sys.platform == 'linux' and sys.version_info[:2] == (3, 12) and sys.flags.optimize == 0,
                 'PYTHON_RUNTIME')
         require(os.geteuid() == 0 and os.getegid() == 0 and socket.gethostname() == 'deepseek-harness-01',
@@ -947,8 +1153,22 @@ def preflight_diagnostic():
         require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
         stage('CANDIDATE_INVENTORY')
         candidate_inventory()
+        if contained_diagnostic:
+            stage('RESOLVER_ANCESTOR_ABSENCE')
+            absence_check = absent_resolver_ancestors(trust)
+        def query(anchor, dependency, timeout=5):
+            query_deadline = time.monotonic() + timeout
+            if absence_check is not None:
+                absence_check()
+                timeout = query_deadline - time.monotonic()
+                require(timeout > 0, 'RESOLVER_TIMEOUT')
+            paths = resolver_query(anchor, dependency, path, no_global=contained_diagnostic, timeout=timeout)
+            if absence_check is not None:
+                absence_check()
+            return paths
         stage('INSTALLED_CLOSURE')
-        closure(trust, result)
+        closure(trust, result, query if resolver_diagnostic or contained_diagnostic else None,
+                contained=contained_diagnostic, census=unresolved_census)
         stage('UNIT_ABSENCE')
         require(show(UNIT, ['LoadState'])['LoadState'] == 'not-found', 'UNIT_ALREADY_EXISTS')
         stage('FINAL_CANDIDATE_INVENTORY')
@@ -956,11 +1176,19 @@ def preflight_diagnostic():
         require(not os.path.lexists('/srv/dsh/workspaces/.env'), 'WORKSPACE_ENVFILE')
         stage('FINAL_HELD_METADATA')
         trust.verify()
-        result['status'] = 'READ_ONLY_PREFLIGHT_PASS'
+        result['status'] = 'UNRESOLVED_CENSUS_COMPLETE' if unresolved_census else 'READ_ONLY_PREFLIGHT_PASS'
     except Exception as error:
         result.update(diagnostic_error(error))
     finally:
         result['held_fd_count'] = len(trust.held)
+        if absence_check is not None:
+            try:
+                absence_check()
+                result['ancestor_absence_verified'] = True
+            except Exception as error:
+                if result['exception_class'] is None:
+                    result.update(diagnostic_error(error))
+                result['status'] = 'DIAGNOSTIC_BLOCKED'
         # Every retained descriptor belongs to this instance. Continue closing even after one error.
         for fd, _, _ in reversed(list(trust.held.values())):
             try:
@@ -988,6 +1216,8 @@ def preflight_diagnostic():
         if previous_handler is not None:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, previous_handler)
+    if unresolved_census and result['status'] != 'UNRESOLVED_CENSUS_COMPLETE':
+        result['status'] = 'UNRESOLVED_CENSUS_INCOMPLETE'
     return result
 
 
@@ -1007,6 +1237,126 @@ def self_test():
             and diagnostic_error(Blocked('must never appear in output'))['safe_code'] == 'UNCLASSIFIED_BLOCKED'
             and diagnostic_error(Blocked('PACKAGE_BOUND', 'arbitrary extra text'))['safe_code'] == 'UNCLASSIFIED_BLOCKED'
             and diagnostic_error(ValueError('PACKAGE_BOUND'))['safe_code'] is None, 'SELF_TEST_DIAGNOSTIC_CODE_ALLOWLIST')
+    require(resolver_output(b'["/home/dsh/.node_modules"]') == ['/home/dsh/.node_modules'], 'SELF_TEST_RESOLVER_OUTPUT')
+    contained_anchor = INSTALL + '/node_modules/.pnpm/node_modules/@modelcontextprotocol/sdk/package.json'
+    six_paths = list(lookup_paths(contained_anchor)) + ['/opt/node_modules', '/node_modules']
+    contained_resolver_paths(contained_anchor, six_paths)
+    for optional in (False, True):
+        sdk = {'name': '@modelcontextprotocol/sdk', 'peerDependencies': {'@cfworker/json-schema': '^4.1.1'},
+               'peerDependenciesMeta': {'@cfworker/json-schema': {'optional': optional}}}
+        def unresolved_sdk(*unused):
+            raise FileNotFoundError()
+        sdk_trust = SimpleNamespace(read=lambda _: json.dumps(sdk).encode(), resolve=unresolved_sdk, verify=lambda: None)
+        sdk_stats = {}
+        # Synthetic exact-edge fixture: mock the digest interface, never a live pin.
+        with patch.dict(globals(), {'PACKAGE': pp.dirname(contained_anchor), 'KNOWN_MAPPINGS': {}}), \
+             patch.object(hashlib, 'sha256', return_value=SimpleNamespace(hexdigest=lambda: '0690cbe02511a95d1ff199acf20b5a12ac4dfde1bbe30c82a0de73afa92dffc9')):
+            try:
+                links, _ = closure(sdk_trust, sdk_stats, lambda a, d, t: six_paths, contained=True)
+            except Blocked as error:
+                require(error.args == (('RESOLVER_EXPECTED_EDGES_MISSING',) if optional else ('RESOLVER_OPTIONAL_DECLARATION',)),
+                        'SELF_TEST_CONTAINED_OPTIONAL')
+            else:
+                require(optional and sdk_stats['contained_optional_peer_skipped'] is True
+                        and set(links) == {'@modelcontextprotocol/sdk'}, 'SELF_TEST_CONTAINED_EXACT_SKIP')
+    # Exercise the complete reviewed table through the actual FIFO closure.
+    roots = {edge[0]: pp.dirname(edge[4]) for edge in CONTAINED_EDGES}
+    digests = {edge[0]: edge[1] for edge in CONTAINED_EDGES}
+    class RepeatedQueue(collections.deque):
+        repeated = False
+        def popleft(self):
+            item = super().popleft()
+            if variant == 'duplicate' and item[1]['name'] == 'ws' and not self.repeated:
+                self.appendleft(item)
+                self.repeated = True
+            return item
+    for variant, expected in ((None, None), ('missing', 'RESOLVER_EXPECTED_EDGES_MISSING'),
+                              ('extra', 'RESOLVER_EXACT_EDGE'), ('duplicate', 'RESOLVER_SKIP_REPEATED'),
+                              ('optional', 'RESOLVER_OPTIONAL_DECLARATION'), ('deadline', 'CLOSURE_BOUND')):
+        manifests = {name: {'name': name, 'version': 'fixture', 'peerDependencies': {}, 'peerDependenciesMeta': {}}
+                     for name in roots}
+        for owner, digest, kind, dep, anchor in CONTAINED_EDGES:
+            manifests[owner][kind][dep] = '*'
+            manifests[owner]['peerDependenciesMeta'][dep] = {'optional': True}
+        manifests['@modelcontextprotocol/sdk']['dependencies'] = {'ws': '*', 'zustand': '*'}
+        if variant == 'missing':
+            del manifests['ws']['peerDependencies']['bufferutil']
+        if variant == 'extra':
+            manifests['ws']['peerDependencies']['unexpected-peer'] = '*'
+        if variant == 'optional':
+            manifests['ws']['peerDependenciesMeta']['bufferutil']['optional'] = False
+        def fixture_resolve(logical):
+            if logical in roots.values():
+                return logical
+            raise FileNotFoundError()
+        fixture_trust = SimpleNamespace(read=lambda path: next(name.encode() for name, root in roots.items()
+                                                               if path == root + '/package.json'),
+                                        resolve=fixture_resolve, verify=lambda: None)
+        calls, ticks = [], [0]
+        def fixture_query(anchor, dependency, timeout):
+            require(0 < timeout <= 5 and len(calls) < 4, 'SELF_TEST_QUERY_BOUNDS')
+            calls.append((anchor, dependency))
+            if variant == 'deadline':
+                ticks[0] = 31
+            return list(lookup_paths(anchor)) + ['/opt/node_modules', '/node_modules']
+        with patch.dict(globals(), {'PACKAGE': roots['@modelcontextprotocol/sdk'], 'KNOWN_MAPPINGS': {}}), \
+             patch.object(collections, 'deque', RepeatedQueue), \
+             patch.object(json, 'loads', side_effect=lambda raw: manifests[raw.decode()]), \
+             patch.object(hashlib, 'sha256', side_effect=lambda raw: SimpleNamespace(hexdigest=lambda: digests[raw.decode()])), \
+             patch.object(time, 'monotonic', side_effect=lambda: ticks[0]):
+            fixture_stats = {}
+            try:
+                closure(fixture_trust, fixture_stats, fixture_query, contained=True)
+            except Blocked as error:
+                require(expected is not None and error.args == (expected,), 'SELF_TEST_FOUR_EDGE_REJECTION')
+            else:
+                require(expected is None and fixture_stats['contained_edge_count'] == 4 and len(set(calls)) == 4,
+                        'SELF_TEST_FOUR_EDGE_COMPLETE')
+    mount_bytes = [b'1 0 0:1 / / rw - ext4 /dev/root rw\n']
+    ancestor_trust = SimpleNamespace(open=lambda path: 70 if path == '/opt' else 71, verify=lambda: None)
+    with patch.object(os, 'open', return_value=72), patch.object(os, 'close'), patch.object(os, 'O_CLOEXEC', 0, create=True), \
+         patch.dict(globals(), {'bounded_read': lambda fd, cap: mount_bytes[0]}), \
+         patch.object(os, 'stat', side_effect=FileNotFoundError()) as absent_stat:
+        verify_absent = absent_resolver_ancestors(ancestor_trust)
+        verify_absent()
+        absent_stat.side_effect = None
+        absent_stat.return_value = SimpleNamespace()
+        try:
+            verify_absent()
+        except Blocked as error:
+            require(error.args == ('RESOLVER_ANCESTOR_EXISTS',), 'SELF_TEST_ANCESTOR_PRESENCE')
+        else:
+            raise RuntimeError('existing ancestor accepted')
+        absent_stat.side_effect = FileNotFoundError()
+        mount_bytes[0] += b'2 1 0:1 /opt /opt rw - ext4 /dev/root rw\n'
+        try:
+            verify_absent()
+        except Blocked as error:
+            require(error.args == ('RESOLVER_MOUNT_DRIFT',), 'SELF_TEST_ANCESTOR_MOUNT')
+        else:
+            raise RuntimeError('mount drift accepted')
+    with patch.object(subprocess, 'Popen', side_effect=Blocked('SELF_TEST_NO_EXEC')) as launch:
+        try:
+            resolver_query(PACKAGE + '/package.json', '@cfworker/json-schema', '/usr/bin')
+        except Blocked as error:
+            require(error.args == ('SELF_TEST_NO_EXEC',), 'SELF_TEST_RESOLVER_NO_EXEC')
+        else:
+            raise RuntimeError('mock resolver launch did not stop')
+    args, kwargs = launch.call_args
+    require(args[0] == ['/opt/node-v24.19.0-linux-x64/bin/node', '--input-type=commonjs', '-e', RESOLVER_CODE,
+                        PACKAGE + '/package.json', '@cfworker/json-schema']
+            and kwargs['env'] == {'HOME': '/home/dsh', 'DSH_HOME': HOME, 'PATH': '/usr/bin'}
+            and kwargs['user'] == kwargs['group'] == 1000 and kwargs['extra_groups'] == []
+            and kwargs['close_fds'] is True and kwargs['pass_fds'] == ()
+            and kwargs['cwd'] == '/srv/dsh/workspaces' and kwargs['stdin'] == kwargs['stderr'] == subprocess.DEVNULL,
+            'SELF_TEST_RESOLVER_LAUNCH_BOUNDARY')
+    with patch.object(subprocess, 'Popen', side_effect=Blocked('SELF_TEST_NO_EXEC')) as launch:
+        try:
+            resolver_query(contained_anchor, '@cfworker/json-schema', '/usr/bin', no_global=True)
+        except Blocked as error:
+            require(error.args == ('SELF_TEST_NO_EXEC',), 'SELF_TEST_CONTAINED_NO_EXEC')
+    require(launch.call_args.args[0][1:3] == ['--no-global-search-paths', '--input-type=commonjs'],
+            'SELF_TEST_NO_GLOBAL_FLAG')
     root_manifest = {'name': '@deepseek-ai/dsh', 'dependencies': {f'p{i}': '*' for i in range(512)}}
     mock_closure = SimpleNamespace(
         read=lambda path: json.dumps(root_manifest if path == PACKAGE + '/package.json' else
@@ -1039,10 +1389,40 @@ def self_test():
             and counters['declaring_manifest_sha256'] == hashlib.sha256(declaring_bytes).hexdigest()
             and counters['declaring_manifest_sha256'] != hashlib.sha256(json.dumps(json.loads(declaring_bytes)).encode()).hexdigest(),
             'SELF_TEST_EXACT_DECLARING_BYTES')
+    census_manifest = {'name': '@deepseek-ai/dsh',
+                       'peerDependencies': {name: '*' for name in ('optional', 'required', 'unspecified', 'malformed')},
+                       'peerDependenciesMeta': {'optional': {'optional': True}, 'required': {'optional': False},
+                                                'malformed': {'optional': 'must not be emitted'}}}
+    census_trust = SimpleNamespace(read=lambda _: json.dumps(census_manifest).encode(), resolve=missing_package, verify=lambda: None)
+    census_stats = {}
+    with patch.dict(globals(), {'KNOWN_MAPPINGS': {}}), \
+         patch.object(subprocess, 'Popen', side_effect=AssertionError('census must not execute Node')):
+        closure(census_trust, census_stats, census=True)
+        records = census_stats['unresolved_edges']
+        require([r['optional_classification'] for r in records] == ['TRUE', 'FALSE', 'MISSING', 'MALFORMED']
+                and all(r['logical_anchor'] == PACKAGE + '/package.json' for r in records)
+                and all(r['declaring_manifest_sha256'] == hashlib.sha256(json.dumps(census_manifest).encode()).hexdigest() for r in records)
+                and 'must not be emitted' not in json.dumps(records), 'SELF_TEST_CENSUS_DECLARATIONS')
+        census_manifest['peerDependencies'] = {f'missing{i}': '*' for i in range(33)}
+        try:
+            closure(census_trust, census_stats, census=True)
+        except Blocked as error:
+            require(error.args == ('CENSUS_UNRESOLVED_BOUND',) and len(census_stats['unresolved_edges']) == 32,
+                    'SELF_TEST_CENSUS_BOUND')
+        else:
+            raise RuntimeError('unresolved census cap accepted')
+        census_manifest['dependencies'] = []
+        try:
+            closure(census_trust, census_stats, census=True)
+        except Blocked as error:
+            require(error.args == ('DEPENDENCY_MAP',) and census_stats['census_context']['dependency_kind'] == 'dependencies',
+                    'SELF_TEST_CENSUS_MALFORMED_CONTEXT')
+        else:
+            raise RuntimeError('malformed census declaration accepted')
     def exhausted(*unused):
         raise OSError(24, 'must never appear in output')
     fake = SimpleNamespace(held={'mock': (71, None, None)}, read=exhausted)
-    for fail_restore in (False, True):
+    for fail_restore, census_mode in ((False, False), (True, False), (False, True)):
         limits, events = [1024, 1048576], []
         def set_limits(unused, values):
             events.append(('set', values))
@@ -1057,8 +1437,8 @@ def self_test():
              patch.object(os, 'listdir', return_value=['one', 'two']), \
              patch.object(os, 'close', side_effect=lambda fd: events.append(('close', fd))), \
              patch.object(signal, 'signal'), patch.object(signal, 'alarm', create=True), patch.object(signal, 'SIGALRM', 14, create=True):
-            diagnostic = preflight_diagnostic()
-        require(diagnostic['status'] == ('FD_LIMIT_RESTORE_FAILED' if fail_restore else 'DIAGNOSTIC_BLOCKED')
+            diagnostic = preflight_diagnostic(unresolved_census=census_mode)
+        require(diagnostic['status'] == ('UNRESOLVED_CENSUS_INCOMPLETE' if census_mode else 'FD_LIMIT_RESTORE_FAILED' if fail_restore else 'DIAGNOSTIC_BLOCKED')
                 and diagnostic['stage'] == 'SOURCE_PINS' and diagnostic['errno'] == 24
                 and diagnostic['held_fd_count'] == 1 and diagnostic['last_successful_fd_count'] == 2,
                 'SELF_TEST_DIAGNOSTIC_FAILURE')
@@ -1079,6 +1459,13 @@ def self_test():
         lambda: unresolved_metadata('dependency', '../../invalid', 'dependencies', '0' * 64),
         lambda: unresolved_metadata('dependency', 'a' * 215, 'dependencies', '0' * 64),
         lambda: unresolved_metadata('dependency', 'declaring', 'optionalDependencies', '0' * 64),
+        lambda: resolver_output(b'null'),
+        lambda: resolver_output(b'["relative"]'),
+        lambda: resolver_output(b'["/a/../b"]'),
+        lambda: resolver_output(json.dumps(['/root/' + str(i) for i in range(65)]).encode()),
+        lambda: resolver_output(b' ' * 16385),
+        lambda: contained_resolver_paths(contained_anchor, six_paths + ['/home/dsh/.node_modules']),
+        lambda: contained_resolver_paths(contained_anchor, list(reversed(six_paths))),
     ]
     for case in cases:
         try:
@@ -1120,14 +1507,20 @@ if __name__ == '__main__':
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--self-test', action='store_true')
     modes.add_argument('--preflight-diagnostic', action='store_true')
+    modes.add_argument('--resolver-diagnostic', action='store_true')
+    modes.add_argument('--contained-preflight-diagnostic', action='store_true')
+    modes.add_argument('--unresolved-census', action='store_true')
     args = parser.parse_args()
     try:
-        result = self_test() if args.self_test else preflight_diagnostic() if args.preflight_diagnostic else apply() if args.apply else {
+        result = (self_test() if args.self_test else preflight_diagnostic(unresolved_census=True) if args.unresolved_census
+                  else preflight_diagnostic(contained_diagnostic=True) if args.contained_preflight_diagnostic
+                  else preflight_diagnostic(resolver_diagnostic=True) if args.resolver_diagnostic
+                  else preflight_diagnostic() if args.preflight_diagnostic else apply() if args.apply else {
             'status': 'CONTRACT_ONLY', 'runtime': 'NOT PROVEN', 'unit': UNIT,
             'candidate': HOME, 'properties': PROPERTIES, 'attempts': 1,
             'required_parent_checks': ['fresh source receipts', 'pilot loopback HTTP before/after', 'tunnel before/after'],
-        }
+        })
     except Exception:
         result = {'status': 'BLOCKED', 'error_code': 'PRECONDITION_OR_SELF_TEST_FAILURE'}
     print(json.dumps(result, sort_keys=True))
-    sys.exit(0 if result['status'] in {'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS'} else 1)
+    sys.exit(0 if result['status'] in {'CONTRACT_ONLY', 'SELF_TEST_PASS', 'ISOLATED_CANDIDATE_SMOKE_PASS', 'READ_ONLY_PREFLIGHT_PASS', 'UNRESOLVED_CENSUS_COMPLETE'} else 1)
