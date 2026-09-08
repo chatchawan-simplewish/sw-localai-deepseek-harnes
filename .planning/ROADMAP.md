@@ -71,7 +71,7 @@ Evidence tasks:
 
 Plans:
 - [x] 03-01-PLAN.md — Completed with `BLOCKED / NOT PROVEN` outcome after read-only verification and zero firewall mutations (wave 1).
-- [ ] 03-02-PLAN.md — Prepare owner-only storage, complete the action-time credential/native-OAuth gate, and verify isolation (wave 2).
+- [ ] 03-02-PLAN.md — Task 1 independently accepted after one fix round with the protected backup destination still empty; Task 2 did not start and no credential/OAuth gate was presented because the effective store, native Codex login surface, provider identities, and six route blockers remain unresolved (wave 2).
 
 Evidence tasks:
 - [ ] **CRED-01 — NOT PROVEN**: All fresh provider credentials and native OAuth state remain unconfigured or unverified.
@@ -133,6 +133,6 @@ Evidence tasks:
 |-------|-------------------------|----------------|--------|-----------|
 | 1. Authority and Evidence | 05/05 | TBD | Complete | 2026-09-08 |
 | 2. Network Facts and Owner Access | 03/03 | TBD | Complete (pre-roadmap evidence) | 2026-09-08 |
-| 3. Provider Prerequisites | 01/02 | 1/2 | In progress; 03-01 completed `BLOCKED / NOT PROVEN` | - |
+| 3. Provider Prerequisites | 01/02 | 1/2 | Blocked; 03-01 complete with FW-01 `BLOCKED`, 03-02 Task 1 accepted but CRED-01 `BLOCKED / NOT PROVEN` and Task 2 not started | - |
 | 4. Route Truth and Fail-Closed Attribution | 00/09 | TBD | Not started | - |
 | 5. Evidence Closeout and Handoff | 00/02 | TBD | Not started | - |

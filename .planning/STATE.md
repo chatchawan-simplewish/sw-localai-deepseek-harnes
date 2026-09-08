@@ -11,8 +11,8 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 
 Current Phase: 3 of 5 (Provider Prerequisites)
 Plan: 1 of 2 in current phase
-Status: Plan 03-01 completed with a `BLOCKED / NOT PROVEN` outcome; Phase 3 is not `PASS`.
-Last activity: 2026-09-08 — Closed Plan 03-01 after read-only prerequisite evidence and zero firewall mutations; six routes remain blocked.
+Status: Plan 03-01 completed with FW-01 `BLOCKED`; Plan 03-02 Task 1 was independently accepted after one fix round, but CRED-01 remains `BLOCKED / NOT PROVEN` and Phase 3 is not `PASS`.
+Last activity: 2026-09-08 — Accepted the blocked Plan 03-02 Task 1 preparation packet; Task 2 did not start and no credential/OAuth gate was presented.
 
 Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
@@ -34,7 +34,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 |-------|-------|----------------|--------|
 | 1. Authority and Evidence | TBD | 05/05 | Evidence complete |
 | 2. Network Facts and Owner Access | TBD | 03/03 | Evidence complete |
-| 3. Provider Prerequisites | 2 | 01/02 | In progress; 03-01 completed `BLOCKED / NOT PROVEN` |
+| 3. Provider Prerequisites | 2 | 01/02 | In progress; 03-01 complete with FW-01 `BLOCKED`; 03-02 Task 1 accepted but blocked before Task 2 |
 | 4. Route Truth and Fail-Closed Attribution | TBD | 00/09 | Not started |
 | 5. Evidence Closeout and Handoff | TBD | 00/02 | Not started |
 
@@ -48,10 +48,11 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 - Treat historical evidence as context only; current claims require fresh proof.
 - Use only `PASS`, `WARN`, `BLOCKED`, and `NOT PROVEN` verdicts.
 - Leave the VM104-to-VM105 SSH rule unchanged: its origin is proven, current need is not, and removal is not authorized.
+- Accept Plan 03-02 Task 1 after independent review and one fix round as a reviewable blocked packet only; this does not release Task 2 or create credential-gate approval.
 
 ### Pending Todos
 
-- Execute Plan 03-02 read-only credential-storage and backup-eligibility preparation without creating or entering credentials.
+- Obtain a scoped owner decision/replan for the Plan 03-02 pre-gate blockers without inspecting or mutating provenance-unverified secret-bearing state.
 - Diagnose the RX-drop increase while preserving the recorded `WARN`.
 
 ### Blockers/Concerns
@@ -59,6 +60,8 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 - Phase 2: The VM104-to-VM105 firewall-rule origin is proven, but current operational need is `NOT PROVEN`; the rule remains unchanged and removal is not authorized.
 - Phase 2: RX drops increased by 36 in 45 seconds; impact and cause are unresolved (`WARN`).
 - Phase 3: FW-01 evidence work completed `BLOCKED`; six routes remain blocked and no firewall rule was added.
+- Phase 3: Plan 03-02 Task 2 did not start because the exact effective credential store, supported native Codex login surface, provider identities, and the six route blockers remain unresolved; no credential/OAuth gate was presented.
+- Phase 3: `/home/dsh/.dsh/phase-03-provider-backup-20260908T110706` is an empty owner-only VM105 backup destination; no credential state was copied.
 - Phases 3-4: All provider credentials, native OAuth state, provider responses, invalid-credential tests, and automatic attribution remain `NOT PROVEN`.
 
 ## Deferred Items
@@ -69,7 +72,7 @@ Progress: `[████░░░░░░]` 09/21 evidence tasks complete (43%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 10:09 Asia/Bangkok
-Stopped at: Plan 03-01 completed `BLOCKED / NOT PROVEN`; no live firewall or other state changed.
+Last session: 2026-09-08 12:09 Asia/Bangkok
+Stopped at: Plan 03-02 Task 1 independently accepted after one fix round; CRED-01 and Phase 3 remain `BLOCKED / NOT PROVEN`, and Task 2 did not start.
 Resume file: `.planning/phases/03-provider-prerequisites/03-02-PLAN.md`
-Exact next action: Begin Plan 03-02 read-only preparation by inventorying effective VM105 credential-storage metadata and backup eligibility; do not create a key, start OAuth, or enter a secret.
+Exact next action: Obtain a scoped owner decision/replan to resolve the effective-store, native Codex login-surface, provider-identity, and six route blockers without inspecting or mutating provenance-unverified secret-bearing state.
