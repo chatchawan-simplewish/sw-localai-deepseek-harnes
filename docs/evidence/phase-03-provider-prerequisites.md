@@ -15,7 +15,8 @@ Initial tracked/untracked status was empty.
 
 FW-01: **BLOCKED**. This is preparation evidence, not network release or phase completion.
 The packet contains zero additions, three supported existing HTTPS paths, and six
-blocked routes. Preflight must fail while those blockers exist. An independent
+blocked routes. Preflight validates their structure and safety, while explicit
+releaseEligible=false and empty approved/releasable rule lists prevent release. An independent
 reviewer and controller must accept a concrete packet digest before any mutation.
 No review approval, results receipt, or phase summary is fabricated here.
 
@@ -185,11 +186,14 @@ were used. Installed documentation examples were not copied as credential values
 
 ## Verification and remaining gate
 
-Run both in-memory self-tests, then Preflight and the Network scanner. Self-tests
-must pass. The current Preflight must reject blocked routes, and Network scanning
-must report the missing independent-review/results/03-01-summary outputs without
-secret findings. These nonzero stage exits deliberately prevent Task 1/Phase 3
-acceptance; they must not be bypassed by manufactured receipts or relaxed checks.
+Run both in-memory self-tests, then Preflight and the existing Network scanner.
+Self-tests and structural Preflight must pass; Preflight never grants mutation
+release. The Network scanner scans every currently existing allowlisted file and
+reports missing independent-review/results/03-01-summary outputs separately.
+Task 1 current-file redaction acceptance requires zero findings other than these
+missing future outputs; the full Network stage remains incomplete. Task 1 discovery
+can complete with explicitly blocked routes, while FW-01/Phase 3 acceptance remains
+blocked. Do not manufacture receipts or remove scanner requirements.
 Manual redaction review includes this file, packet and both scripts before staging.
 
 The validator requires installed PowerShell 7.5 or newer (7.6.5 was used), supports

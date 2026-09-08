@@ -2,6 +2,10 @@
   "schemaVersion": 1,
   "capturedAt": "2026-09-08T09:20:48+07:00",
   "releaseStatus": "BLOCKED",
+  "releaseEligible": false,
+  "approvedRuleIds": [],
+  "releasableRuleIds": [],
+  "fw01Verdict": "BLOCKED",
   "routing": {
     "explicitRequired": true,
     "automaticEnabled": false,
@@ -140,6 +144,7 @@
       },
       "resourceOwner": "Current VM1201 service/firewall owner unestablished",
       "decision": "BLOCKED",
+      "releaseEligible": false,
       "routeInference": "NOT PROVEN",
       "reason": "Strict SSH to recorded .143 timed out; current machine identity, intended listener/model, auth, firewall ownership, destination-seen source and valid unauthorized control missing."
     },
@@ -162,6 +167,7 @@
       },
       "resourceOwner": "Gateway Caddy BELL-PC2\\chatc; Windows firewall Bell-PC2; backend owner unestablished",
       "decision": "BLOCKED",
+      "releaseEligible": false,
       "routeInference": "NOT PROVEN",
       "reason": "Gateway listener proven but upstream intended model/service and auth not proven. Current TCP11435 rule allows .142/.146/.147, not VM105. Destination-seen source and preauthorized negative control absent."
     },
@@ -220,6 +226,7 @@
       },
       "resourceOwner": "OpenTyphoon remote; VM105 dsh candidate storage",
       "decision": "BLOCKED",
+      "releaseEligible": false,
       "routeInference": "NOT PROVEN",
       "reason": "Exact OCR endpoint/request/image translation supported by installed Harness not established; official helper is not installed in this task."
     },
@@ -242,6 +249,7 @@
       },
       "resourceOwner": "OpenAI remote service; VM105 dsh local native state",
       "decision": "BLOCKED",
+      "releaseEligible": false,
       "routeInference": "NOT PROVEN",
       "reason": "Supported installed human OAuth entry surface and effective isolated storage location are unproven. Backend registration capability does not prove a usable login surface. HTTPS base GET403 proves transport only.",
       "nativeRecord": "llm-pi-ai/openai-codex",
@@ -270,6 +278,7 @@
       },
       "resourceOwner": "OpenAI remote service; VM105 dsh local native state",
       "decision": "BLOCKED",
+      "releaseEligible": false,
       "routeInference": "NOT PROVEN",
       "reason": "Supported installed human OAuth entry surface and effective isolated storage location are unproven. Backend registration capability does not prove a usable login surface. HTTPS base GET403 proves transport only.",
       "nativeRecord": "llm-pi-ai/openai-codex",
@@ -298,6 +307,7 @@
       },
       "resourceOwner": "OpenAI remote service; VM105 dsh local native state",
       "decision": "BLOCKED",
+      "releaseEligible": false,
       "routeInference": "NOT PROVEN",
       "reason": "Supported installed human OAuth entry surface and effective isolated storage location are unproven. Backend registration capability does not prove a usable login surface. HTTPS base GET403 proves transport only.",
       "nativeRecord": "llm-pi-ai/openai-codex",
@@ -311,7 +321,7 @@
   "rules": [],
   "limitations": [
     "No live mutation is authorized by this packet.",
-    "Six route blockers prevent Preflight release; missing future evidence prevents Network completion.",
+    "Preflight validates structure only. Six route blockers prevent mutation release; missing future evidence prevents Network completion.",
     "Public destination addresses are observed TLS peers, not permanent provider IP grants.",
     "No local worker destination-observed source or unauthorized negative control established.",
     "Effective credential storage overrides were not read; documented default is absent and not accepted as proven effective path."

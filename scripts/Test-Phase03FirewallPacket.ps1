@@ -77,7 +77,15 @@ function Check-Packet($Packet) {
         Timestamp $route.capturedAt; Text-Required $route.provenance
         Require ($route.decision -cin @('BLOCKED','NO_FIREWALL_CHANGE','READY_FOR_SINGLE_RULE')) 'invalid-route-decision'
         $matching = @($Packet.rules | Where-Object { $_.route -ceq $route.id })
-        if ($route.decision -ceq 'BLOCKED') { Text-Required $route.reason; Require ($matching.Count -eq 0) 'blocked-route-permission'; $blocked = $true; continue }
+        if ($route.decision -ceq 'BLOCKED') {
+            Text-Required $route.reason
+            Require ($route.releaseEligible -is [bool] -and -not $route.releaseEligible) 'blocked-route-release-claim'
+            foreach ($field in @('source','destination','protocol','port','ruleId','commands','proposedPermission','targetIdentity','rules','permissions')) { Require (-not $route.Contains($field)) 'blocked-route-mutable-target' }
+            foreach ($field in @('approvedRuleIds','releasableRuleIds')) { if ($route.Contains($field)) { Require ($route[$field] -is [array] -and $route[$field].Count -eq 0) 'blocked-route-rule-release-claim' } }
+            if ($route.Contains('releaseStatus')) { Require ($route.releaseStatus -cin @('BLOCKED','NOT PROVEN')) 'blocked-route-status-claim' }
+            Require ($matching.Count -eq 0) 'blocked-route-permission'
+            $blocked = $true; continue
+        }
         Tuple $route; Require ($route.source -ceq $Packet.vm105.address) 'vm105-source-mismatch'
         if ($route.decision -ceq 'NO_FIREWALL_CHANGE') {
             Require ($matching.Count -eq 0) 'no-change-route-permission'
@@ -136,7 +144,13 @@ function Check-Packet($Packet) {
             if ($name -ceq 'rejectedProbe') { Require ($rule.preChangeProbes[$name].exitCode -ne 0) 'negative-source-connected-before-change' }
         }
     }
-    Require (-not $blocked) 'blocked-routes-prevent-preflight-release'
+    if ($blocked) {
+        Require ($Packet.releaseEligible -is [bool] -and -not $Packet.releaseEligible) 'blocked-packet-release-claim'
+        foreach ($field in @('approvedRuleIds','releasableRuleIds')) { Require ($Packet[$field] -is [array] -and $Packet[$field].Count -eq 0) 'blocked-packet-rule-release-claim' }
+        Require ($Packet.fw01Verdict -cin @('BLOCKED','NOT PROVEN')) 'blocked-packet-fw01-claim'
+        if ($Packet.Contains('releaseStatus')) { Require ($Packet.releaseStatus -cin @('BLOCKED','NOT PROVEN')) 'blocked-packet-status-claim' }
+        Require ($Packet.rules.Count -eq 0) 'blocked-packet-permission'
+    }
 }
 function Check-Execution($Actual, $Expected, [string]$Since) {
     Evidence $Actual
@@ -146,6 +160,7 @@ function Check-Execution($Actual, $Expected, [string]$Since) {
     if ($Expected.Contains('source')) { Same $Actual.source $Expected.source 'actual-probe-source-mismatch' }
 }
 function Check-Results($Packet, $Results, [string]$Digest, [string]$SelectedStage, [string]$SelectedId) {
+    Require (@($Packet.routes | Where-Object { $_.decision -ceq 'BLOCKED' }).Count -eq 0) 'blocked-packet-has-no-releasable-receipts'
     Require ($Results.packetSha256 -cmatch '^[A-Fa-f0-9]{64}$' -and $Results.packetSha256 -ieq $Digest) 'packet-digest-mismatch'
     Require ($SelectedId -in @($Packet.rules.id) -and $Results.records -is [array]) 'missing-selected-rule-or-records'
     $active = @{}; $seen = @{}; $found = $false; $lastTime = [DateTimeOffset]$Packet.capturedAt
@@ -251,9 +266,45 @@ function Run-SelfTest {
         Require $rejected 'negative-selftest-accepted'
     }
     $p=Json $packet | ConvertFrom-Json -AsHashtable -DateKind String; $p.rules=@()
-    foreach ($route in $p.routes) { $route.decision='BLOCKED'; $route.reason='Synthetic missing service proof' }
-    $rejected=$false; try { Check-Packet $p } catch { $rejected=$true }; Require $rejected 'blocked-zero-rule-selftest-accepted'
-    Write-Output ('SelfTest PASS (valid no-change, rule, postflight and rollback receipts; {0} rejection cases)' -f ($cases.Count+1))
+    $p.releaseEligible=$false; $p.approvedRuleIds=@(); $p.releasableRuleIds=@(); $p.fw01Verdict='BLOCKED'; $p.releaseStatus='BLOCKED'
+    foreach ($route in $p.routes) {
+        $route.decision='BLOCKED'; $route.reason='Synthetic missing service proof'; $route.releaseEligible=$false
+        foreach ($field in @('source','destination','protocol','port','ruleId','existingPathProof')) { $route.Remove($field) }
+    }
+    Check-Packet $p
+    $mixed=Json $p | ConvertFrom-Json -AsHashtable -DateKind String
+    $mixed.routes[1]=Json $packet.routes[1] | ConvertFrom-Json -AsHashtable -DateKind String
+    Check-Packet $mixed
+    $blockedCases = @(
+        @{name='empty-blocker';change={param($b) $b.routes[0].reason=''}},
+        @{name='blocked-permission';change={param($b) $b.rules=@($rule)}},
+        @{name='blocked-source';change={param($b) $b.routes[0].source='192.0.2.10'}},
+        @{name='blocked-destination';change={param($b) $b.routes[0].destination='192.0.2.20'}},
+        @{name='blocked-protocol';change={param($b) $b.routes[0].protocol='tcp'}},
+        @{name='blocked-port';change={param($b) $b.routes[0].port=443}},
+        @{name='blocked-rule-id';change={param($b) $b.routes[0].ruleId='phase03-synthetic'}},
+        @{name='blocked-commands';change={param($b) $b.routes[0].commands=@{add='synthetic forbidden command'}}},
+        @{name='blocked-proposed-permission';change={param($b) $b.routes[0].proposedPermission=@{port=443}}},
+        @{name='blocked-target-identity';change={param($b) $b.routes[0].targetIdentity=@{address='192.0.2.20'}}},
+        @{name='blocked-route-release';change={param($b) $b.routes[0].releaseEligible=$true}},
+        @{name='blocked-route-approved';change={param($b) $b.routes[0].approvedRuleIds=@('phase03-synthetic')}},
+        @{name='blocked-route-releasable';change={param($b) $b.routes[0].releasableRuleIds=@('phase03-synthetic')}},
+        @{name='blocked-route-status';change={param($b) $b.routes[0].releaseStatus='APPROVED'}},
+        @{name='blocked-route-permissions';change={param($b) $b.routes[0].permissions=@($rule)}},
+        @{name='missing-route-release';change={param($b) $b.routes[0].Remove('releaseEligible')}},
+        @{name='blocked-packet-release';change={param($b) $b.releaseEligible=$true}},
+        @{name='blocked-approved-ids';change={param($b) $b.approvedRuleIds=@('phase03-synthetic')}},
+        @{name='blocked-releasable-ids';change={param($b) $b.releasableRuleIds=@('phase03-synthetic')}},
+        @{name='blocked-pass-verdict';change={param($b) $b.fw01Verdict='PASS'}},
+        @{name='blocked-approved-status';change={param($b) $b.releaseStatus='APPROVED'}},
+        @{name='blocked-pass-status';change={param($b) $b.releaseStatus='PASS'}}
+    )
+    foreach ($case in $blockedCases) {
+        $b=Json $p | ConvertFrom-Json -AsHashtable -DateKind String; Check-Packet $b
+        & $case.change $b
+        $rejected=$false; try { Check-Packet $b } catch { $rejected=$true }; Require $rejected 'unsafe-blocked-selftest-accepted'
+    }
+    Write-Output ('SelfTest PASS (valid blocked, mixed, no-change, rule, postflight and rollback structures; {0} rejection cases)' -f ($cases.Count+$blockedCases.Count))
 }
 
 try {
@@ -267,7 +318,9 @@ try {
         $results = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ResultsPath)) | ConvertFrom-Json -AsHashtable -DateKind String
         Check-Results $packet $results $digest $Stage $RuleId
     }
-    Write-Output "$Stage PASS (packet consistency only; independent review and controller acceptance remain required)"
+    if ($Stage -eq 'Preflight') {
+        Write-Output 'Preflight PASS (structural validation only; no mutation release; independent review and controller acceptance remain required)'
+    } else { Write-Output "$Stage PASS (receipt consistency only; no mutation release)" }
     exit 0
 } catch {
     # Never echo parser exceptions, packet values, commands, or receipts.
