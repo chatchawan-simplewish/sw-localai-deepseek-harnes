@@ -67,7 +67,11 @@ Evidence tasks:
   1. VM105 contains only fresh VM105-specific provider credentials or native OAuth state, stored owner-only, with no Hermes material copied or exposed in evidence.
   2. Before each live change, the owner can identify a secret-free baseline, backup or rollback path, and the single provider route the change enables.
   3. Every added firewall permission records the verified source, destination, protocol, port, and rollback, with no generic provider or TCP 3080 LAN allowance.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Verify all route prerequisites and justify exact reversible firewall permissions (wave 1).
+- [ ] 03-02-PLAN.md — Prepare owner-only storage, complete the action-time credential/native-OAuth gate, and verify isolation (wave 2).
 
 Evidence tasks:
 - [ ] **CRED-01 — NOT PROVEN**: All fresh provider credentials and native OAuth state remain unconfigured or unverified.
@@ -129,6 +133,6 @@ Evidence tasks:
 |-------|-------------------------|----------------|--------|-----------|
 | 1. Authority and Evidence | 05/05 | TBD | Complete | 2026-09-08 |
 | 2. Network Facts and Owner Access | 03/03 | TBD | Complete (pre-roadmap evidence) | 2026-09-08 |
-| 3. Provider Prerequisites | 00/02 | TBD | Not started | - |
+| 3. Provider Prerequisites | 00/02 | 0/2 | Planned; independent plan review pending | - |
 | 4. Route Truth and Fail-Closed Attribution | 00/09 | TBD | Not started | - |
 | 5. Evidence Closeout and Handoff | 00/02 | TBD | Not started | - |

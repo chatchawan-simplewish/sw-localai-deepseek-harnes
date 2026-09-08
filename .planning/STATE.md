@@ -10,9 +10,9 @@ See: `.planning/PROJECT.md` (updated 2026-09-08)
 ## Current Position
 
 Current Phase: 3 of 5 (Provider Prerequisites)
-Plan: 0 of TBD in current phase
-Status: Ready to verify provider prerequisites and prepare owner-only entry.
-Last activity: 2026-09-08 — Reconciled Phase 1 authority-and-evidence requirements, operating-rule delivery evidence, and authoritative progress totals.
+Plan: 0 of 2 in current phase
+Status: Phase 3 planned in two sequential waves; independent plan review passed after one revision round.
+Last activity: 2026-09-08 — Planned and independently verified Phase 3 provider prerequisites without changing live or browser state.
 
 Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 
@@ -34,7 +34,7 @@ Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 |-------|-------|----------------|--------|
 | 1. Authority and Evidence | TBD | 05/05 | Evidence complete |
 | 2. Network Facts and Owner Access | TBD | 03/03 | Evidence complete |
-| 3. Provider Prerequisites | TBD | 00/02 | Not started |
+| 3. Provider Prerequisites | 2 | 00/02 | Planned; independent plan review pending |
 | 4. Route Truth and Fail-Closed Attribution | TBD | 00/09 | Not started |
 | 5. Evidence Closeout and Handoff | TBD | 00/02 | Not started |
 
@@ -68,7 +68,7 @@ Progress: `[████░░░░░░]` 08/21 evidence tasks complete (38%)
 
 ## Session Continuity
 
-Last session: 2026-09-08 09:26 Asia/Bangkok
-Stopped at: Phase 1 authority-and-evidence reconciliation complete; no live infrastructure or browser state changed.
-Resume file: `.planning/ROADMAP.md`
-Exact next action: Verify provider endpoint/model prerequisites and prepare owner-only credential/native-OAuth entry without exposing values.
+Last session: 2026-09-08 08:55 Asia/Bangkok
+Stopped at: Phase 3 plans verified; no live infrastructure or browser state changed.
+Resume file: `.planning/phases/03-provider-prerequisites/03-01-PLAN.md`
+Exact next action: Execute 03-01 read-only route inventory, then stop at its firewall review checkpoint before any rule change.
