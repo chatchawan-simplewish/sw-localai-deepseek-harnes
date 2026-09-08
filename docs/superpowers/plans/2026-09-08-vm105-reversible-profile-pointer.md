@@ -61,13 +61,20 @@ No existing profile, evidence artifact, service file, firewall rule, package, pr
 Exact nested interfaces:
 
 - `target`: `hostname`, `address`, `sshHostKeyIdentity`, `service`, `serviceUser`, `serviceGroup`, `candidateRoot`, `listenerHost`, `listenerPort`.
-- `proofRef`: `sourcePath`, `sourceSha256`, `lineStart`, `lineEnd`, `claim`; references may name installed package/help/unit sources only and must never name a child of the current profile.
-- `selectorDiscovery`: `capturedAt`, `installedVersion`, `verdict`, `blockers`, `baseline`, `selector`, `candidateBlueprint`, `selectorDigest`, `review`.
+- `proofRef`: `sourcePath`, `sourceSha256`, `lineStart`, `lineEnd`, `claim`; references may name installed package/help/unit sources or sanitized live metadata/privilege receipts only and must never name a child of the current profile.
+- `selectorDiscovery`: `capturedAt`, `installedVersion`, `verdict`, `blockers`, `baseline`, `installedEntrypoint`, `privilegeSeam`, `selector`, `candidateBlueprint`, `selectorDigest`, `review`.
+- `installedEntrypoint`: `wrapperPath`, `wrapperOwner`, `wrapperGroup`, `wrapperMode`, `wrapperSha256`, `entrypointPath`, `entrypointOwner`, `entrypointGroup`, `entrypointMode`, `packageRoot`, `packageName`, `packageVersion`, `proofRefs`; `entrypointPath` and `packageRoot` are fixed absolute paths below `/opt/deepseek-harness` discovered from the verified installed wrapper.
+- `privilegeSeam`: `verdict`, `capturedAt`, `commands`, `proofRefs`; every command has `id`, absolute `executable`, exact `argv`, `noninteractive`, and `allowed`, and collectively covers drop-in-file install/removal plus `systemctl stop`, `start`, `daemon-reload`, and read-only status. Any missing command makes the discovery `BLOCKED`.
 - `selector`: `name`, `precedence`, `absoluteCandidateValue`, `unitDropInPath`, `unitDropInLines`, `unitDropInSha256`, `effectiveProfileProbe`, `proof`.
 - `selector.proof`: `absolutePath`, `precedence`, `fullProfileScope`, `nonMerge`, `serviceCompatibility`, `supportedUnitOverride`; each item has `proven: true` plus one or more `proofRef` records. `fullProfileScope` has separate `credentials`, `settings`, `plugins`, `sessionsState`, and `otherMutableStores` proofs.
 - `candidateBlueprint`: `directories`, `files`, `policyAssertions`, `staticValidation`; every directory/file uses a safe relative path, an octal mode, and source proof. Each file also has `contentLines` and `sha256` over UTF-8 bytes joined by LF with one terminal LF.
 - `candidatePreparation`: `selectorDigest`, `candidateDigest`, `startedAt`, `finishedAt`, `verdict`, `createdPaths`, `metadataChecks`, `staticChecks`, `serviceUnchangedChecks`, `runtimeVerdict`, `blockers`, `review`.
-- `cutoverPacket`: `packetId`, `createdAt`, `packetDigest`, `selectorDigest`, `candidateDigest`, `expiresAt`, `expectedBaseline`, `pointerMutation`, `rollbackMutation`, `orderedChecks`, `allowedMutationTargets`, `review`.
+- `cutoverPacket`: `packetId`, `createdAt`, `packetDigest`, `selectorDigest`, `candidateDigest`, `expiresAt`, `maxSwitchAttempts`, `maxRollbackAttempts`, `automaticRetries`, `expectedBaseline`, `pointerMutation`, `rollbackMutation`, `orderedChecks`, `allowedMutationTargets`, `review`.
+- `expectedBaseline`: `capturedAt`, `hostname`, `machineIdentity`, `sshHostKeyIdentity`, `service`, `currentSelector`, `listeners`, `httpHealth`, `ufw`, `directLanDenied`, `dropInDirectory`; `service` contains `name`, `activeState`, `subState`, `user`, `group`, `execStartArgv`, `workingDirectory`, `umask`, `restartPolicy`, `hardening`, and `networkPolicy`.
+- `commandSpec`: `id`, `target`, `executable`, `argv`, `timeoutSeconds`, `parser`, `acceptedOutputs`, `successTransition`, `failureTransition`, `suppressRawOutput`; `executable` is an absolute installed path or one of the exact in-process values `PowerShell::.NET-TcpClient` and `PowerShell::OperationLedger`, `argv` is an array of atomic strings, timeout is an integer from 1 through 60, accepted outputs are exact parser results, and `suppressRawOutput` is always `true`.
+- `pointerMutation`: `steps`, `stdinSha256`, `dropInOwner`, `dropInGroup`, `dropInMode`, and `selectorDelta`; `steps` is an ordered array of complete `commandSpec` records for the fixed file install and one daemon reload. `selectorDelta` has `property`, `beforeTokens`, `afterTokens`, `changedTokenIndexes`, and `proofRefs`. Its only file target is `/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf`, and its standard input is exactly the reviewed `unitDropInLines` bytes.
+- `rollbackMutation`: `triggerStates`, `maxAttempts`, `steps`, `terminalSuccess`, `terminalFailure`; `steps` is an ordered array of `commandSpec` records that removes only the new drop-in, reloads systemd, starts the service once, and verifies the prior baseline.
+- `orderedChecks`: exactly eleven `commandSpec` records with consecutive `order` values 1 through 11 and the specification's check IDs `identity`, `service-identity`, `effective-profile`, `loopback-listener`, `http-health`, `ufw`, `direct-lan-denial`, `route-fallback-policy`, `candidate-storage`, `old-root-detachment`, and `no-credential-mutation`.
 - `cutoverExecution`: `packetDigest`, `resultDigest`, `approvedAt`, `approvalTextSha256`, `startedAt`, `finishedAt`, `terminalState`, `states`, `oldRootLstat`, `checks`, `rollback`, `mutationLedger`, `secretObserved`, `review`.
 - `operationLedger` entry: `at`, `actor`, `operation`, `target`, `result`, `secretObserved`. It records no command output or content.
 - `review`: `status`, `reviewedAt`, `reviewer`, `reviewedDigest`, `findings`; `status` is `PENDING`, `ACCEPTED`, or `REJECTED`, and `findings` contains nonsecret issue summaries only.
@@ -115,6 +122,10 @@ Implement one canonical-JSON function, one uppercase SHA-256 function, schema ch
 10. A cutover packet with an extra mutation target, reordered check, retry count above zero, or more than one rollback attempt.
 11. A post-cutover result with any non-`PASS` acceptance check marked accepted.
 12. Suppressed secret reporting: the synthetic secret value itself must not appear in captured validator output.
+13. A wrapper that is not a regular root-owned installed file, resolves outside `/opt/deepseek-harness`, contains more than the fixed launch handoff, or names a relative/unowned entrypoint.
+14. A missing/noninteractive privilege receipt for drop-in install/removal, `systemctl stop`, `start`, `daemon-reload`, or status.
+15. A cutover packet missing typed `maxSwitchAttempts: 1`, `maxRollbackAttempts: 1`, or `automaticRetries: 0`, or containing an incomplete command/check child schema.
+16. A missing, linked, non-`root:root`, or non-`0755` drop-in directory.
 
 The positive synthetic case has all five full-profile store proofs, zero provider routes, fallback disabled, the fixed candidate root, the fixed drop-in target, one switch attempt, one possible rollback sequence, and no secret material.
 
@@ -144,15 +155,17 @@ $sshArgs = @(
   '-o','StrictHostKeyChecking=yes',
   'dsh@192.168.1.139'
 )
-& ssh.exe @sshArgs -- "set -eu; hostname; id -un; id -gn; /usr/local/bin/dsh --version; systemctl is-active deepseek-harness.service; systemctl show deepseek-harness.service -p User -p Group -p ExecStart -p WorkingDirectory -p UMask -p FragmentPath -p DropInPaths -p ActiveState -p SubState -p Result -p NRestarts; ss -lntH '( sport = :3080 )'; stat -c '%n|%F|%U|%G|%a|%h' -- /home/dsh/.dsh"
+& ssh.exe @sshArgs -- "set -eu; hostname; id -un; id -gn; /usr/local/bin/dsh --version; systemctl is-active deepseek-harness.service; systemctl show deepseek-harness.service -p User -p Group -p ExecStart -p WorkingDirectory -p UMask -p FragmentPath -p DropInPaths -p ActiveState -p SubState -p Result -p NRestarts; ss -lntH '( sport = :3080 )'; stat -c '%n|%F|%U|%G|%a|%h' -- /home/dsh/.dsh /usr/local/bin/dsh"
 if ($LASTEXITCODE -ne 0) { throw 'Read-only VM105 baseline failed' }
 ```
 
-Expected: hostname `deepseek-harness-01`; caller and group `dsh`; version `0.1.1-rc.2`; service active; service identity and command are available; listener remains loopback on port 3080; only root-path `lstat` fields for `/home/dsh/.dsh` are emitted. Do not run `find`, `Get-ChildItem`, `ls`, `tar`, `cp`, `hash`, `du`, `env`, `/proc/*/environ`, or content reads against the old profile.
+Expected: hostname `deepseek-harness-01`; caller and group `dsh`; version `0.1.1-rc.2`; service active; service identity and command are available; listener remains loopback on port 3080; only root-path `lstat` fields for `/home/dsh/.dsh` are emitted; `/usr/local/bin/dsh` is a regular installed wrapper with safe owner/mode. Do not run `find`, `Get-ChildItem`, `ls`, `tar`, `cp`, `hash`, `du`, `env`, `/proc/*/environ`, or content reads against the old profile.
 
 - [ ] **Step 4: Discover the selector from installed-version sources only**
 
-Starting from `readlink -f /usr/local/bin/dsh`, locate the owning installed package root by walking upward to its `package.json`. Inventory only package-shipped `package.json`, help, README/docs, schema, entrypoint, and state-location source files. Search those installed files for profile/home/state/config/credential/plugin/session/cache selector semantics. Do not run a network package command and do not install anything.
+Read exactly the installed wrapper `/usr/local/bin/dsh` after its root owner, non-writable mode, regular-file type, and SHA-256 are captured. The wrapper is the only pre-entrypoint executable file that may be opened. Parse it as data and require a single fixed absolute entrypoint below `/opt/deepseek-harness`; reject command substitution, environment-derived paths, relative paths, fallback branches, eval, additional executables, or any target outside that root. An unexpected wrapper sets `selectorDiscovery.verdict` to `BLOCKED`.
+
+Verify the extracted entrypoint is a regular installed/package-owned file with safe owner/mode. Starting from that fixed entrypoint, walk upward only within `/opt/deepseek-harness` to its owning `package.json`; verify package name/version and record file digests before reading package-shipped help, README/docs, schema, entrypoint, and state-location source files. Search only those verified installed files for profile/home/state/config/credential/plugin/session/cache selector semantics. Do not follow links outside the package root, run a network package command, or install anything.
 
 For each required claim, record one or more `proofRef` records with exact installed path, SHA-256, line range, and plain nonsecret claim. Prove all of:
 
@@ -166,9 +179,11 @@ For each required claim, record one or more `proofRef` records with exact instal
 
 After the selector name is proven, inspect only that exact effective selector from systemd. Filter on VM105 and emit only the selector key/path or an explicit absence marker; never emit the full service environment. Inspecting the old profile remains limited to the root-only `lstat` record from Step 3.
 
+Before allowing `selectorDiscovery.verdict: PASS`, prove the existing noninteractive privilege seam without changing it. Resolve absolute installed paths for `sudo`, `install` or the proven file writer, `rm`, and `systemctl`; run bounded `sudo -n -l --` permission checks followed by each resolved executable and its exact atomic argv for the one fixed drop-in install, its rollback removal, `systemctl stop deepseek-harness.service`, `start`, `daemon-reload`, and read-only status. Store only allow/deny verdicts, exact nonsecret argv, and proof references; suppress raw sudo policy output. If any exact operation is unavailable, ambiguous, interactive, broader than the reviewed command, or depends on a changed sudoers rule, set `privilegeSeam.verdict` and selector discovery to `BLOCKED`. Never edit sudoers, add privilege, switch users interactively, or invent a workaround.
+
 - [ ] **Step 5: Build the PASS or BLOCKED evidence object without guessing**
 
-If every claim is directly proven, populate `selector`, its six proof groups, and a `candidateBlueprint` derived only from installed defaults plus the approved fixed settings. `candidateBlueprint.policyAssertions` must equal:
+If every claim is directly proven, and `installedEntrypoint` plus `privilegeSeam` both validate, populate `selector`, its six proof groups, and a `candidateBlueprint` derived only from installed defaults plus the approved fixed settings. `candidateBlueprint.policyAssertions` must equal:
 
 ```json
 {
@@ -184,7 +199,7 @@ If every claim is directly proven, populate `selector`, its six proof groups, an
 
 Every planned candidate file must have exact `contentLines`, `0600` or narrower mode, source proof, and matching SHA-256. Every planned directory must have an exact safe relative path and mode `0700`. The blueprint must not contain credentials, account labels, provider/model selections, native OAuth state, callback data, or copied content.
 
-If any claim or safe blueprint field is missing or ambiguous, set `selectorDiscovery.verdict` and `overallVerdict` to `BLOCKED`, list exact nonsecret blockers, set `selector` and `candidateBlueprint` to `null`, and leave later sections `null`. Record the candidate root's preflight existence metadata; an existing/populated/unsafe parent or target is itself `BLOCKED`. This is a valid completed Task 1 outcome.
+If any claim, wrapper/entrypoint fact, privilege operation, or safe blueprint field is missing or ambiguous, set `selectorDiscovery.verdict` and `overallVerdict` to `BLOCKED`, list exact nonsecret blockers, set `selector` and `candidateBlueprint` to `null`, and leave later sections `null`. Record the candidate root's preflight existence metadata; an existing/populated/unsafe parent or target is itself `BLOCKED`. This is a valid completed Task 1 outcome.
 
 - [ ] **Step 6: Validate, independently review, and commit Task 1**
 
@@ -236,7 +251,9 @@ param(
 )
 ```
 
-The initializer must call the Task 1 validator before constructing a remote operation. It must reject a nonaccepted review, digest mismatch, non-`PASS` selector, target drift, unsafe path, unexpected existing parent/target, content hash mismatch, nonempty credential/provider/OAuth field, any shell metacharacter in a relative path, and any destination outside `/home/dsh/.dsh-profiles/vm105-provider-v1`. `-SelfTest` uses a fake SSH adapter injected only inside the script's self-test branch and asserts that zero operations are emitted for every rejection.
+The initializer must call the Task 1 validator before constructing a remote operation. It must reject a nonaccepted review, digest mismatch, non-`PASS` selector, target drift, unsafe path, unexpected existing parent/target, content hash mismatch, nonempty credential/provider/OAuth field, any shell metacharacter in a relative path, and any destination outside `/home/dsh/.dsh-profiles/vm105-provider-v1`. `-SelfTest` uses a fake SSH adapter injected only inside the script's self-test branch and asserts that zero operations are emitted for every preflight rejection.
+
+The same injected adapter must fail each post-create operation in turn: parent creation, candidate-root creation, each directory/file write, metadata verification, static validation, value-suppressing scan, and service/network unchanged check. After the first injected failure, assert `candidatePreparation.verdict: BLOCKED`, no later write or service command, no cleanup/remove/repair command, and no operation against the old profile. The candidate paths already created before the injected failure remain untouched for review. A positive injected run must execute every planned candidate write once and zero service commands.
 
 - [ ] **Step 2: Implement the minimum bounded preparation sequence**
 
@@ -318,7 +335,7 @@ If Task 2 is `BLOCKED`, stop with the existing service active and unchanged. Do 
 **Interfaces:**
 - Consumes: accepted `selectorDigest`, accepted `candidateDigest`, and selector-provided `unitDropInLines` plus runtime probes
 - Produces: immutable `cutoverPacket.packetDigest` and an independently accepted packet review
-- Produces: `Invoke-VM105ProfileCutover.ps1 -EvidencePath [string] -ApprovedPacketDigest [64-hex string] -ApprovalTimestamp [ISO-8601 string] -ApprovalTextSha256 [64-hex string] -SshTarget [user@host string] -SshKey [path string] -Execute [-DryRun] [-SelfTest] [-ResultPath [scratch JSON path]]`
+- Produces: `Invoke-VM105ProfileCutover.ps1 -EvidencePath [string] -ApprovedPacketDigest [64-hex string] -OwnerReply [string] -ApprovalTimestamp [ISO-8601 string] -ApprovalTextSha256 [64-hex string] -SshTarget [user@host string] -SshKey [path string] -Execute|-DryRun|-SelfTest [-ResultPath [scratch JSON path]]`
 
 - [ ] **Step 1: Write the controller state-machine tests before its live path**
 
@@ -328,9 +345,10 @@ Use this public parameter contract:
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$EvidencePath = 'docs/evidence/vm105-profile-pointer.json',
-    [Parameter(Mandatory)][string]$ApprovedPacketDigest,
-    [Parameter(Mandatory)][string]$ApprovalTimestamp,
-    [Parameter(Mandatory)][string]$ApprovalTextSha256,
+    [string]$ApprovedPacketDigest,
+    [string]$OwnerReply,
+    [string]$ApprovalTimestamp,
+    [string]$ApprovalTextSha256,
     [string]$SshTarget = 'dsh@192.168.1.139',
     [string]$SshKey = 'C:\Users\chatc\.ssh\codex-prox01-vms-ed25519',
     [string]$ResultPath = '.superpowers/sdd/vm105-profile-pointer/cutover-result.json',
@@ -339,6 +357,8 @@ param(
     [switch]$SelfTest
 )
 ```
+
+Before creating an SSH adapter or resolving a remote command, require exactly one of `-Execute`, `-DryRun`, or `-SelfTest`. The controller loads `packetDigest`, derives the exact required reply string itself, compares `OwnerReply` ordinally, recomputes uppercase SHA-256 from the exact UTF-8 reply, compares it with `ApprovalTextSha256`, parses `ApprovalTimestamp` as ISO-8601 UTC, and requires it is not more than 30 seconds in the future or 10 minutes old. Only `-Execute` requires valid action-time approval; `-DryRun` remains mutation-free and prints the derived required reply.
 
 The controller uses an injected command adapter only for `-SelfTest`. Test these exact terminal flows:
 
@@ -349,28 +369,67 @@ The controller uses an injected command adapter only for `-SelfTest`. Test these
 - any `WARN`, empty, timeout, or unrecognized result after stop: rollback;
 - successful switch with selector mismatch, route count nonzero, fallback enabled, nonloopback listener, UFW drift, direct-LAN reachability, candidate permission drift, old-root root-metadata drift, or secret observation: rollback;
 - rollback failure: terminal `ROLLBACK_FAILED`, no retry or speculative repair; and
-- missing exact action-time approval inputs: zero live commands.
+- missing, altered, wrong-digest, stale, future, or hash-mismatched action-time approval: zero adapter commands;
+- conflicting/no modes (`Execute+DryRun`, `Execute+SelfTest`, `DryRun+SelfTest`, or none): zero adapter commands; and
+- malformed/expired packet digest or a derived-reply mismatch: zero adapter commands.
 
 `-DryRun` validates and prints only ordered command identifiers and targets, never command bodies that could contain dynamic data. It performs no SSH or filesystem mutation.
 
 - [ ] **Step 2: Construct the immutable packet from accepted evidence**
 
-Populate `cutoverPacket` only when selector and candidate reviews are `ACCEPTED`, both digests still match, candidate revalidation passes, and the current service baseline has not drifted. Set:
+Populate `cutoverPacket` only when selector and candidate reviews are `ACCEPTED`, both digests still match, candidate revalidation passes, the current service baseline has not drifted, and `privilegeSeam.verdict` still passes fresh `sudo -n -l` checks for every exact root operation. Before packet acceptance, require `/etc/systemd/system/deepseek-harness.service.d` already exists as a real non-link directory owned `root:root`, mode `0755`, with no broad ACL and no unexpected mount boundary. If the directory is absent or noncompliant, set `overallVerdict: BLOCKED`; do not create/repair it, change sudoers, or add a directory mutation lifecycle.
 
-- `pointerMutation.target` exactly `/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf`;
-- `pointerMutation.contentLines` exactly equal to the selector-proven, independently reviewed `unitDropInLines`;
+Set:
+
+- `pointerMutation.steps[0].target` exactly `/etc/systemd/system/deepseek-harness.service.d/90-vm105-provider-profile.conf`;
+- the bytes identified by `pointerMutation.stdinSha256` exactly equal the selector-proven, independently reviewed `unitDropInLines` joined by LF with one terminal LF;
 - drop-in directory owner/mode `root:root`/`0755` and file owner/mode `root:root`/`0644`;
-- `allowedMutationTargets` to only the new drop-in path and systemd manager state; no profile path is mutable during cutover;
+- `allowedMutationTargets` to only the new drop-in file and systemd manager state; no directory or profile path is mutable during cutover;
 - one `rollbackMutation` that removes only this newly created drop-in, reloads systemd, and starts/verifies the prior service baseline;
 - `maxSwitchAttempts: 1`, `maxRollbackAttempts: 1`, and `automaticRetries: 0`;
 - an expiry no more than 24 hours after packet creation; and
 - the eleven cutover checks from the approved specification in their exact order.
 
+`expectedBaseline` is fully materialized, not a prose label. It records the freshly observed hostname/machine/SSH identities; service active/substate, user/group, tokenized `ExecStart`, working directory, `UMask`, restart-policy properties, every effective hardening property, and every effective network-policy property; current selector; exact loopback listener set; local HTTP status; UFW defaults/rules; direct-LAN denial; and drop-in-directory metadata. Property maps are ordinal-sorted name/value objects, and their canonical digests are part of `packetDigest`.
+
+Every `pointerMutation` and rollback step is a complete `commandSpec`. `pointerMutation.selectorDelta` identifies the sole allowed effective-unit delta. For an environment selector, `ExecStart` must remain byte-for-byte equal; for a proven argument selector, `beforeTokens`, `afterTokens`, and exact changed token indexes define the only allowed `ExecStart` difference. In both cases, `WorkingDirectory`, `UMask`, all restart-policy properties, every hardening property, and every network-policy property must equal `expectedBaseline`. An added/removed/changed unit property outside `selectorDelta` is `ROLLBACK_REQUIRED`.
+
+The ordered checks use these exact child contracts; each child contains its own executable, atomic argv, timeout, parser, accepted output, transitions, and `suppressRawOutput: true`:
+
+| Order / ID | Executable and argv source | Parser and only accepted output | Failure transition |
+| --- | --- | --- | --- |
+| 1 `identity` | Resolved absolute `ssh.exe`; strict SSH argv plus installed `/usr/bin/hostname` and approved machine-identity probe | `ExactIdentityV1`; exact packet hostname, machine identity, SSH host key | `ROLLBACK_REQUIRED` after stop, otherwise `BLOCKED` |
+| 2 `service-identity` | Resolved absolute `ssh.exe`; strict SSH argv plus `/usr/bin/systemctl show deepseek-harness.service` with the exact property allowlist | `SystemdUnitDeltaV1`; active/running `dsh:dsh`, selector-only delta, and exact equality for normalized `ExecStart`, `WorkingDirectory`, `UMask`, restart policy, hardening, and network policy | `ROLLBACK_REQUIRED` |
+| 3 `effective-profile` | Resolved absolute `ssh.exe`; strict SSH argv plus the selector-proven absolute `effectiveProfileProbe.executable` and atomic argv | `EffectiveProfileV1`; credentials, settings, plugins, sessions/state, and all other mutable stores resolve below the fixed candidate with no merge/fallback | `ROLLBACK_REQUIRED` |
+| 4 `loopback-listener` | Resolved absolute `ssh.exe`; strict SSH argv plus installed `/usr/bin/ss` atomic filter argv | `ListenerSetV1`; exact approved loopback sockets on port 3080 and no nonloopback socket | `ROLLBACK_REQUIRED` |
+| 5 `http-health` | Resolved absolute `ssh.exe`; strict SSH argv plus installed `/usr/bin/curl` bounded argv for `http://127.0.0.1:3080/` | `HttpStatusV1`; exit 0 and exact accepted status from packet | `ROLLBACK_REQUIRED` |
+| 6 `ufw` | Resolved absolute `ssh.exe`; strict SSH argv plus installed `/usr/sbin/ufw status verbose` | `UfwPolicyV1`; active, exact baseline defaults/rules, no TCP 3080 allowance | `ROLLBACK_REQUIRED` |
+| 7 `direct-lan-denial` | `PowerShell::.NET-TcpClient`; argv is exact address, `3080`, and bounded millisecond timeout | `TcpDeniedV1`; connection denied/timed out within bound | `ROLLBACK_REQUIRED` |
+| 8 `route-fallback-policy` | Resolved absolute `ssh.exe`; strict SSH argv plus selector-proven safe route-status probe executable/argv | `RoutePolicyV1`; active route count `0`, automatic fallback `false`, no provider/model selection | `ROLLBACK_REQUIRED` |
+| 9 `candidate-storage` | Resolved absolute `ssh.exe`; strict SSH argv plus the reviewed candidate metadata/ACL/link/mount validator executable/argv | `CandidateStorageV1`; exact root, `dsh:dsh`, 0700 directories, 0600-or-narrower regular files, no links/broad ACL/unexpected mount | `ROLLBACK_REQUIRED` |
+| 10 `old-root-detachment` | Resolved absolute `ssh.exe`; strict SSH argv plus installed `/usr/bin/stat` root-only argv | `OldRootDetachedV1`; exact post-stop root `lstat` match plus check 3 proves no effective store below it | `ROLLBACK_REQUIRED` |
+| 11 `no-credential-mutation` | `PowerShell::OperationLedger`; argv is the current packet/workflow ID | `NoCredentialMutationV1`; zero old-tree write/move/delete and zero credential/OAuth/provider/inference/route mutation | `ROLLBACK_REQUIRED` |
+
+Parsers consume raw output only in memory, reject unknown fields/extra lines, and persist only named safe fields and verdicts. Raw stdout/stderr, service environments, matching secret text, credential-shaped data, and exception payloads are never logged or copied into scratch/evidence output.
+
+The mutation arrays are also exact and ordered:
+
+| Structure / step | Executable and atomic argv | Timeout / parser / accepted output | Transition |
+| --- | --- | --- | --- |
+| `pointerMutation.steps[0]` `install-pointer` | Resolved absolute `ssh.exe`; strict SSH argv, `sudo -n`, proven absolute `install`, `-o root -g root -m 0644 /dev/stdin`, fixed drop-in path; reviewed bytes supplied on stdin | 30 seconds; `DropInReceiptV1`; exit 0, exact SHA-256, `root:root`, `0644`, regular file, link count 1 | `POINTER_WRITTEN`; otherwise `ROLLBACK_REQUIRED` |
+| `pointerMutation.steps[1]` `reload-pointer` | Resolved absolute `ssh.exe`; strict SSH argv, `sudo -n`, `/usr/bin/systemctl daemon-reload` | 30 seconds; `ExitCodeV1`; exit 0 | `POINTER_APPLIED`; otherwise `ROLLBACK_REQUIRED` |
+| `rollbackMutation.steps[0]` `remove-new-pointer` | Resolved absolute `ssh.exe`; strict SSH argv, `sudo -n`, proven absolute `rm`, `-f --`, fixed drop-in path | 30 seconds; `AbsentPathV1`; exit 0 and exact path absent | `ROLLBACK_POINTER_REMOVED`; otherwise `ROLLBACK_FAILED` |
+| `rollbackMutation.steps[1]` `reload-prior-pointer` | Resolved absolute `ssh.exe`; strict SSH argv, `sudo -n`, `/usr/bin/systemctl daemon-reload` | 30 seconds; `ExitCodeV1`; exit 0 | `ROLLBACK_RELOADED`; otherwise `ROLLBACK_FAILED` |
+| `rollbackMutation.steps[2]` `start-prior-service` | Resolved absolute `ssh.exe`; strict SSH argv, `sudo -n`, `/usr/bin/systemctl start deepseek-harness.service` | 60 seconds; `ExitCodeV1`; exit 0 | `ROLLBACK_STARTED`; otherwise `ROLLBACK_FAILED` |
+| `rollbackMutation.steps[3]` `verify-prior-baseline` | Resolved absolute `ssh.exe`; strict SSH argv plus `/usr/bin/systemctl show deepseek-harness.service` exact allowlist; followed by fixed read-only baseline check handlers | 60 seconds; `PriorBaselineV1`; exact pre-packet service/unit/listener/HTTP/UFW/direct-denial state restored | `ROLLED_BACK`; otherwise `ROLLBACK_FAILED` |
+
+The stop and candidate-start commands are separate complete `commandSpec` records in the controller's state sequence: proven `sudo -n /usr/bin/systemctl stop deepseek-harness.service` accepts only confirmed inactive state and transitions to `SERVICE_STOPPED`; proven `sudo -n /usr/bin/systemctl start deepseek-harness.service` accepts exit 0 and transitions to `CANDIDATE_RUNNING`. Either failure enters the single rollback sequence. No command field contains a shell program, redirection, expansion, pipeline, or concatenated packet text.
+
 The packet stores command identifiers and structured argv, not shell snippets. Every executable and argument is a separate JSON array item; the validator rejects shell metacharacters, redirections, pipelines, command substitutions, broad paths, and unlisted mutations. The fixed controller constructs its own safe command sequence from these structured fields and never calls `Invoke-Expression`, `bash -c` with packet text, or an unreviewed wrapper.
 
 - [ ] **Step 3: Implement the bounded live controller**
 
-The live `-Execute` path must require the accepted packet digest and nonempty approval metadata, then:
+The live `-Execute` path must first complete the controller-owned mode, derived-reply, reply-hash, and bounded-timestamp validation with zero SSH commands on failure. It then requires the accepted packet digest and approval metadata, and only then:
 
 1. Revalidate repository/VM/SSH identities, packet expiry/digests/reviews, service active baseline, candidate static state, tunnel assumption, UFW baseline, direct-LAN denial, and absence of the new drop-in.
 2. Confirm the prior selector metadata and exact rollback are observable without reading profile content.
@@ -393,8 +452,6 @@ $packetDigest = [string]$record.cutoverPacket.packetDigest
 if ($packetDigest -notmatch '^[A-F0-9]{64}$') { throw 'packetDigest is absent or malformed' }
 ./scripts/Invoke-VM105ProfileCutover.ps1 `
   -ApprovedPacketDigest $packetDigest `
-  -ApprovalTimestamp 'NOT-APPROVED' `
-  -ApprovalTextSha256 ('0' * 64) `
   -SelfTest
 if ($LASTEXITCODE -ne 0) { throw 'Cutover controller self-test failed' }
 
@@ -403,8 +460,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Cutover packet validation failed' }
 
 ./scripts/Invoke-VM105ProfileCutover.ps1 `
   -ApprovedPacketDigest $packetDigest `
-  -ApprovalTimestamp 'NOT-APPROVED' `
-  -ApprovalTextSha256 ('0' * 64) `
   -DryRun
 git diff --check -- 'docs/evidence/vm105-profile-pointer.json' 'scripts/Invoke-VM105ProfileCutover.ps1'
 ```
@@ -442,14 +497,15 @@ Run the selector, candidate, and cutover-packet stages again plus controller `-D
 
 - [ ] **Step 2: Stop at the blocking action-time cutover gate**
 
-Present the owner with the exact packet digest, fixed drop-in target, candidate path, expected brief outage, one switch attempt, one automatic rollback sequence, eleven checks, residual `ROLLBACK_FAILED` risk, zero provider cost, and explicit exclusion of credentials/routes/inference. Use the project-required headings and await this exact form of reply:
+Present the owner with the exact packet digest, fixed drop-in target, candidate path, expected brief outage, one switch attempt, one automatic rollback sequence, eleven checks, residual `ROLLBACK_FAILED` risk, zero provider cost, and explicit exclusion of credentials/routes/inference. Use the project-required headings. Obtain the exact required reply from the controller's validated dry-run output; do not compose it separately:
 
 ```powershell
 $record = Get-Content -Raw 'docs/evidence/vm105-profile-pointer.json' | ConvertFrom-Json
 $packetDigest = [string]$record.cutoverPacket.packetDigest
-$requiredReply = "Approve cutover packet $packetDigest for one bounded switch attempt and one automatic rollback sequence. No credentials."
-$requiredReply
+./scripts/Invoke-VM105ProfileCutover.ps1 -ApprovedPacketDigest $packetDigest -DryRun
 ```
+
+Expected: mutation-free output includes one controller-derived approval sentence containing the current 64-hex digest, one bounded switch attempt, one automatic rollback sequence, and `No credentials.`, plus only safe command identifiers/targets.
 
 Silence, previous specification approval, standing routine preapproval, an automated marker, or a reply naming a different digest does not authorize execution. Do not manufacture approval metadata. If approval is absent, stop with the current service active.
 
@@ -461,11 +517,12 @@ Hash the exact owner reply locally without recording its text, record the safe t
 $record = Get-Content -Raw 'docs/evidence/vm105-profile-pointer.json' | ConvertFrom-Json
 $packetDigest = [string]$record.cutoverPacket.packetDigest
 if ($ownerReply -ne "Approve cutover packet $packetDigest for one bounded switch attempt and one automatic rollback sequence. No credentials.") { throw 'Exact action-time approval is absent' }
-$approvalTimestamp = (Get-Date).ToUniversalTime().ToString('o')
+$approvalTimestamp = $ownerReplyReceivedAt.ToUniversalTime().ToString('o')
 $approvalTextSha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($ownerReply)))
 ./scripts/Invoke-VM105ProfileCutover.ps1 `
   -EvidencePath 'docs/evidence/vm105-profile-pointer.json' `
   -ApprovedPacketDigest $packetDigest `
+  -OwnerReply $ownerReply `
   -ApprovalTimestamp $approvalTimestamp `
   -ApprovalTextSha256 $approvalTextSha256 `
   -SshTarget 'dsh@192.168.1.139' `
@@ -474,7 +531,7 @@ $approvalTextSha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::Has
   -Execute
 ```
 
-`$ownerReply` is the exact user response captured by the executor without alteration; do not synthesize it. Do not add a second execution call. Expected terminal results:
+`$ownerReply` is the exact user response captured by the executor without alteration, and `$ownerReplyReceivedAt` is recorded immediately when that response arrives; do not synthesize either value. The controller independently derives the required text, recomputes the hash, and rejects timestamps outside its bounded freshness window before opening SSH. Do not add a second execution call. Expected terminal results:
 
 - `SWITCH_ACCEPTED`: all eleven checks passed and the service uses the candidate.
 - `ROLLED_BACK`: a cutover check failed, the new pointer was removed, and the original service baseline was restored.
@@ -482,7 +539,9 @@ $approvalTextSha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::Has
 
 - [ ] **Step 4: Import only safe result fields and independently verify live state**
 
-Copy the scratch result's schema-approved safe fields into `cutoverExecution`; never copy raw stdout/stderr. Recompute the packet digest and require it unchanged. A fresh independent read-only reviewer re-runs identity/service/listener/HTTP/UFW/direct-denial checks and either effective candidate-path checks after `SWITCH_ACCEPTED` or prior-baseline checks after `ROLLED_BACK`. The reviewer may inspect only candidate content through the value-suppressing validator and old-root root-only `lstat` metadata.
+Copy the scratch result's schema-approved safe fields into `cutoverExecution`; never copy raw stdout/stderr. Recompute the packet digest and require it unchanged. Compute `cutoverExecution.resultDigest` immediately from the canonical execution result excluding `resultDigest` and `review`. A fresh independent read-only reviewer re-runs identity/service/listener/HTTP/UFW/direct-denial checks and either effective candidate-path checks after `SWITCH_ACCEPTED` or prior-baseline checks after `ROLLED_BACK`. The reviewer may inspect only candidate content through the value-suppressing validator and old-root root-only `lstat` metadata.
+
+Record `cutoverExecution.review.status: ACCEPTED`, reviewer identity, time, zero unresolved findings, and `reviewedDigest` exactly equal to the pre-review `resultDigest`. Any result edit invalidates the review: recompute `resultDigest`, return review to `PENDING`, and obtain a new independent review before commit.
 
 Run:
 
@@ -493,7 +552,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cutover result validation failed' }
 git diff --check -- 'docs/evidence/vm105-profile-pointer.json'
 ```
 
-Expected: exit 0 for `SWITCH_ACCEPTED` or proven `ROLLED_BACK`. A `ROLLBACK_FAILED` result is intentionally not normalized into success; preserve evidence, stop, and escalate without a commit claiming acceptance.
+Expected: exit 0 for `SWITCH_ACCEPTED` or proven `ROLLED_BACK`; current recomputed `resultDigest` equals `cutoverExecution.review.reviewedDigest`. A `ROLLBACK_FAILED` result is intentionally not normalized into success; preserve evidence, stop, and escalate without a commit claiming acceptance.
 
 - [ ] **Step 5: Commit the bounded result without claiming credentials**
 
@@ -548,11 +607,9 @@ git diff --check -- 'docs/evidence/vm105-profile-pointer.json'
 
 Expected: exit 0; no sensitive value; packet and prerequisite digests remain stable; successful cutover has eleven `PASS` checks and an empty old-tree mutation ledger; provider routes remain zero; fallback remains disabled; credentials/OAuth/inference remain `NOT PROVEN`.
 
-- [ ] **Step 3: Perform the final independent evidence review**
+- [ ] **Step 3: Verify the Task 4 digest-backed review still governs the result**
 
-Give a fresh reviewer the spec, final JSON, validator, all task commit SHAs, Task 4 review, and current live read-only results. Require confirmation that the old profile was never a data source, only root-level `lstat` metadata was recorded, the operation ledger has no old-tree write/move/delete, the pointer result matches live state, all credential-bearing actions are absent, and the next gate is separate.
-
-Compute `cutoverExecution.resultDigest` from the final safe result section, record `cutoverExecution.review` acceptance against that exact digest, and rerun Step 2 after this edit.
+Recompute the canonical Task 4 execution result without `resultDigest` and `review`; require exact equality with both `cutoverExecution.resultDigest` and `cutoverExecution.review.reviewedDigest`, and require `review.status: ACCEPTED` with zero unresolved findings. Confirm the closing edits changed only `overallVerdict` and `credentialGate`, not the Task 4 result, packet, selector, candidate, mutation ledger, or live-state claims. If any governed field changed, return to Task 4 for a new digest-backed independent review before closing.
 
 - [ ] **Step 4: Commit final evidence and stop before credentials**
 
