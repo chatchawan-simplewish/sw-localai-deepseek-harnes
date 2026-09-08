@@ -828,15 +828,18 @@ def diagnostic_error(error):
 def preflight_diagnostic():
     """Read-only reproduction: this entry has no path to apply or unit controls."""
     result = {'status': 'DIAGNOSTIC_BLOCKED', 'stage': 'RUNTIME', 'exception_class': None, 'errno': None,
-              'held_fd_count': 0, 'last_successful_fd_count': None, 'fd_soft_limit': None, 'fd_hard_limit': None}
-    trust, previous_handler = Trusted(), None
+              'held_fd_count': 0, 'last_successful_fd_count': None, 'fd_soft_limit': None, 'fd_hard_limit': None,
+              'fd_applied_soft_limit': None, 'fd_applied_hard_limit': None,
+              'fd_restored_soft_limit': None, 'fd_restored_hard_limit': None,
+              'fd_restoration': 'NOT_ATTEMPTED'}
+    trust, previous_handler, original_limits, limit_attempted = Trusted(), None, None, False
 
     def stage(name):
         result['stage'] = name
         try:
             result['last_successful_fd_count'] = len(os.listdir('/proc/self/fd'))
         except OSError:
-            pass  # Keep the last successful observation; never raise a descriptor limit.
+            pass  # Keep the last successful observation; do not adapt limits to observed usage.
 
     def deadline(*unused):
         raise TimeoutError()
@@ -847,9 +850,17 @@ def preflight_diagnostic():
         require(os.geteuid() == 0 and os.getegid() == 0 and socket.gethostname() == 'deepseek-harness-01',
                 'DIAGNOSTIC_IDENTITY')
         import resource
-        result['fd_soft_limit'], result['fd_hard_limit'] = resource.getrlimit(resource.RLIMIT_NOFILE)
+        original_limits = resource.getrlimit(resource.RLIMIT_NOFILE)
+        result['fd_soft_limit'], result['fd_hard_limit'] = original_limits
         previous_handler = signal.signal(signal.SIGALRM, deadline)
         signal.alarm(60)
+        stage('FD_LIMIT_CONFIG')
+        require(original_limits[1] >= 4096, 'DIAGNOSTIC_FD_HARD_LIMIT')
+        limit_attempted = True
+        resource.setrlimit(resource.RLIMIT_NOFILE, (4096, original_limits[1]))
+        applied = resource.getrlimit(resource.RLIMIT_NOFILE)
+        result['fd_applied_soft_limit'], result['fd_applied_hard_limit'] = applied
+        require(applied == (4096, original_limits[1]), 'DIAGNOSTIC_FD_LIMIT_MISMATCH')
         stage('SOURCE_PINS')
         require(SOURCE_PINS, 'SOURCE_PINS_MISSING')
         for path, digest in SOURCE_PINS.items():
@@ -910,6 +921,22 @@ def preflight_diagnostic():
                 if result['exception_class'] is None:
                     result.update(diagnostic_error(error))
                 result['status'] = 'DIAGNOSTIC_BLOCKED'
+        if limit_attempted:
+            result['fd_restoration'] = 'PASS'
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, original_limits)
+            except Exception as error:
+                result['fd_restoration'] = 'FAILED'
+                result['restoration_error'] = diagnostic_error(error)
+            try:
+                restored = resource.getrlimit(resource.RLIMIT_NOFILE)
+                result['fd_restored_soft_limit'], result['fd_restored_hard_limit'] = restored
+                require(restored == original_limits, 'DIAGNOSTIC_FD_RESTORE_MISMATCH')
+            except Exception as error:
+                result['fd_restoration'] = 'FAILED'
+                result.setdefault('restoration_error', diagnostic_error(error))
+            if result['fd_restoration'] == 'FAILED':
+                result['status'] = 'FD_LIMIT_RESTORE_FAILED'
         if previous_handler is not None:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, previous_handler)
@@ -931,17 +958,31 @@ def self_test():
     def exhausted(*unused):
         raise OSError(24, 'must never appear in output')
     fake = SimpleNamespace(held={'mock': (71, None, None)}, read=exhausted)
-    with patch.dict(globals(), {'Trusted': lambda: fake}), \
-         patch.dict(sys.modules, {'resource': SimpleNamespace(RLIMIT_NOFILE=7, getrlimit=lambda _: (1024, 1024))}), \
-         patch.object(sys, 'platform', 'linux'), patch.object(socket, 'gethostname', return_value='deepseek-harness-01'), \
-         patch.object(os, 'geteuid', return_value=0, create=True), patch.object(os, 'getegid', return_value=0, create=True), \
-         patch.object(os, 'listdir', return_value=['one', 'two']), patch.object(os, 'close') as close_fd, \
-         patch.object(signal, 'signal'), patch.object(signal, 'alarm', create=True), patch.object(signal, 'SIGALRM', 14, create=True):
-        diagnostic = preflight_diagnostic()
-        require(diagnostic['status'] == 'DIAGNOSTIC_BLOCKED' and diagnostic['stage'] == 'SOURCE_PINS'
-                and diagnostic['errno'] == 24 and diagnostic['held_fd_count'] == 1
-                and diagnostic['last_successful_fd_count'] == 2, 'SELF_TEST_DIAGNOSTIC_FAILURE')
-        close_fd.assert_called_once_with(71)
+    for fail_restore in (False, True):
+        limits, events = [1024, 1048576], []
+        def set_limits(unused, values):
+            events.append(('set', values))
+            require(values[1] == 1048576, 'SELF_TEST_HARD_LIMIT_CHANGED')
+            if fail_restore and values[0] == 1024:
+                raise PermissionError(1, 'must never appear in output')
+            limits[:] = values
+        with patch.dict(globals(), {'Trusted': lambda: fake}), \
+             patch.dict(sys.modules, {'resource': SimpleNamespace(RLIMIT_NOFILE=7, getrlimit=lambda _: tuple(limits), setrlimit=set_limits)}), \
+             patch.object(sys, 'platform', 'linux'), patch.object(socket, 'gethostname', return_value='deepseek-harness-01'), \
+             patch.object(os, 'geteuid', return_value=0, create=True), patch.object(os, 'getegid', return_value=0, create=True), \
+             patch.object(os, 'listdir', return_value=['one', 'two']), \
+             patch.object(os, 'close', side_effect=lambda fd: events.append(('close', fd))), \
+             patch.object(signal, 'signal'), patch.object(signal, 'alarm', create=True), patch.object(signal, 'SIGALRM', 14, create=True):
+            diagnostic = preflight_diagnostic()
+        require(diagnostic['status'] == ('FD_LIMIT_RESTORE_FAILED' if fail_restore else 'DIAGNOSTIC_BLOCKED')
+                and diagnostic['stage'] == 'SOURCE_PINS' and diagnostic['errno'] == 24
+                and diagnostic['held_fd_count'] == 1 and diagnostic['last_successful_fd_count'] == 2,
+                'SELF_TEST_DIAGNOSTIC_FAILURE')
+        require(events == [('set', (4096, 1048576)), ('close', 71), ('set', (1024, 1048576))],
+                'SELF_TEST_LIMIT_RESTORE_ORDER')
+        require(diagnostic['fd_applied_hard_limit'] == diagnostic['fd_restored_hard_limit'] == 1048576
+                and diagnostic['fd_restored_soft_limit'] == (4096 if fail_restore else 1024)
+                and diagnostic['fd_restoration'] == ('FAILED' if fail_restore else 'PASS'), 'SELF_TEST_LIMIT_RESTORATION')
     reject_envfile_directives(b'\xef\xbb\xbf[Service]\r\n# Comment\r\nExecStart=/usr/bin/env \\\r\n -i /bin/true\r\n')
     cases = [
         lambda: validate_selector({'HOME': '/home/dsh', 'PATH': '/usr/bin'}, '/usr/bin'),

@@ -1,0 +1,21 @@
+{
+  "status": "DIAGNOSTIC_BLOCKED",
+  "helper_sha256": "6231d19ed9c622195200c1b80b229230bc5f4c7619443fa1c4890d12988e76b8",
+  "execution_receipt": "5652a3",
+  "ssh_helper_exit": 1,
+  "observed_before_utc": "2026-09-08T18:08:47+00:00",
+  "errno": null,
+  "exception_class": "Blocked",
+  "fd_applied_hard_limit": 1048576,
+  "fd_applied_soft_limit": 4096,
+  "fd_hard_limit": 1048576,
+  "fd_restoration": "PASS",
+  "fd_restored_hard_limit": 1048576,
+  "fd_restored_soft_limit": 1024,
+  "fd_soft_limit": 1024,
+  "held_fd_count": 1269,
+  "last_successful_fd_count": 233,
+  "stage": "INSTALLED_CLOSURE",
+  "independent_code_review": "candidate_smoke_review accepted exact hash for one read-only diagnostic at2026-09-09 01:08:09 Asia/Bangkok; apply unchanged, original process limits restored after descriptor closure",
+  "interpretation": "Process-local FD remedy avoided the earlier EMFILE failure, but an installed-closure guard now blocked. The exact guard code was not emitted and must not be inferred from handle count. No runtime startup or host/service limit change."
+}
