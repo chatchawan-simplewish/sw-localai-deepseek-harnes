@@ -1,0 +1,319 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-08T09:20:48+07:00",
+  "releaseStatus": "BLOCKED",
+  "routing": {
+    "explicitRequired": true,
+    "automaticEnabled": false,
+    "automaticAttribution": "NOT PROVEN",
+    "runtimeSettingInspected": false
+  },
+  "vm105": {
+    "hostname": "deepseek-harness-01",
+    "address": "192.168.1.139",
+    "correlatedMachineIdentity": "eth0 MAC bc:24:11:5c:49:52 correlated via established strict SSH",
+    "sshHostKeyIdentity": "ED25519 SHA256:sUlbmGFvjHrJtyJku/Nmjd7tn+N3xIdX1eL2R6TJMrw",
+    "capturedAt": "2026-09-08T09:20:48+07:00",
+    "provenance": "StrictHostKeyChecking=yes BatchMode=yes IdentitiesOnly=yes SSH; hostname, ip -brief address, cat /sys/class/net/eth0/address; ssh-keygen -F 192.168.1.139 -l"
+  },
+  "baseline": {
+    "listener": {
+      "capturedAt": "2026-09-08T09:20:48+07:00",
+      "provenance": "VM105 ss -lntp; MainThread PID829; local curl HTTP200",
+      "observation": "127.0.0.1:3080"
+    },
+    "service": {
+      "capturedAt": "2026-09-08T09:20:48+07:00",
+      "provenance": "VM105 systemctl show: enabled, running, Result success, NRestarts 0, User dsh",
+      "observation": "active"
+    },
+    "tunnel": {
+      "capturedAt": "2026-09-08T09:20:48+07:00",
+      "provenance": "Get-NetTCPConnection; Get-Process; curl.exe --max-time 8 http://127.0.0.1:3080/ with body discarded",
+      "observation": "Bell-PC2 ssh PID42076 listens 127.0.0.1:3080 and ::1:3080; owner curl HTTP200"
+    },
+    "directPort": {
+      "capturedAt": "2026-09-08T09:20:48+07:00",
+      "provenance": "Bell-PC2 bounded curl to http://192.168.1.139:3080/ returned HTTP000; VM105 self-LAN check also HTTP000. Packet-drop location not established.",
+      "observation": "denied"
+    },
+    "firewall": {
+      "capturedAt": "2026-09-08T09:20:48+07:00",
+      "provenance": "VM105 sudo -n ufw status verbose",
+      "observation": "UFW active; deny incoming; allow outgoing; disabled routed; 22/tcp ALLOW IN 192.168.1.161 comment Bell-PC2 SSH; 22/tcp ALLOW IN 192.168.1.141 comment Hermes VM104 SSH"
+    },
+    "management": {
+      "capturedAt": "2026-09-08T09:20:48+07:00",
+      "provenance": "VM105 strict SSH and Bell-PC2 read-only TCP/HTTP checks; docs/evidence/phase-03-provider-prerequisites.md",
+      "observation": "Strict SSH identity succeeds; loopback service and owner tunnel accessible; direct LAN HTTP unavailable"
+    }
+  },
+  "routes": [
+    {
+      "id": "OR-AUTO",
+      "name": "OpenRouter Auto",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "Official sources accessed 2026-09-08: https://openrouter.ai/docs/guides/routing/routers/auto-router ; https://openrouter.ai/docs/guides/routing/routers/pareto-router ; https://openrouter.ai/docs/api_reference/authentication ; installed Harness pi-ai/Models docs and verified Chrome Models UI",
+      "provider": "openrouter",
+      "model": "openrouter/auto",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "authMethod": "Provider bearer authentication; one fresh isolated provider credential may serve both documented models",
+      "harnessSurface": "Models > Add provider > openrouter; explicit models list",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenRouter remote service; VM105 dsh local settings",
+      "decision": "NO_FIREWALL_CHANGE",
+      "routeInference": "NOT PROVEN",
+      "source": "192.168.1.139",
+      "destination": "104.18.3.115",
+      "destinationHostname": "openrouter.ai",
+      "protocol": "tcp",
+      "port": 443,
+      "existingPathProof": {
+        "capturedAt": "2026-09-08T09:16:15+07:00",
+        "provenance": "VM105 strict SSH curl --max-time 10 -s -o /dev/null -w HTTP/local/remote metadata https://openrouter.ai/api/v1/models",
+        "observation": "HTTP200 LOCAL192.168.1.139 REMOTE104.18.3.115; response body discarded",
+        "source": "192.168.1.139",
+        "destination": "104.18.3.115",
+        "protocol": "tcp",
+        "port": 443,
+        "exitCode": 0
+      }
+    },
+    {
+      "id": "OR-PARETO-CODE",
+      "name": "OpenRouter Pareto Code",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "Official sources accessed 2026-09-08: https://openrouter.ai/docs/guides/routing/routers/auto-router ; https://openrouter.ai/docs/guides/routing/routers/pareto-router ; https://openrouter.ai/docs/api_reference/authentication ; installed Harness pi-ai/Models docs and verified Chrome Models UI",
+      "provider": "openrouter",
+      "model": "openrouter/pareto-code",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "authMethod": "Provider bearer authentication; one fresh isolated provider credential may serve both documented models",
+      "harnessSurface": "Models > Add provider > openrouter; explicit models list",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenRouter remote service; VM105 dsh local settings",
+      "decision": "NO_FIREWALL_CHANGE",
+      "routeInference": "NOT PROVEN",
+      "source": "192.168.1.139",
+      "destination": "104.18.3.115",
+      "destinationHostname": "openrouter.ai",
+      "protocol": "tcp",
+      "port": 443,
+      "existingPathProof": {
+        "capturedAt": "2026-09-08T09:16:15+07:00",
+        "provenance": "VM105 strict SSH curl --max-time 10 -s -o /dev/null -w HTTP/local/remote metadata https://openrouter.ai/api/v1/models",
+        "observation": "HTTP200 LOCAL192.168.1.139 REMOTE104.18.3.115; response body discarded",
+        "source": "192.168.1.139",
+        "destination": "104.18.3.115",
+        "protocol": "tcp",
+        "port": 443,
+        "exitCode": 0
+      }
+    },
+    {
+      "id": "VM1201-QWEN",
+      "name": "VM1201 Qwen",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "Recorded SSH alias metadata plus strict SSH timeout and VM105 historical candidate HTTP000 on 2026-09-08",
+      "provider": "Local Qwen; exact provider identifier unestablished",
+      "model": "Served model identifier unestablished",
+      "endpoint": "Current endpoint unestablished; historical candidate http://192.168.1.143:8000/v1/models",
+      "authMethod": "Worker authentication unestablished",
+      "harnessSurface": "Custom OpenAI-compatible provider available; actual worker contract unestablished",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "Current VM1201 service/firewall owner unestablished",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "reason": "Strict SSH to recorded .143 timed out; current machine identity, intended listener/model, auth, firewall ownership, destination-seen source and valid unauthorized control missing."
+    },
+    {
+      "id": "BELL-WORKER",
+      "name": "Bell-PC2 local worker",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "2026-09-08 Get-NetTCPConnection/Get-Process/GetOwner and ActiveStore firewall filters; VM105 HTTP000; owner curl HTTP403",
+      "provider": "Local worker; exact provider identifier unestablished",
+      "model": "Upstream served model identifier unestablished",
+      "endpoint": "Gateway http://192.168.1.161:11435; upstream endpoint unestablished",
+      "authMethod": "Gateway/worker auth contract unestablished; owner unauthenticated HTTP403",
+      "harnessSurface": "Custom OpenAI-compatible provider available; upstream support unestablished",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "Gateway Caddy BELL-PC2\\chatc; Windows firewall Bell-PC2; backend owner unestablished",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "reason": "Gateway listener proven but upstream intended model/service and auth not proven. Current TCP11435 rule allows .142/.146/.147, not VM105. Destination-seen source and preauthorized negative control absent."
+    },
+    {
+      "id": "TYPHOON-TEXT",
+      "name": "Typhoon Thai text",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "2026-09-08 https://docs.opentyphoon.ai/en/api-reference/ ; https://docs.opentyphoon.ai/en/models/ ; installed Harness pi-ai/Models docs",
+      "provider": "Typhoon",
+      "model": "typhoon-v2.5-30b-a3b-instruct",
+      "endpoint": "https://api.opentyphoon.ai/v1",
+      "authMethod": "Provider bearer authentication; fresh VM105-only provider credential",
+      "harnessSurface": "Models > Add a custom provider > openai-completions; explicit model",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenTyphoon remote service; VM105 dsh local settings",
+      "decision": "NO_FIREWALL_CHANGE",
+      "routeInference": "NOT PROVEN",
+      "source": "192.168.1.139",
+      "destination": "74.125.200.121",
+      "destinationHostname": "api.opentyphoon.ai",
+      "protocol": "tcp",
+      "port": 443,
+      "existingPathProof": {
+        "capturedAt": "2026-09-08T09:16:15+07:00",
+        "provenance": "VM105 strict SSH curl --max-time 10 -s -o /dev/null -w HTTP/local/remote metadata https://api.opentyphoon.ai/v1/models",
+        "observation": "HTTP200 LOCAL192.168.1.139 REMOTE74.125.200.121; response body discarded",
+        "source": "192.168.1.139",
+        "destination": "74.125.200.121",
+        "protocol": "tcp",
+        "port": 443,
+        "exitCode": 0
+      }
+    },
+    {
+      "id": "TYPHOON-OCR",
+      "name": "Typhoon OCR",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "2026-09-08 https://docs.opentyphoon.ai/en/ocr/ ; https://docs.opentyphoon.ai/en/models/ ; base HTTPS /models HTTP200",
+      "provider": "Typhoon",
+      "model": "typhoon-ocr",
+      "endpoint": "https://api.opentyphoon.ai/v1 API base; exact OCR wire path unestablished",
+      "authMethod": "Provider bearer authentication documented; shared scope with text unproven",
+      "harnessSurface": "Official typhoon-ocr helper documented; Harness OCR request translation unestablished",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenTyphoon remote; VM105 dsh candidate storage",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "reason": "Exact OCR endpoint/request/image translation supported by installed Harness not established; official helper is not installed in this task."
+    },
+    {
+      "id": "CODEX-LUNA",
+      "name": "Codex Luna",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "2026-09-08 https://learn.chatgpt.com/docs/models ; https://learn.chatgpt.com/docs/auth ; installed pi-ai 0.82.1 openai-codex.js and data/openai-codex.json; verified Chrome Models draft",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-luna",
+      "endpoint": "https://chatgpt.com/backend-api",
+      "authMethod": "Native OAuth only; no API-key substitution",
+      "harnessSurface": "Installed pi-ai native OAuth backend and model catalog present; Models draft has no human sign-in control",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenAI remote service; VM105 dsh local native state",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "reason": "Supported installed human OAuth entry surface and effective isolated storage location are unproven. Backend registration capability does not prove a usable login surface. HTTPS base GET403 proves transport only.",
+      "nativeRecord": "llm-pi-ai/openai-codex",
+      "transportProbe": {
+        "capturedAt": "2026-09-08T09:15:07+07:00",
+        "provenance": "VM105 curl --max-time 8 -s -o /dev/null https://chatgpt.com/backend-api",
+        "observation": "HTTPS403; remote172.64.155.209; no authenticated request"
+      }
+    },
+    {
+      "id": "CODEX-TERRA",
+      "name": "Codex Terra",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "2026-09-08 https://learn.chatgpt.com/docs/models ; https://learn.chatgpt.com/docs/auth ; installed pi-ai 0.82.1 openai-codex.js and data/openai-codex.json; verified Chrome Models draft",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-terra",
+      "endpoint": "https://chatgpt.com/backend-api",
+      "authMethod": "Native OAuth only; no API-key substitution",
+      "harnessSurface": "Installed pi-ai native OAuth backend and model catalog present; Models draft has no human sign-in control",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenAI remote service; VM105 dsh local native state",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "reason": "Supported installed human OAuth entry surface and effective isolated storage location are unproven. Backend registration capability does not prove a usable login surface. HTTPS base GET403 proves transport only.",
+      "nativeRecord": "llm-pi-ai/openai-codex",
+      "transportProbe": {
+        "capturedAt": "2026-09-08T09:15:07+07:00",
+        "provenance": "VM105 curl --max-time 8 -s -o /dev/null https://chatgpt.com/backend-api",
+        "observation": "HTTPS403; remote172.64.155.209; no authenticated request"
+      }
+    },
+    {
+      "id": "CODEX-SOL",
+      "name": "Codex Sol",
+      "capturedAt": "2026-09-08T09:16:15+07:00",
+      "provenance": "2026-09-08 https://learn.chatgpt.com/docs/models ; https://learn.chatgpt.com/docs/auth ; installed pi-ai 0.82.1 openai-codex.js and data/openai-codex.json; verified Chrome Models draft",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "endpoint": "https://chatgpt.com/backend-api",
+      "authMethod": "Native OAuth only; no API-key substitution",
+      "harnessSurface": "Installed pi-ai native OAuth backend and model catalog present; Models draft has no human sign-in control",
+      "stateLocation": {
+        "documentedDefault": "/home/dsh/.dsh/.credentials.yaml",
+        "defaultExists": false,
+        "effectivePathVerdict": "NOT PROVEN",
+        "owner": "dsh",
+        "isolationRequirement": "Fresh VM105-only provider credential or native grant; never Hermes material"
+      },
+      "resourceOwner": "OpenAI remote service; VM105 dsh local native state",
+      "decision": "BLOCKED",
+      "routeInference": "NOT PROVEN",
+      "reason": "Supported installed human OAuth entry surface and effective isolated storage location are unproven. Backend registration capability does not prove a usable login surface. HTTPS base GET403 proves transport only.",
+      "nativeRecord": "llm-pi-ai/openai-codex",
+      "transportProbe": {
+        "capturedAt": "2026-09-08T09:15:07+07:00",
+        "provenance": "VM105 curl --max-time 8 -s -o /dev/null https://chatgpt.com/backend-api",
+        "observation": "HTTPS403; remote172.64.155.209; no authenticated request"
+      }
+    }
+  ],
+  "rules": [],
+  "limitations": [
+    "No live mutation is authorized by this packet.",
+    "Six route blockers prevent Preflight release; missing future evidence prevents Network completion.",
+    "Public destination addresses are observed TLS peers, not permanent provider IP grants.",
+    "No local worker destination-observed source or unauthorized negative control established.",
+    "Effective credential storage overrides were not read; documented default is absent and not accepted as proven effective path."
+  ]
+}
