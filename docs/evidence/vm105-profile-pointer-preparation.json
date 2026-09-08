@@ -89,10 +89,10 @@
     "candidateBlueprint": null,
     "selectorDigest": "ADB1FD7758B30059D83D4DD7A3E47FD232AE7551F0E36D63F35DD44AF604076F",
     "review": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewer": null,
-      "reviewedDigest": null,
+      "status": "ACCEPTED",
+      "reviewedAt": "2026-09-08T12:44:14.0000000Z",
+      "reviewer": "/root/scoped_recovery_review",
+      "reviewedDigest": "ADB1FD7758B30059D83D4DD7A3E47FD232AE7551F0E36D63F35DD44AF604076F",
       "findings": []
     }
   },
