@@ -28,12 +28,13 @@ class FinalClientManifestTests(unittest.TestCase):
 
     def ldd(self, root, missing=False):
         library = root / "libs" / "libfixture.so"
-        alias = root / "libs" / "libfixture-alias.so"
+        alias_dir = root / "alias-libs"
+        alias = alias_dir / "libfixture.so"
         self.write(library, "library\n")
         try:
-            os.symlink(library, alias)
+            os.symlink(library.parent, alias_dir, target_is_directory=True)
         except OSError:
-            os.link(library, alias)
+            self.link_dir(library.parent, alias_dir)
         script = root / "fake-ldd.py"
         body = "import sys\n"
         body += "print('libfixture.so => " + str(alias).replace("\\", "/") + " (0x1)')\n"
@@ -135,6 +136,13 @@ class FinalClientManifestTests(unittest.TestCase):
         """Fails if arbitrary metadata strings are mistaken for selected configuration."""
         module = importlib.import_module("Build-VM105FinalClientManifest")
         self.assertEqual(set(), module.selected_bundles({"homepage": "https://example.invalid/cordis.yml"}))
+
+    def test_selected_bundles_blocks_malformed_dsh_shapes(self):
+        """Fails if malformed manifest configuration raises AttributeError instead of blocking."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        for package in ({"dsh": None}, {"dsh": {"profile": None}}):
+            with self.assertRaises(module.ManifestBlocked):
+                module.selected_bundles(package)
 
 
 if __name__ == "__main__":

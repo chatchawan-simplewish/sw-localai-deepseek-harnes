@@ -133,7 +133,12 @@ def pin_row(fs_root, logical_path, expected):
 
 
 def selected_bundles(package):
-    profile = package.get("dsh", {}).get("profile", {})
+    dsh = package.get("dsh", {})
+    if not isinstance(dsh, dict):
+        raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
+    profile = dsh.get("profile", {})
+    if not isinstance(profile, dict):
+        raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
     bundles = profile.get("configBundles", [])
     if not isinstance(bundles, list) or not all(isinstance(value, str) for value in bundles):
         raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
@@ -160,7 +165,11 @@ def module_rows(canonical_root, logical_root, fs_root):
                 if stat.S_ISDIR(resolved.stat().st_mode):
                     raise ManifestBlocked("ARTIFACT_SYMLINK_DIRECTORY")
                 if path.suffix in MODULE_SUFFIXES:
-                    regular(path, fs_root)
+                    canonical = regular(path, fs_root)
+                    logical = logical_root / path.relative_to(canonical_root)
+                    rows.append({"sourceLogicalPath": str(logical), "sourceCanonicalPath": str(canonical),
+                                 "stagedRelativePath": "modules/" + str(logical.relative_to(fs_root)).replace("\\", "/"),
+                                 "sha256": digest(canonical)})
             elif path.suffix in MODULE_SUFFIXES:
                 canonical = regular(path, fs_root)
                 logical = logical_root / path.relative_to(canonical_root)
