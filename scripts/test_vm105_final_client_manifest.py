@@ -98,8 +98,8 @@ class FinalClientManifestTests(unittest.TestCase):
         self.assertIn("node", manifest["runtime"])
         self.assertEqual(hashlib.sha256(node.read_bytes()).hexdigest(), manifest["runtime"]["node"]["sha256"])
         self.assertIn("addon.node", [Path(row["sourceLogicalPath"]).name for row in manifest["modules"]])
-        self.assertEqual(str(alias), manifest["runtime"]["dependencies"][0]["logicalPath"])
-        self.assertEqual(str(library.resolve()), manifest["runtime"]["dependencies"][0]["canonicalPath"])
+        self.assertEqual(str(alias).replace("\\", "/"), manifest["runtime"]["dependencies"][0]["logicalPath"])
+        self.assertEqual(str(alias.resolve()), manifest["runtime"]["dependencies"][0]["canonicalPath"])
         self.assertEqual(module.canonical_bytes(manifest), module.canonical_bytes(json.loads(module.canonical_bytes(manifest))))
 
     def test_build_manifest_blocks_dependency_link_escape(self):
