@@ -28,7 +28,11 @@ Only these requests are accepted:
 
 The receipt must show exactly two classified HTTP requests, tuple equality, ACK-before-output, `progressCommitted:true`, `resumeRequired:false`, and zero redirects, retries, discovery, catalog, direct-provider, tool, or second-generation requests. It omits credential, prompt, response, endpoint secret, environment values, and provider attribution.
 
-The proven no-network smoke cannot carry HTTP. The final client keeps `PrivateNetwork=yes` and has no direct route outside its fresh namespace. A minimal fixed relay at `<BOUND_RELAY_ORIGIN>` is its only reachable listener on that namespace's loopback. Before containment, the coordinator creates exactly two TLS connections to `<BOUND_GATEWAY_TLS_ORIGIN>`, validates the bound certificate/server name, then passes only those already-connected sockets to the relay. Socket network-namespace ownership remains with the creator, so the relay can use them while the client itself has no external route or DNS. The relay accepts only two preclassified POSTs, maps them in order to the two owned upstream sockets, requires the shared tuple, rejects any third request or other method/path, disables redirects, and emits only the sanitized counts and ordering receipt. No general proxy, destination selection, provider selection, model selection, or listening host-network socket is allowed.
+The proven no-network smoke cannot carry HTTP. The final client must keep `PrivateNetwork=yes` and have no direct route outside its fresh namespace. Its sole reachable listener remains a fixed loopback relay. The native documented gateway is `http://192.168.1.68:20128/v1`; the earlier invented gateway TLS binding is withdrawn. Public `https://ai.mysw.me/v1` currently lacks `/v1/agent-routes/events` in its fresh proxy matcher and is unusable for durable ACK without a separately authorized route addition and live proof.
+
+Strict Bell-PC2 SSH control access to VM105 and existing strict SSH to VM1205 `belladmin@192.168.1.68` are control/review facts. Previously observed loopback management forwarding is not an active provider-data tunnel. SSH forwarding remains only a candidate separately reviewed secure transport; VM105-to-gateway SSH credentials, durable data forwarding, and encrypted provider traffic remain NOT PROVEN. Retain the native private-LAN HTTP origin without inventing TLS or changing any gateway.
+
+The fixture-only `scripts/Invoke-VM105FinalClient.py` now proves two-request ordering on literal loopback HTTP, ACK-before-first-byte, tuple equality, third-request denial, and cleanup. Its production preflight requires external endpoint/key-reference bindings and a PASS closure manifest/hash, emits sanitized presence only, and never invokes the final client. It does not implement or prove production namespace/socket transfer. Before live acceptance, a separate reviewed containment integration must connect only the two fixed upstream sockets and transfer them to the namespace relay without introducing a host-network listener or direct client route. No general proxy, destination/provider/model selection, or live execution is authorized by fixture PASS.
 
 On any failure, release no output, record explicit resume state, terminate and reap the exact unit cgroup, close only owned descriptors, retain the final root and sanitized receipt, and stop without retry or recursive cleanup.
 
@@ -43,7 +47,7 @@ A later default activation transfer must therefore name only: the existing servi
 ## Remaining release bindings
 
 1. Accepted final entrypoints and config-selected bundles, full copied-module manifest SHA256, Node binary SHA256, and native/runtime dependency pins.
-2. Bound private loopback relay origin, qualified gateway TLS origin with literal IP/port/certificate identity, and endpoint public identity.
+2. Bound private loopback relay origin, the documented native HTTP LAN origin, and any separately reviewed secure-transport binding.
 3. Credential key identity/reference and exact version-1 document schema, without the key value.
 4. A fixed launcher/relay and receipt schema implementing the two-request contract under the proven systemd controls.
 5. Independent Sol High acceptance, coordinator acceptance of the exact final root and contract, and fresh VM105 service/pilot state immediately before release.
