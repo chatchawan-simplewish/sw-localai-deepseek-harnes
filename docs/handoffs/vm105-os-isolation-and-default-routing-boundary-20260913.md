@@ -4,16 +4,16 @@ Prepared 2026-09-13.  This is a coordination record, not an execution plan or a 
 
 ## Read-only isolation metadata result
 
-The only attempted VM105 metadata query used SSH as `dsh@192.168.10.105`, with BatchMode and strict host-key checking.  Its remote payload was limited to `command -v` for `bwrap`, `bubblewrap`, `podman`, `docker`, `nerdctl`, `runc`, `crun`, `unshare`, and `nsenter`; reads of three kernel namespace sysctls; and presence checks for the calling process's user, mount, PID, and network namespace handles.
+The first attempted metadata query used the wrong historical address (`dsh@192.168.10.105`) and timed out before authentication or command execution.  That failure is preserved as non-evidence about VM105 capability.  A second query used the existing strict VM105 SSH route as `dsh@192.168.1.139`, with the existing identity file, BatchMode, IdentitiesOnly, and strict host-key checking.  Its remote payload was limited to `command -v` for `bwrap`, `bubblewrap`, `podman`, `docker`, `nerdctl`, `runc`, `crun`, `unshare`, and `nsenter`; reads of three kernel namespace sysctls; and presence checks for the calling process's user, mount, PID, and network namespace handles.
 
-At 2026-09-13, SSH connection to port 22 timed out before authentication or command execution.  Therefore none of the queried binaries, kernel settings, or namespace facilities is established as present or usable on VM105.
+The strict query completed at Bangkok 2026-09-13 0201.  It found no `bwrap`/`bubblewrap`, Podman, Docker, Nerdctl, runc, or crun binary.  `/usr/bin/unshare` and `/usr/bin/nsenter` exist.  `user.max_user_namespaces=63813`, `kernel.unprivileged_userns_clone=1`, and `kernel.apparmor_restrict_unprivileged_userns=1`; user, mount, PID, and network namespace handles exist for the calling process.
 
 | Facility | Status | What remains required before it may support the final copied-client draft |
 | --- | --- | --- |
-| Bubblewrap (`bwrap`) | NOT PROVEN | Read-only path/version and unprivileged-user-namespace policy; then a separately authorized containment rehearsal. |
-| Rootless container runtime | NOT PROVEN | Read-only runtime and rootless prerequisites; then a separately authorized network-none, bounded-root rehearsal. |
-| Native namespaces (`unshare`) | NOT PROVEN | Read-only binary and kernel policy; then a separately authorized test that proves mount, PID, and network containment. |
-| OCI runtimes (`runc` or `crun`) | NOT PROVEN | Read-only path and rootless suitability; then a separately authorized rehearsal. |
+| Bubblewrap (`bwrap`) | UNAVAILABLE in this observation | No binary was found. Installation or substitution is outside this lane. |
+| Rootless container runtime | UNAVAILABLE in this observation | No Podman, Docker, Nerdctl, runc, or crun binary was found. Installation or substitution is outside this lane. |
+| Native namespaces (`unshare`) | DISCOVERED; USABILITY NOT PROVEN | Binary and user-namespace kernel settings exist, but AppArmor restriction is enabled. A separately authorized test must prove mount, PID, network, bounded-root, and descendant containment. |
+| Namespace inspection (`nsenter`) | DISCOVERED; NOT A CONTAINMENT METHOD | The binary exists, but it is an inspection/entry utility and does not establish isolation. |
 
 No container, namespace, process, service, firewall, pilot, credential, or routing action ran.  The SSH timeout is not evidence of VM105 isolation capability or incapability.
 
