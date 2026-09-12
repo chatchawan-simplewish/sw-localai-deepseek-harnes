@@ -206,7 +206,7 @@ def build_manifest(fs_root: Path, node_path: Path) -> dict:
             declared.update(package.get(key, {}))
         for dependency in sorted(declared):
             link = dependency_link(canonical, dependency)
-            if not link.exists() and not link.is_symlink():
+            if not link.exists():
                 if dependency in package.get("optionalDependencies", {}) or dependency in package.get("peerDependencies", {}):
                     continue
                 raise ManifestBlocked("DEPENDENCY_UNRESOLVED")

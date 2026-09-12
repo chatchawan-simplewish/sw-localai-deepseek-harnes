@@ -117,6 +117,38 @@ class FinalClientManifestTests(unittest.TestCase):
         with self.assertRaises(module.ManifestBlocked):
             module.build_manifest(root / "node_modules", node)
 
+    def test_dangling_dependency_links_skip_only_optional_and_peer(self):
+        """Fails if absent optional links block closure or absent required links pass."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        for declaration in ("optionalDependencies", "peerDependencies", "dependencies"):
+            with self.subTest(declaration=declaration), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                package = root / "node_modules" / ".pnpm" / "fixture" / "node_modules" / "fixture"
+                self.write(package / "package.json", json.dumps({"name": "fixture", declaration: {"absent": "1"}}))
+                self.write(root / "node", "node fixture")
+                self.link_dir(package, root / "node_modules" / "fixture")
+                link = package.parent / "absent"
+                try:
+                    os.symlink(package.parent / "missing", link, target_is_directory=True)
+                except OSError:
+                    self.link_dir(package.parent / "missing", link)
+                self.assertFalse(link.exists())
+                # Windows junctions provide the real dangling directory entry; expose
+                # its link classification where file-symlink privilege is unavailable.
+                original = Path.is_symlink
+                def is_link(path):
+                    return original(path) or (path == link and path.is_junction())
+                ldd, _, _ = self.ldd(root)
+                with patch.object(Path, "is_symlink", is_link), patch.object(module, "LDD", ldd), patch.object(module, "ACCEPTED_PINS", {"entrypoints": {}, "config_bundles": {}}):
+                    if declaration == "dependencies":
+                        with self.assertRaises(module.ManifestBlocked):
+                            module.build_manifest(root / "node_modules", root / "node")
+                    else:
+                        manifest = module.build_manifest(root / "node_modules", root / "node")
+                        self.assertEqual("PASS", manifest["status"])
+                        self.assertEqual([], manifest["edges"])
+                        self.assertEqual(["fixture"], [row["name"] for row in manifest["packages"]])
+
     def test_runtime_dependencies_blocks_missing_library(self):
         """Fails if one unresolved ldd library is ignored beside a resolved one."""
         module = importlib.import_module("Build-VM105FinalClientManifest")
