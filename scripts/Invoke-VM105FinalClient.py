@@ -1,5 +1,6 @@
 """Loopback fixture relay and non-executing final-client binding preflight."""
 import argparse
+import hashlib
 import http.client
 import http.server
 import json
@@ -54,14 +55,19 @@ class TwoRequestRelay:
                     response = upstream.getresponse()
                     if self.path == ACK:
                         accepted = response.status == 202 and json.loads(response.read(4097)) == {'accepted': True}
-                        with relay.lock:
-                            relay.state['committed'] = accepted and not relay.state['failed']
-                        relay.ack.set()
-                        if not relay.state['committed']:
+                        if not accepted:
                             raise ValueError()
+                        sent = True
                         self.send_response(202)
+                        self.send_header('Content-Length', '17')
                         self.end_headers()
                         self.wfile.write(b'{"accepted":true}')
+                        self.wfile.flush()
+                        with relay.lock:
+                            if relay.state['failed']:
+                                raise ValueError()
+                            relay.state['committed'] = True
+                        relay.ack.set()
                     else:
                         if response.status != 200:
                             raise ValueError()
@@ -99,6 +105,7 @@ class TwoRequestRelay:
             do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = do_CONNECT = do_GET
 
         self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server.daemon_threads = False
         self.address = self.server.server_address
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': .02})
 
@@ -110,17 +117,54 @@ class TwoRequestRelay:
         with self.lock:
             self.state['failed'] = True
         self.ack.set()
-        for connection in self.connections:
-            connection.close()
         self.server.shutdown()
-        self.server.server_close()
         self.thread.join()
+        # Non-daemon handlers are joined by server_close before owned connections close.
+        self.server.server_close()
+        with self.lock:
+            for connection in self.connections:
+                connection.close()
 
 
-def production_preflight(gateway_base, key_reference, manifest):
-    digest = manifest.get('canonicalManifestSha256', '')
-    bound = gateway_base == GATEWAY and isinstance(key_reference, str) and bool(key_reference.strip()) and manifest.get('status') == 'PASS' and isinstance(digest, str) and len(digest) == 64 and all(c in '0123456789abcdef' for c in digest)
-    return {'status': 'PREFLIGHT_ONLY' if bound else 'BLOCKED', 'gatewayBase': GATEWAY if gateway_base == GATEWAY else None, 'endpointBound': gateway_base == GATEWAY, 'keyReferencePresent': bool(key_reference and key_reference.strip()), 'closurePass': manifest.get('status') == 'PASS', 'clientInvoked': False}
+def valid_manifest(manifest, expected_hash):
+    def sha(value):
+        return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
+
+    def pinned(row):
+        return isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k] for k in ('logicalPath', 'canonicalPath')) and sha(row.get('sha256'))
+
+    try:
+        if manifest['status'] != 'PASS' or not sha(expected_hash) or manifest['canonicalManifestSha256'] != expected_hash:
+            return False
+        for key in ('packages', 'modules', 'entrypoints', 'configBundles'):
+            if not isinstance(manifest[key], list) or not manifest[key]:
+                return False
+        if not all(isinstance(p, dict) and all(isinstance(p.get(k), str) and p[k] for k in ('name', 'version', 'logicalPath', 'canonicalPath')) for p in manifest['packages']):
+            return False
+        paths = []
+        for row in manifest['modules']:
+            path = row['stagedRelativePath']
+            if not isinstance(path, str) or not path.startswith('modules/') or '..' in path.split('/') or '\\' in path or not sha(row['sha256']) or not all(isinstance(row.get(k), str) and row[k] for k in ('sourceLogicalPath', 'sourceCanonicalPath')):
+                return False
+            paths.append(path)
+        if paths != sorted(set(paths)):
+            return False
+        if not all(pinned(row) for row in manifest['entrypoints'] + manifest['configBundles']):
+            return False
+        runtime = manifest['runtime']
+        if not pinned(runtime['node']) or not isinstance(runtime['dependencies'], list) or not runtime['dependencies'] or not all(pinned(row) for row in runtime['dependencies']):
+            return False
+        content = {k: v for k, v in manifest.items() if k != 'canonicalManifestSha256'}
+        return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).hexdigest() == expected_hash
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def production_preflight(gateway_base, key_reference, manifest, expected_hash=None):
+    closure = valid_manifest(manifest, expected_hash)
+    key_present = isinstance(key_reference, str) and bool(key_reference.strip())
+    bound = gateway_base == GATEWAY and key_present and closure
+    return {'status': 'PREFLIGHT_ONLY' if bound else 'BLOCKED', 'gatewayBase': GATEWAY if gateway_base == GATEWAY else None, 'endpointBound': gateway_base == GATEWAY, 'keyReferencePresent': key_present, 'closurePass': closure, 'clientInvoked': False}
 
 
 def run_fixture_regression():
@@ -202,6 +246,8 @@ def run_fixture_regression():
         finally:
             probe.close()
         assert not relay.thread.is_alive() and all(not worker.is_alive() for worker in workers)
+        assert not list(relay.server._threads) and relay.server.socket.fileno() == -1
+        assert all(connection.sock is None for connection in relay.connections + clients)
         return dict(status='PASS', requestCount=len(seen), tupleEquality=True, ackBeforeOutput=True, progressCommitted=committed, resumeRequired=False, thirdRequestDenied=True, cleanupComplete=True, retries=0, redirects=0, discovery=0, catalog=0, directProvider=0, tools=0)
     finally:
         release_ack.set()
@@ -220,6 +266,7 @@ if __name__ == '__main__':
     parser.add_argument('--gateway-base')
     parser.add_argument('--key-reference')
     parser.add_argument('--manifest')
+    parser.add_argument('--expected-manifest-sha256')
     args = parser.parse_args()
     if args.fixture_regression:
         result = run_fixture_regression()
@@ -231,6 +278,6 @@ if __name__ == '__main__':
                 manifest = {}
         except (OSError, TypeError, ValueError):
             manifest = {}
-        result = production_preflight(args.gateway_base, args.key_reference, manifest)
+        result = production_preflight(args.gateway_base, args.key_reference, manifest, args.expected_manifest_sha256)
     print(json.dumps(result, sort_keys=True))
     raise SystemExit(2 if result['status'] == 'BLOCKED' else 0)
