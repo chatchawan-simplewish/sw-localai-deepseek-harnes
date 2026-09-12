@@ -39,6 +39,12 @@ The receipt must bind graph/executable pins, endpoint public identity, request/r
 
 Until all four hold, this draft grants no live authority. Pilot `/home/dsh/.dsh`, stopped candidate/profile paths, `/opt` ownership, systemd, tunnel/reconnect task, firewall, bridge/a2, credentials/OAuth, providers, GPU, inference, Bell-PC2, host/VM power and all earlier gates remain excluded.
 
+## Native descriptor fixture evidence
+
+External artifact `C:/ChatGPT Projects/SW-Selfhosted-Network/.worktrees/omniroute-auto-switch-20260912/docs/auto-switch-dsh-container-fixture-result-20260913.md` has SHA256 `7d484038930e3f20ad8bbf337f32a05f8748bfc0fecff7f8a51c9fa2bc0ae22d`, independently hash-checked when this record was updated. It reports a PASS in fresh network-none builder147 container under pinned Node v24.19.0 and a retained compiled V7 package graph: dummy version-1 descriptor credential resolved and disposed through compiled credentials-local with `watch:false`; FD closed, scratch empty, retained entries unchanged, and container removed.
+
+This satisfies the draft's native-interface fixture prerequisite only. It does not bind or prove VM105 copied-graph equality, OS containment, endpoint/key identity, provider qualification, live two-request acceptance, or any execution authority.
+
 ## Independent review
 
 Independent Sol High review rejected the first draft for graph-scope ambiguity, unobservable Node-memory zeroization, descendant escape and unenforceable one-call behavior. The revised conditions above were accepted at 20260913 001913 Asia/Bangkok with no remaining concrete issues. This acceptance evaluates the draft's boundaries only; it does not bind any currently unbound value or release execution.
