@@ -77,9 +77,9 @@ class FinalClientManifestTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         logical = root / "node_modules" / "@fixture" / "alpha"
         pins = {
-            "entrypoints": {"@fixture/alpha/lib/cli.js": hashlib.sha256((logical / "lib" / "cli.js").read_bytes()).hexdigest(),
-                            "@fixture/alpha/lib/client.mjs": hashlib.sha256((logical / "lib" / "client.mjs").read_bytes()).hexdigest()},
-            "config_bundles": {"@fixture/alpha/config/agent.cordis.yml": hashlib.sha256((logical / "config" / "agent.cordis.yml").read_bytes()).hexdigest()},
+            "entrypoints": {("@fixture/alpha", "lib/cli.js"): hashlib.sha256((logical / "lib" / "cli.js").read_bytes()).hexdigest(),
+                            ("@fixture/alpha", "lib/client.mjs"): hashlib.sha256((logical / "lib" / "client.mjs").read_bytes()).hexdigest()},
+            "config_bundles": {("@fixture/alpha", "config/agent.cordis.yml"): hashlib.sha256((logical / "config" / "agent.cordis.yml").read_bytes()).hexdigest()},
         }
         ldd, library, alias = self.ldd(root)
         with patch.object(module, "ACCEPTED_PINS", pins), patch.object(module, "LDD", ldd):
@@ -90,9 +90,9 @@ class FinalClientManifestTests(unittest.TestCase):
         self.assertEqual(["@fixture/alpha->@fixture/beta"], manifest["edges"])
         self.assertEqual(sorted(manifest["entrypoints"], key=lambda row: row["logicalPath"]), manifest["entrypoints"])
         self.assertEqual(sorted(manifest["configBundles"], key=lambda row: row["logicalPath"]), manifest["configBundles"])
-        self.assertEqual(pins["entrypoints"], {row["logicalPath"]: row["sha256"] for row in manifest["entrypoints"]})
+        self.assertEqual({"/".join(key): value for key, value in pins["entrypoints"].items()}, {row["logicalPath"]: row["sha256"] for row in manifest["entrypoints"]})
         captured_bundles = {row["logicalPath"]: row["sha256"] for row in manifest["configBundles"]}
-        self.assertEqual(pins["config_bundles"], {key: captured_bundles[key] for key in pins["config_bundles"]})
+        self.assertEqual({"/".join(key): value for key, value in pins["config_bundles"].items()}, {"/".join(key): captured_bundles["/".join(key)] for key in pins["config_bundles"]})
         self.assertIn(".pnpm/alpha/node_modules/@fixture/beta/config/cordis.patch.yml", captured_bundles)
         self.assertEqual(sorted(row["stagedRelativePath"] for row in manifest["modules"]),
                          [row["stagedRelativePath"] for row in manifest["modules"]])
@@ -102,6 +102,50 @@ class FinalClientManifestTests(unittest.TestCase):
         self.assertEqual(str(alias).replace("\\", "/"), manifest["runtime"]["dependencies"][0]["logicalPath"])
         self.assertEqual(str(alias.resolve()), manifest["runtime"]["dependencies"][0]["canonicalPath"])
         self.assertEqual(module.canonical_bytes(manifest), module.canonical_bytes(json.loads(module.canonical_bytes(manifest))))
+
+    def test_nested_package_pins_resolve_discovered_roots(self):
+        """Fails if accepted pins require an absent top-level package link."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        temp, root, node = self.fixture()
+        self.addCleanup(temp.cleanup)
+        pins = {"entrypoints": {("@fixture/beta", "lib/worker.cjs"): hashlib.sha256((root / "node_modules/.pnpm/beta/node_modules/@fixture/beta/lib/worker.cjs").read_bytes()).hexdigest()},
+                "config_bundles": {}}
+        ldd, _, _ = self.ldd(root)
+        with patch.object(module, "ACCEPTED_PINS", pins), patch.object(module, "LDD", ldd):
+            manifest = module.build_manifest(root / "node_modules", node)
+        row = manifest["entrypoints"][0]
+        self.assertEqual(".pnpm/alpha/node_modules/@fixture/beta/lib/worker.cjs", row["logicalPath"])
+        self.assertEqual(str(root / "node_modules/.pnpm/beta/node_modules/@fixture/beta/lib/worker.cjs"), row["canonicalPath"])
+        staged = [row["stagedRelativePath"] for row in manifest["modules"]]
+        self.assertEqual(len(staged), len(set(staged)))
+
+    def test_package_pins_reject_missing_ambiguous_roots_and_mismatch(self):
+        """Fails if a pin silently picks an absent or ambiguous package or changed bytes."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        for condition in ("missing", "ambiguous", "mismatch"):
+            with self.subTest(condition=condition):
+                temp, root, node = self.fixture()
+                try:
+                    name = "absent" if condition == "missing" else "@fixture/beta"
+                    if condition == "ambiguous":
+                        other = root / "node_modules/other"
+                        self.write(other / "package.json", '{"name":"@fixture/beta"}')
+                    pins = {"entrypoints": {(name, "lib/worker.cjs"): "0" * 64}, "config_bundles": {}}
+                    with patch.object(module, "ACCEPTED_PINS", pins), self.assertRaises(module.ManifestBlocked):
+                        module.build_manifest(root / "node_modules", node)
+                finally:
+                    temp.cleanup()
+
+    def test_capture_hash_excludes_existing_remote_hash(self):
+        """Fails if local capture hashes the remote hash into its own digest."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "manifest.json"
+            receipt = {"status": "PASS", "canonicalManifestSha256": "remote-hash"}
+            with patch.object(module, "capture_remote", return_value=receipt):
+                module.main(["--output", str(output)])
+            actual = json.loads(output.read_bytes())
+            self.assertEqual(hashlib.sha256(b'{"status":"PASS"}').hexdigest(), actual["canonicalManifestSha256"])
 
     def test_build_manifest_blocks_dependency_link_escape(self):
         """Fails if an escaped dependency link is accepted into the closure."""

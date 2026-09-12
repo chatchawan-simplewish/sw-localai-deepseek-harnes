@@ -19,13 +19,13 @@ LDD = ("ldd",)
 MODULE_SUFFIXES = {".js", ".cjs", ".mjs", ".json", ".node", ".wasm"}
 ACCEPTED_PINS = {
     "entrypoints": {
-        "@deepseek-ai/dsh/lib/bin.js": "c0226687bb20f45c603ec6fe50f3de16d1c3510c3a803304ec575ef9bc366c62",
-        "@deepseek-ai/dsh-client-ui-settings-models/lib/client.js": "c3b9a2d2d074c600c10553a4b15e294082f5851dd4a834d06ddb268b310d18de",
+        ("@deepseek-ai/dsh", "lib/bin.js"): "c0226687bb20f45c603ec6fe50f3de16d1c3510c3a803304ec575ef9bc366c62",
+        ("@deepseek-ai/dsh-client-ui-settings-models", "lib/client.js"): "c3b9a2d2d074c600c10553a4b15e294082f5851dd4a834d06ddb268b310d18de",
     },
     "config_bundles": {
-        "@deepseek-ai/dsh/config/agent-presets/standard/agent.cordis.yml": "fa14feb98daef20b810fef30bb7239a89a786de3c45c602b37743f7100d9a5af",
-        "@deepseek-ai/dsh-base/cordis.patch.yml": "9870a518274194c0e1ebd870cee2737fbc2ffc04ae36887871ffe6fcf74beac1",
-        "@deepseek-ai/dsh-web-app/cordis.patch.yml": "7889b655be3809dd21e3c59023f8510e6e8425f6f37616e4ba20389f2e938dda",
+        ("@deepseek-ai/dsh", "config/agent-presets/standard/agent.cordis.yml"): "fa14feb98daef20b810fef30bb7239a89a786de3c45c602b37743f7100d9a5af",
+        ("@deepseek-ai/dsh-base", "cordis.patch.yml"): "9870a518274194c0e1ebd870cee2737fbc2ffc04ae36887871ffe6fcf74beac1",
+        ("@deepseek-ai/dsh-web-app", "cordis.patch.yml"): "7889b655be3809dd21e3c59023f8510e6e8425f6f37616e4ba20389f2e938dda",
     },
 }
 
@@ -132,6 +132,15 @@ def pin_row(fs_root, logical_path, expected):
     return {"logicalPath": logical_path, "canonicalPath": str(canonical), "sha256": expected}
 
 
+def package_pin_row(fs_root, packages, pin, expected):
+    name, relative = pin
+    roots = [row for row in packages if row["name"] == name]
+    if len(roots) != 1:
+        raise ManifestBlocked("ACCEPTED_PACKAGE_ROOT_UNRESOLVED")
+    logical = Path(roots[0]["logicalPath"]) / relative
+    return pin_row(fs_root, logical.relative_to(fs_root).as_posix(), expected)
+
+
 def selected_bundles(package):
     dsh = package.get("dsh", {})
     if not isinstance(dsh, dict):
@@ -222,13 +231,14 @@ def build_manifest(fs_root: Path, node_path: Path) -> dict:
         modules.extend(module_rows(canonical_root, logical_root, fs_root))
         selected.update(str((logical_root / bundle).relative_to(fs_root)).replace("\\", "/") for bundle in row.pop("_selectedBundles"))
     modules.sort(key=lambda row: row["stagedRelativePath"])
-    entrypoints = [pin_row(fs_root, path, value) for path, value in ACCEPTED_PINS["entrypoints"].items()]
-    bundle_paths = set(ACCEPTED_PINS["config_bundles"]) | selected
-    config_bundles = []
-    for path in sorted(bundle_paths):
-        expected = ACCEPTED_PINS["config_bundles"].get(path)
-        row = pin_row(fs_root, path, expected) if expected else pin_row(fs_root, path, digest(resolve_link(fs_root / Path(*path.split("/")), fs_root)))
-        config_bundles.append(row)
+    entrypoints = [package_pin_row(fs_root, packages, pin, value)
+                   for pin, value in ACCEPTED_PINS["entrypoints"].items()]
+    pinned_bundles = [package_pin_row(fs_root, packages, pin, value)
+                      for pin, value in ACCEPTED_PINS["config_bundles"].items()]
+    config_bundles = {row["logicalPath"]: row for row in pinned_bundles}
+    for path in sorted(selected - config_bundles.keys()):
+        config_bundles[path] = pin_row(fs_root, path, digest(regular(fs_root / path, fs_root)))
+    config_bundles = list(config_bundles.values())
     entrypoints.sort(key=lambda row: row["logicalPath"])
     config_bundles.sort(key=lambda row: row["logicalPath"])
     return {"status": "PASS", "packages": packages, "edges": sorted(edges), "entrypoints": entrypoints,
@@ -274,6 +284,7 @@ def main(argv=None):
     else:
         value = capture_remote()
     if value["status"] == "PASS":
+        value.pop("canonicalManifestSha256", None)
         value["canonicalManifestSha256"] = hashlib.sha256(canonical_bytes(value)).hexdigest()
     encoded = canonical_bytes(value)
     if args.output:
