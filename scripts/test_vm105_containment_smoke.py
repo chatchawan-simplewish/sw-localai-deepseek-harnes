@@ -32,7 +32,7 @@ class ContainmentSmokeContractTest(unittest.TestCase):
 
     def test_cleanup_stays_armed_until_descendant_is_proven_reaped(self):
         script = self.load().REMOTE_SCRIPT
-        self.assertGreater(script.index('owned=0', script.index('sudo -n systemctl stop')), script.index("printf 'DESCENDANT_REAPED"))
+        self.assertGreater(script.index('owned=0', script.index('wait "$runner"')), script.index("printf 'DESCENDANT_REAPED"))
 
     def test_launcher_pins_transport_and_rejects_bad_receipts(self):
         module = self.load()
@@ -45,9 +45,10 @@ class ContainmentSmokeContractTest(unittest.TestCase):
     def test_remote_refuses_preexisting_outside_path_and_proves_effective_unit_state(self):
         script = self.load().REMOTE_SCRIPT
         self.assertIn('[ ! -e "$OUTSIDE" ] && [ ! -L "$OUTSIDE" ] || fail OUTSIDE_ALREADY_EXISTS', script)
-        for marker in ('--wait', '--property=Type=exec', 'UNIT_PROPERTY_', 'CGROUP_NOT_EMPTY',
-                       'UNIT_STOP_RESULT', 'stop-result'):
+        for marker in ('--quiet', '--wait', '--property=Type=exec', 'UNIT_PROPERTY_', 'CGROUP_NOT_EMPTY',
+                       'touch "$ROOT/release"', 'wait "$runner"'):
             self.assertIn(marker, script)
+        self.assertIn('if : 2>/dev/null >"$OUTSIDE"; then', script)
 
 
 if __name__ == '__main__':

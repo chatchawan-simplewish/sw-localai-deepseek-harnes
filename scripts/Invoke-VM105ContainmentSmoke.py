@@ -60,7 +60,7 @@ fail() { printf '%s\n' "$1" >&2; exit 1; }
 touch "$ROOT/inside-write" || fail INSIDE_WRITE_ALLOWED
 [ -f "$ROOT/inside-write" ] || fail INSIDE_WRITE_ALLOWED
 printf 'INSIDE_WRITE_ALLOWED\n' >> "$ROOT/assertions"
-if : >"$OUTSIDE"; then rm -f -- "$OUTSIDE"; fail OUTSIDE_WRITE_DENIED; fi
+if : 2>/dev/null >"$OUTSIDE"; then rm -f -- "$OUTSIDE"; fail OUTSIDE_WRITE_DENIED; fi
 printf 'OUTSIDE_WRITE_DENIED\n' >> "$ROOT/assertions"
 if test -r /home/dsh || test -x /home/dsh; then fail HOME_HIDDEN; fi
 printf 'HOME_HIDDEN\n' >> "$ROOT/assertions"
@@ -71,10 +71,11 @@ child=$!
 start="$(awk '{print $22}' "/proc/$child/stat")"
 printf '%s %s\n' "$child" "$start" > "$ROOT/child.pin"
 printf READY > "$ROOT/status"
-while :; do sleep 1; done
+while [ ! -e "$ROOT/release" ]; do sleep 1; done
+exit 0
 SMOKE
 chmod 700 "$ROOT/smoke.sh"
-sudo -n systemd-run --wait --unit="$UNIT" \
+sudo -n systemd-run --quiet --wait --unit="$UNIT" \
   --property=User=dsh --property=Group=dsh --property=UMask=0077 \
   --property=Environment= --property=PassEnvironment= \
   --property=WorkingDirectory="$ROOT" --property=ProtectSystem=strict \
@@ -104,16 +105,8 @@ cgroup="$(sudo -n systemctl show "$UNIT" -p ControlGroup --value)"
 [ -n "$cgroup" ] || fail UNIT_PROPERTY_ControlGroup
 read -r child child_start <"$ROOT/child.pin"
 case "$child:$child_start" in *[!0-9:]*|:) fail CHILD_PIN;; esac
-sudo -n systemctl stop "$UNIT"
-set +e
+touch "$ROOT/release"
 wait "$runner"
-runner_rc=$?
-set -e
-unit_result="$(sudo -n systemctl show "$UNIT" -p Result --value)"
-exec_main_code="$(sudo -n systemctl show "$UNIT" -p ExecMainCode --value)"
-exec_main_status="$(sudo -n systemctl show "$UNIT" -p ExecMainStatus --value)"
-printf '%s %s %s %s\n' "$runner_rc" "$unit_result" "$exec_main_code" "$exec_main_status" >"$ROOT/stop-result"
-[ "$runner_rc" = 0 ] && [ "$unit_result" = success ] || fail UNIT_STOP_RESULT
 if [ -r "/proc/$child/stat" ] && [ "$(awk '{print $22}' "/proc/$child/stat")" = "$child_start" ]; then fail DESCENDANT_REAPED; fi
 if [ -e "/sys/fs/cgroup$cgroup/cgroup.procs" ]; then
   [ -r "/sys/fs/cgroup$cgroup/cgroup.procs" ] || fail CGROUP_NOT_READABLE
