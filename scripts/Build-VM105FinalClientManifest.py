@@ -73,18 +73,24 @@ def regular(path, root):
 
 def package_links(fs_root):
     for item in sorted(fs_root.iterdir()):
-        if item.name.startswith(".") or not item.is_dir():
+        if item.name.startswith("."):
             continue
         if item.name.startswith("@"):
+            if not stat.S_ISDIR(resolve_link(item, fs_root).stat().st_mode):
+                raise ManifestBlocked("PACKAGE_ROOT_UNRESOLVED")
             for scoped in sorted(item.iterdir()):
-                if scoped.is_dir() or scoped.is_symlink():
-                    yield scoped
+                if not stat.S_ISDIR(resolve_link(scoped, fs_root).stat().st_mode):
+                    raise ManifestBlocked("PACKAGE_ROOT_UNRESOLVED")
+                yield scoped
         else:
+            if not stat.S_ISDIR(resolve_link(item, fs_root).stat().st_mode):
+                raise ManifestBlocked("PACKAGE_ROOT_UNRESOLVED")
             yield item
 
 
 def dependency_link(package_root, name):
-    return package_root.parent.parent / Path(*name.split("/"))
+    virtual_node_modules = package_root.parent.parent if package_root.parent.name.startswith("@") else package_root.parent
+    return virtual_node_modules / Path(*name.split("/"))
 
 
 def runtime_dependencies(node_path):
@@ -127,19 +133,15 @@ def pin_row(fs_root, logical_path, expected):
 
 
 def selected_bundles(package):
+    profile = package.get("dsh", {}).get("profile", {})
+    bundles = profile.get("configBundles", [])
+    if not isinstance(bundles, list) or not all(isinstance(value, str) for value in bundles):
+        raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
     found = set()
-    def visit(value):
-        if isinstance(value, dict):
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-        elif isinstance(value, str) and value.endswith(("cordis.yml", "cordis.patch.yml")):
-            if value.startswith("/") or ".." in Path(value).parts:
-                raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
-            found.add(value[2:] if value.startswith("./") else value)
-    visit(package)
+    for value in bundles:
+        if not value.endswith(("cordis.yml", "cordis.patch.yml")) or value.startswith("/") or ".." in Path(value).parts:
+            raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
+        found.add(value[2:] if value.startswith("./") else value)
     return found
 
 
@@ -153,6 +155,12 @@ def module_rows(canonical_root, logical_root, fs_root):
                 raise ManifestBlocked("ARTIFACT_UNRESOLVED") from error
             if stat.S_ISDIR(mode):
                 visit(path)
+            elif stat.S_ISLNK(mode):
+                resolved = resolve_link(path, fs_root)
+                if stat.S_ISDIR(resolved.stat().st_mode):
+                    raise ManifestBlocked("ARTIFACT_SYMLINK_DIRECTORY")
+                if path.suffix in MODULE_SUFFIXES:
+                    regular(path, fs_root)
             elif path.suffix in MODULE_SUFFIXES:
                 canonical = regular(path, fs_root)
                 logical = logical_root / path.relative_to(canonical_root)

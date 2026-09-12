@@ -50,11 +50,11 @@ class FinalClientManifestTests(unittest.TestCase):
         beta = packages / "beta" / "node_modules" / "@fixture" / "beta"
         self.write(alpha / "package.json", json.dumps({
             "name": "@fixture/alpha", "version": "1.0.0",
-            "dependencies": {"@fixture/beta": "1.0.0"}, "configBundle": "config/agent.cordis.yml",
+            "dependencies": {"@fixture/beta": "1.0.0"}, "dsh": {"profile": {"configBundles": ["config/agent.cordis.yml"]}},
         }))
         self.write(beta / "package.json", json.dumps({
             "name": "@fixture/beta", "version": "1.0.0",
-            "peerDependencies": {"@fixture/alpha": "1.0.0"}, "configBundle": "config/cordis.patch.yml",
+            "peerDependencies": {"@fixture/alpha": "1.0.0"}, "dsh": {"profile": {"configBundles": ["config/cordis.patch.yml"]}},
         }))
         self.write(alpha / "lib" / "cli.js", "console.log('cli')\n")
         self.write(alpha / "lib" / "client.mjs", "export default 1\n")
@@ -124,6 +124,17 @@ class FinalClientManifestTests(unittest.TestCase):
         ldd, _, _ = self.ldd(root, missing=True)
         with patch.object(module, "LDD", ldd), self.assertRaises(module.ManifestBlocked):
             module.runtime_dependencies(node)
+
+    def test_dependency_lookup_uses_literal_scoped_and_unscoped_virtual_store_layouts(self):
+        """Fails if either pnpm package shape resolves dependencies from the wrong sibling directory."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        self.assertEqual(Path("/virtual/node_modules/bar"), module.dependency_link(Path("/virtual/node_modules/foo"), "bar"))
+        self.assertEqual(Path("/virtual/node_modules/@scope/bar"), module.dependency_link(Path("/virtual/node_modules/@scope/foo"), "@scope/bar"))
+
+    def test_unrelated_manifest_url_is_not_a_cordis_bundle(self):
+        """Fails if arbitrary metadata strings are mistaken for selected configuration."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        self.assertEqual(set(), module.selected_bundles({"homepage": "https://example.invalid/cordis.yml"}))
 
 
 if __name__ == "__main__":
