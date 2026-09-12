@@ -26,19 +26,35 @@ class FinalClientManifestTests(unittest.TestCase):
         else:
             os.symlink(target, link, target_is_directory=True)
 
+    def ldd(self, root, missing=False):
+        library = root / "libs" / "libfixture.so"
+        alias = root / "libs" / "libfixture-alias.so"
+        self.write(library, "library\n")
+        try:
+            os.symlink(library, alias)
+        except OSError:
+            os.link(library, alias)
+        script = root / "fake-ldd.py"
+        body = "import sys\n"
+        body += "print('libfixture.so => " + str(alias).replace("\\", "/") + " (0x1)')\n"
+        if missing:
+            body += "print('libmissing.so => not found')\n"
+        self.write(script, body)
+        return (sys.executable, str(script)), library, alias
+
     def fixture(self):
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
         packages = root / "node_modules" / ".pnpm"
-        alpha = packages / "alpha"
-        beta = packages / "beta"
+        alpha = packages / "alpha" / "node_modules" / "@fixture" / "alpha"
+        beta = packages / "beta" / "node_modules" / "@fixture" / "beta"
         self.write(alpha / "package.json", json.dumps({
             "name": "@fixture/alpha", "version": "1.0.0",
-            "dependencies": {"@fixture/beta": "1.0.0"},
+            "dependencies": {"@fixture/beta": "1.0.0"}, "configBundle": "config/agent.cordis.yml",
         }))
         self.write(beta / "package.json", json.dumps({
             "name": "@fixture/beta", "version": "1.0.0",
-            "peerDependencies": {"@fixture/alpha": "1.0.0"},
+            "peerDependencies": {"@fixture/alpha": "1.0.0"}, "configBundle": "config/cordis.patch.yml",
         }))
         self.write(alpha / "lib" / "cli.js", "console.log('cli')\n")
         self.write(alpha / "lib" / "client.mjs", "export default 1\n")
@@ -50,7 +66,7 @@ class FinalClientManifestTests(unittest.TestCase):
         logical = root / "node_modules" / "@fixture"
         logical.mkdir(parents=True)
         self.link_dir(alpha, logical / "alpha")
-        self.link_dir(beta, alpha / "node_modules" / "@fixture" / "beta")
+        self.link_dir(beta, alpha.parent / "beta")
         return temp, root, root / "node"
 
     def test_build_manifest_freezes_sorted_closure_and_runtime(self):
@@ -64,7 +80,8 @@ class FinalClientManifestTests(unittest.TestCase):
                             "@fixture/alpha/lib/client.mjs": hashlib.sha256((logical / "lib" / "client.mjs").read_bytes()).hexdigest()},
             "config_bundles": {"@fixture/alpha/config/agent.cordis.yml": hashlib.sha256((logical / "config" / "agent.cordis.yml").read_bytes()).hexdigest()},
         }
-        with patch.object(module, "ACCEPTED_PINS", pins), patch.object(module, "runtime_dependencies", return_value=[]):
+        ldd, library, alias = self.ldd(root)
+        with patch.object(module, "ACCEPTED_PINS", pins), patch.object(module, "LDD", ldd):
             manifest = module.build_manifest(root / "node_modules", node)
 
         self.assertEqual("PASS", manifest["status"])
@@ -80,6 +97,9 @@ class FinalClientManifestTests(unittest.TestCase):
                          [row["stagedRelativePath"] for row in manifest["modules"]])
         self.assertIn("node", manifest["runtime"])
         self.assertEqual(hashlib.sha256(node.read_bytes()).hexdigest(), manifest["runtime"]["node"]["sha256"])
+        self.assertIn("addon.node", [Path(row["sourceLogicalPath"]).name for row in manifest["modules"]])
+        self.assertEqual(str(alias), manifest["runtime"]["dependencies"][0]["logicalPath"])
+        self.assertEqual(str(library.resolve()), manifest["runtime"]["dependencies"][0]["canonicalPath"])
         self.assertEqual(module.canonical_bytes(manifest), module.canonical_bytes(json.loads(module.canonical_bytes(manifest))))
 
     def test_build_manifest_blocks_dependency_link_escape(self):
@@ -95,6 +115,15 @@ class FinalClientManifestTests(unittest.TestCase):
         self.link_dir(escaped, link)
         with self.assertRaises(module.ManifestBlocked):
             module.build_manifest(root / "node_modules", node)
+
+    def test_runtime_dependencies_blocks_missing_library(self):
+        """Fails if one unresolved ldd library is ignored beside a resolved one."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        temp, root, node = self.fixture()
+        self.addCleanup(temp.cleanup)
+        ldd, _, _ = self.ldd(root, missing=True)
+        with patch.object(module, "LDD", ldd), self.assertRaises(module.ManifestBlocked):
+            module.runtime_dependencies(node)
 
 
 if __name__ == "__main__":

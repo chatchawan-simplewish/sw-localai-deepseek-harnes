@@ -15,6 +15,7 @@ HOST = "dsh@192.168.1.139"
 IDENTITY = "C:/Users/chatc/.ssh/codex-prox01-vms-ed25519"
 INSTALL_ROOT = "/opt/deepseek-harness/node_modules"
 NODE = "/opt/node-v24.19.0-linux-x64/bin/node"
+LDD = ("ldd",)
 MODULE_SUFFIXES = {".js", ".cjs", ".mjs", ".json", ".node", ".wasm"}
 ACCEPTED_PINS = {
     "entrypoints": {
@@ -33,7 +34,7 @@ class ManifestBlocked(RuntimeError):
     pass
 
 
-def canonical_bytes(manifest):
+def canonical_bytes(manifest: dict) -> bytes:
     return json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
@@ -63,6 +64,13 @@ def resolve_link(path, root):
     return resolved
 
 
+def regular(path, root):
+    resolved = resolve_link(path, root)
+    if not stat.S_ISREG(resolved.stat().st_mode):
+        raise ManifestBlocked("ARTIFACT_NOT_REGULAR")
+    return resolved
+
+
 def package_links(fs_root):
     for item in sorted(fs_root.iterdir()):
         if item.name.startswith(".") or not item.is_dir():
@@ -76,37 +84,86 @@ def package_links(fs_root):
 
 
 def dependency_link(package_root, name):
-    return package_root / "node_modules" / Path(*name.split("/"))
+    return package_root.parent.parent / Path(*name.split("/"))
 
 
 def runtime_dependencies(node_path):
     try:
-        result = subprocess.run(["ldd", str(node_path)], capture_output=True, text=True, timeout=10, check=False)
+        result = subprocess.run([*LDD, str(node_path)], capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
         raise ManifestBlocked("RUNTIME_DEPENDENCY_UNRESOLVED")
     if result.returncode:
         raise ManifestBlocked("RUNTIME_DEPENDENCY_UNRESOLVED")
-    paths = sorted(set(re.findall(r"(?<!\S)(/[^\s(]+)", result.stdout)))
+    if re.search(r"=>\s+not found(?:\s|$)", result.stdout):
+        raise ManifestBlocked("RUNTIME_DEPENDENCY_UNRESOLVED")
+    paths = set()
+    for line in result.stdout.splitlines():
+        match = re.search(r"=>\s+((?:/|[A-Za-z]:[\\/])[^\s(]+)", line)
+        match = match or re.match(r"\s*((?:/|[A-Za-z]:[\\/])[^\s(]+)\s+\(", line)
+        if match:
+            paths.add(match.group(1))
+    paths = sorted(paths)
     if not paths:
         raise ManifestBlocked("RUNTIME_DEPENDENCY_UNRESOLVED")
     values = []
     for value in paths:
         path = Path(value)
-        if not path.is_file() or path.is_symlink():
+        try:
+            canonical = path.resolve(strict=True)
+        except OSError as error:
+            raise ManifestBlocked("RUNTIME_DEPENDENCY_UNRESOLVED") from error
+        if not stat.S_ISREG(canonical.stat().st_mode):
             raise ManifestBlocked("RUNTIME_DEPENDENCY_UNRESOLVED")
-        values.append({"canonicalPath": str(path.resolve()), "logicalPath": value, "sha256": digest(path)})
+        values.append({"canonicalPath": str(canonical), "logicalPath": value, "sha256": digest(canonical)})
     return values
 
 
 def pin_row(fs_root, logical_path, expected):
     path = fs_root / Path(*logical_path.split("/"))
-    canonical = resolve_link(path, fs_root)
-    if not stat.S_ISREG(canonical.stat().st_mode) or digest(canonical) != expected:
+    canonical = regular(path, fs_root)
+    if digest(canonical) != expected:
         raise ManifestBlocked("ACCEPTED_PIN_MISMATCH")
     return {"logicalPath": logical_path, "canonicalPath": str(canonical), "sha256": expected}
 
 
-def build_manifest(fs_root, node_path):
+def selected_bundles(package):
+    found = set()
+    def visit(value):
+        if isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, str) and value.endswith(("cordis.yml", "cordis.patch.yml")):
+            if value.startswith("/") or ".." in Path(value).parts:
+                raise ManifestBlocked("CONFIG_BUNDLE_UNRESOLVED")
+            found.add(value[2:] if value.startswith("./") else value)
+    visit(package)
+    return found
+
+
+def module_rows(canonical_root, logical_root, fs_root):
+    rows = []
+    def visit(directory):
+        for path in sorted(directory.iterdir()):
+            try:
+                mode = path.lstat().st_mode
+            except OSError as error:
+                raise ManifestBlocked("ARTIFACT_UNRESOLVED") from error
+            if stat.S_ISDIR(mode):
+                visit(path)
+            elif path.suffix in MODULE_SUFFIXES:
+                canonical = regular(path, fs_root)
+                logical = logical_root / path.relative_to(canonical_root)
+                rows.append({"sourceLogicalPath": str(logical), "sourceCanonicalPath": str(canonical),
+                             "stagedRelativePath": "modules/" + str(logical.relative_to(fs_root)).replace("\\", "/"),
+                             "sha256": digest(canonical)})
+    visit(canonical_root)
+    return rows
+
+
+def build_manifest(fs_root: Path, node_path: Path) -> dict:
     fs_root = Path(fs_root).resolve(strict=True)
     node_path = Path(node_path)
     if not fs_root.is_dir() or not node_path.is_file() or node_path.is_symlink():
@@ -117,16 +174,16 @@ def build_manifest(fs_root, node_path):
     while queue:
         logical, canonical = queue.pop(0)
         manifest_path = canonical / "package.json"
-        if canonical in seen or not manifest_path.is_file():
+        if canonical in seen:
             continue
         seen.add(canonical)
         try:
-            package = json.loads(manifest_path.read_text(encoding="utf-8"))
+            package = json.loads(regular(manifest_path, fs_root).read_text(encoding="utf-8"))
             name = package["name"]
         except (OSError, ValueError, KeyError) as error:
             raise ManifestBlocked("PACKAGE_MANIFEST_UNRESOLVED") from error
         packages.append({"name": name, "logicalPath": str(logical), "canonicalPath": str(canonical),
-                         "version": package.get("version")})
+                         "version": package.get("version"), "_selectedBundles": sorted(selected_bundles(package))})
         declared = {}
         for key in ("dependencies", "optionalDependencies", "peerDependencies"):
             declared.update(package.get(key, {}))
@@ -142,24 +199,14 @@ def build_manifest(fs_root, node_path):
     if not packages:
         raise ManifestBlocked("PACKAGE_ROOT_UNRESOLVED")
     packages.sort(key=lambda row: row["name"])
-    modules, discovered_bundles = [], set()
+    modules, selected = [], set()
     by_canonical = [(Path(row["canonicalPath"]), Path(row["logicalPath"])) for row in packages]
-    for canonical_root, logical_root in by_canonical:
-        for path in sorted(canonical_root.rglob("*")):
-            if not path.is_file() or path.is_symlink():
-                continue
-            relative = path.relative_to(canonical_root)
-            if path.suffix not in MODULE_SUFFIXES and path.name not in {"cordis.yml", "cordis.patch.yml"}:
-                continue
-            logical = logical_root / relative
-            staged = "modules/" + str(logical.relative_to(fs_root)).replace("\\", "/")
-            modules.append({"sourceLogicalPath": str(logical), "sourceCanonicalPath": str(path),
-                            "stagedRelativePath": staged, "sha256": digest(path)})
-            if path.name in {"cordis.yml", "cordis.patch.yml"}:
-                discovered_bundles.add(str(logical.relative_to(fs_root)).replace("\\", "/"))
+    for row, (canonical_root, logical_root) in zip(packages, by_canonical):
+        modules.extend(module_rows(canonical_root, logical_root, fs_root))
+        selected.update(str((logical_root / bundle).relative_to(fs_root)).replace("\\", "/") for bundle in row.pop("_selectedBundles"))
     modules.sort(key=lambda row: row["stagedRelativePath"])
     entrypoints = [pin_row(fs_root, path, value) for path, value in ACCEPTED_PINS["entrypoints"].items()]
-    bundle_paths = set(ACCEPTED_PINS["config_bundles"]) | discovered_bundles
+    bundle_paths = set(ACCEPTED_PINS["config_bundles"]) | selected
     config_bundles = []
     for path in sorted(bundle_paths):
         expected = ACCEPTED_PINS["config_bundles"].get(path)
