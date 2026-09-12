@@ -1,0 +1,18 @@
+{
+  "capturedAtAsiaBangkok": "2026-09-13T03:58:00+07:00",
+  "service": "deepseek-harness.service",
+  "pidPresent": true,
+  "environmentNamesPresent": ["DSH_HOME", "HOME"],
+  "dshHomeKnownPathLabel": "pilot",
+  "homeKnownPathLabel": "account-home",
+  "knownPaths": {
+    "pilot": "/home/dsh/.dsh",
+    "account-home": "/home/dsh"
+  },
+  "selectors": [
+    {"path": "/home/dsh/.dsh/settings.json", "keyPath": "/settings.json#/agentDefaultModel", "present": null, "valueEmitted": false},
+    {"path": "/home/dsh/.dsh/profiles/web/cordis.yml", "keyPath": "/profiles/web/cordis.yml#dshHomePath", "present": false, "valueEmitted": false},
+    {"path": "/home/dsh/.dsh/profiles/web/cordis.patch.yml", "keyPath": "/profiles/web/cordis.patch.yml#dshHomePath", "present": false, "valueEmitted": false}
+  ],
+  "scope": "Read-only allowlisted name and known-path classification. No environment value, configuration content, argv, credential, provider, model, or response was emitted."
+}
