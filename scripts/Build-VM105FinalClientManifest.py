@@ -39,11 +39,30 @@ def canonical_bytes(manifest: dict) -> bytes:
 
 
 def digest(path):
-    value = hashlib.sha256()
-    with path.open("rb") as handle:
-        for part in iter(lambda: handle.read(65536), b""):
-            value.update(part)
-    return value.hexdigest()
+    def identity(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns)
+
+    try:
+        canonical = path.resolve(strict=True)
+        before = canonical.stat()
+        if not stat.S_ISREG(before.st_mode):
+            raise ManifestBlocked("ARTIFACT_NOT_REGULAR")
+        value = hashlib.sha256()
+        with os.fdopen(os.open(canonical, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)), "rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if identity(before) != identity(opened):
+                raise ManifestBlocked("FILE_HASH_DRIFT")
+            for part in iter(lambda: handle.read(65536), b""):
+                value.update(part)
+            after_fd, after_path = os.fstat(handle.fileno()), path.stat()
+            # Compare ctime within each API; Windows stat/fstat can report different values.
+            if (identity(before) != identity(after_fd) or identity(before) != identity(after_path)
+                    or opened.st_ctime_ns != after_fd.st_ctime_ns or before.st_ctime_ns != after_path.st_ctime_ns
+                    or path.resolve(strict=True) != canonical):
+                raise ManifestBlocked("FILE_HASH_DRIFT")
+        return value.hexdigest()
+    except OSError as error:
+        raise ManifestBlocked("FILE_HASH_UNRESOLVED") from error
 
 
 def within(path, root):
@@ -190,6 +209,13 @@ def module_rows(canonical_root, logical_root, fs_root):
 
 
 def build_manifest(fs_root: Path, node_path: Path) -> dict:
+    first = capture_inventory(fs_root, node_path)
+    if capture_inventory(fs_root, node_path) != first:
+        raise ManifestBlocked("INVENTORY_DRIFT")
+    return first
+
+
+def capture_inventory(fs_root: Path, node_path: Path) -> dict:
     fs_root = Path(fs_root).resolve(strict=True)
     node_path = Path(node_path)
     if not fs_root.is_dir() or not node_path.is_file() or node_path.is_symlink():

@@ -2,13 +2,13 @@
 
 ## Result
 
-- RED recorded: `python -m unittest -v scripts.test_vm105_final_client_manifest` failed with the expected `ModuleNotFoundError` before production code existed.
-- GREEN: the focused suite passes two real fixture checks: deterministic full closure/pin capture and fail-closed rejection of a dependency link that escapes the install root.
-- Read-only capture: `python scripts/Build-VM105FinalClientManifest.py --output docs/evidence/vm105-final-client-runtime-manifest-20260913.json` returned exit 0 through strict SSH. The sanitized receipt is `BLOCKED` with `DEPENDENCY_UNRESOLVED`, contains no `modules` array, and has SHA-256 `c2333fff94069b3a910f0e29046a45b678ec5ae3a2bbca25231de33a09fa093c`.
+- Final post-fix strict read-only SSH capture: **PASS**, 447 packages, 10,026 modules, two accepted entrypoints, three config bundles, and seven Node runtime libraries. The completed 2026-09-13 capture uses held-file pre/post identity checks and a second complete inventory comparison before PASS.
+- Independently recomputed canonical manifest SHA-256: `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`. Receipt file SHA-256: `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd`. Node SHA-256: `bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12`.
+- Final GREEN: `python -B -m unittest -v scripts.test_vm105_final_client_transport scripts.test_vm105_final_client_manifest` passed 18 tests in 6.019s (12 manifest, six transport). The final regressions recorded strict RED before implementation, including during-hash drift and between-inventory rewrite/add/remove rejection.
 
 ## Scope and limits
 
-The inspector does not invoke JavaScript, a client, a model, or a provider. It only transfers a finite Python inspector through strict batch SSH stdin. The blocking receipt is intentionally retained as the current evidence outcome; it does not establish runtime closure or release readiness.
+The inspector does not invoke JavaScript, a client, a model, or a provider. It only transfers a finite Python inspector through strict batch SSH stdin. The current PASS receipt establishes the captured installed closure; production staging/revalidation, namespace/socket handoff, endpoint/key binding, and live final-client acceptance remain external. Earlier BLOCKED results below are historical and have been superseded by the final PASS capture.
 
 ## Fix round 1
 
@@ -111,7 +111,7 @@ Strict read-only capture stdout/stderr: ''
 Receipt: {"reasons": ["UNRESOLVED_LINK"], "status": "BLOCKED", "receiptSha256": "24bdb0ef5e99d84f05da0b743eb1cc631e9e087bf3d2ef47010ee65684be09f0", "exit": 0}
 
 Finite strict read-only diagnostic (in-memory payload only) isolated the remaining unresolved install-relative artifact: {"reasons": ["UNRESOLVED_LINK:@deepseek-ai/dsh-client-ui-settings-models/lib/client.js"], "status": "BLOCKED"}
-`nFix round 4 commit: fae5143acf9003bf444864a9b96fdc3f0d77c4f3. Remaining path is an accepted entrypoint, so it was not skipped or weakened.
+Fix round 4 commit: fae5143acf9003bf444864a9b96fdc3f0d77c4f3. Remaining path is an accepted entrypoint, so it was not skipped or weakened.
 
 
 ## Fix round 5 (final permitted round)
@@ -146,3 +146,25 @@ OK
 Independent canonical hash verification and staged-path uniqueness checks passed. Canonical manifest SHA-256: 4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b.
 
 Remaining limit: this is installed runtime closure evidence, not client launch, provider generation, relay acceptance, or deployment authorization. No blocker remains for Task 1 capture. The Windows fixture uses real directory junctions when symlink privilege is unavailable.
+
+## Final review fix wave — 2026-09-13
+
+Read the implementation plan, both task reports, full TDD skill, and writing-good-tests reference before edits. Final review findings supplied by the coordinator covered method poisoning, early ACK ordering, manifest drift, and stale completion prose. Sole ownership covers only the coordinator-assigned script/test/evidence/packet/report paths; scripts/__pycache__/ remains untouched.
+
+Strict RED command:
+`python -B -m unittest -v scripts.test_vm105_final_client_transport.ReviewRegressionTest.test_unsupported_method_between_chat_and_ack_releases_no_output scripts.test_vm105_final_client_transport.ReviewRegressionTest.test_early_ack_cannot_overtake_chat_upstream scripts.test_vm105_final_client_manifest.FinalClientManifestTests.test_digest_blocks_identity_drift_during_hash scripts.test_vm105_final_client_manifest.FinalClientManifestTests.test_build_manifest_blocks_file_changes_between_inventory_passes`
+
+RED: four tests in 1.246s, 14 expected assertion failures. GET/PUT/DELETE/PATCH/HEAD/OPTIONS/CONNECT left chat eligible and released `data: first`; TRACE/CUSTOM used 501 without poisoning relay state; an early ACK reached upstream while chat was held before send; during-hash mutation and between-inventory rewrite/add/remove did not raise ManifestBlocked.
+
+Fixes: all unsupported methods resolve to the same denial path as invalid POST, setting failure and waking both events. ACK waits for successful upstream chat response headers, proving chat arrival, then rechecks failure before its upstream request. The held-chat test classifies ACK before releasing chat, so it does not hide the original race. Hashing compares pre/post file path and held-descriptor identity, and a full second inventory must equal the first before build_manifest returns PASS.
+
+The first GREEN attempt exposed an overbroad send lock that prevented the regression from exercising concurrent ACK; the lock now protects state and the event enforces forwarding order. It also exposed unequal Windows stat/fstat ctime readings on unchanged files (observed difference 1789258462860758200 versus 1789258462862763300). The final check compares ctime through each API against its own pre-read value and still compares device/inode/mode/size/mtime across APIs. No drift check was disabled.
+
+Final GREEN command: `python -B -m unittest -v scripts.test_vm105_final_client_transport scripts.test_vm105_final_client_manifest`. Result: 18 tests in 6.019s, OK (six transport, 12 manifest). Fixture CLI: `python -B scripts/Invoke-VM105FinalClient.py --fixture-regression`, exit 0:
+```json
+{"ackBeforeOutput":true,"catalog":0,"cleanupComplete":true,"directProvider":0,"discovery":0,"progressCommitted":true,"redirects":0,"requestCount":2,"resumeRequired":false,"retries":0,"status":"PASS","thirdRequestDenied":true,"tools":0,"tupleEquality":true}
+```
+
+Post-change live read-only capture: `python -B scripts/Build-VM105FinalClientManifest.py --output docs/evidence/vm105-final-client-runtime-manifest-20260913.json`, exit 0. Independently verified at 20260913 071816 Asia/Bangkok: PASS; 447 packages; 10,026 modules; two accepted entrypoints; three config bundles; seven runtime libraries. Canonical manifest SHA-256: `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`. Receipt SHA-256: `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd`. The recaptured receipt is byte-identical to the existing artifact, so no artifact diff is expected.
+
+Task 1 top-level result and the final packet now describe current PASS evidence; historical BLOCKED outcomes remain explicitly historical. The literal backtick-n formatting defect in Task 1 is corrected. Native gateway remains `http://192.168.1.68:20128/v1`; public ai.mysw.me events remain excluded and SSH forwarding remains candidate-only. Production namespace/socket integration, endpoint/key binding, source staging/revalidation, and live acceptance remain external. No VM mutation or JavaScript/client/provider/model execution occurred.

@@ -22,6 +22,7 @@ class TwoRequestRelay:
             raise ValueError('fixture binding required')
         self.target, self.timeout = target, timeout
         self.lock, self.ack = threading.Lock(), threading.Event()
+        self.chat_forwarded = threading.Event()
         self.state = {'count': 0, 'tuple': None, 'failed': False, 'committed': False, 'output': False}
         self.connections = []
         relay = self
@@ -29,6 +30,20 @@ class TwoRequestRelay:
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def deny(self, send=True):
+                with relay.lock:
+                    relay.state['failed'] = True
+                relay.ack.set()
+                relay.chat_forwarded.set()
+                if send:
+                    self.send_response(403)
+                    self.end_headers()
+
+            def __getattr__(self, name):
+                if name.startswith('do_'):
+                    return self.deny
+                raise AttributeError(name)
 
             def do_POST(self):
                 sent = False
@@ -51,6 +66,11 @@ class TwoRequestRelay:
                         relay.state['tuple'] = identity
                         upstream = http.client.HTTPConnection('127.0.0.1', relay.target.port, timeout=relay.timeout)
                         relay.connections.append(upstream)
+                    if self.path == ACK and not relay.chat_forwarded.wait(relay.timeout):
+                        raise ValueError()
+                    with relay.lock:
+                        if relay.state['failed']:
+                            raise ValueError()
                     upstream.request('POST', self.path, body, {'Content-Type': 'application/json', 'Authorization': 'Bearer fixture-key-not-secret'})
                     response = upstream.getresponse()
                     if self.path == ACK:
@@ -71,6 +91,8 @@ class TwoRequestRelay:
                     else:
                         if response.status != 200:
                             raise ValueError()
+                        # Response headers prove the chat reached the gateway before ACK forwarding.
+                        relay.chat_forwarded.set()
                         first = response.read(1)
                         if not first or not relay.ack.wait(relay.timeout):
                             raise ValueError()
@@ -88,21 +110,10 @@ class TwoRequestRelay:
                             self.wfile.write(chunk)
                             self.wfile.flush()
                 except (ValueError, TypeError, AttributeError, OSError, http.client.HTTPException):
-                    with relay.lock:
-                        relay.state['failed'] = True
-                    relay.ack.set()
-                    if not sent:
-                        self.send_response(403)
-                        self.end_headers()
+                    self.deny(send=not sent)
                 finally:
                     if 'upstream' in locals():
                         upstream.close()
-
-            def do_GET(self):
-                self.send_response(403)
-                self.end_headers()
-
-            do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = do_CONNECT = do_GET
 
         self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         self.server.daemon_threads = False
@@ -117,6 +128,7 @@ class TwoRequestRelay:
         with self.lock:
             self.state['failed'] = True
         self.ack.set()
+        self.chat_forwarded.set()
         self.server.shutdown()
         self.thread.join()
         # Non-daemon handlers are joined by server_close before owned connections close.

@@ -21,3 +21,11 @@ Production preflight requires the exact documented endpoint, a nonblank opaque e
 ## Independent review fix round 1
 
 The downstream ACK response is now written and flushed before progress is committed or the chat-release event is set. A deterministic held/failed downstream write regression reproduces the original ordering break and proves failure releases no chat bytes. Non-daemon relay handlers are tracked and joined by server_close before owned connections close, preventing connection-list mutation during teardown. Success and failed-write tests assert closed listener, empty handler tracking, joined workers, and closed owned/client sockets. Four focused tests pass, including the actual Task 1 manifest positive result and incomplete, changed, wrong-hash inputs failing closed. These are local fixture/preflight facts only. Successful flush proves local socket delivery, not remote application consumption.
+
+## Final review fix wave
+
+All unsupported HTTP methods now use one denial path that sets failure and wakes ACK/chat-forwarding waiters. Nine method cases, including TRACE and an unknown verb, prove a rejection between chat and ACK prevents all chat payload bytes. ACK forwarding waits for successful upstream chat response headers and rechecks failure; a regression starts and classifies ACK while the chat upstream send is held, then proves actual gateway arrival order chat followed by events. Existing held/failed downstream ACK-write coverage and cleanup checks still pass.
+
+Strict RED preceded the fix: the new transport regressions reproduced seven leaked-chat cases, two framework 501 bypasses, and the early-ACK ordering break. Final combined focused suites: 18 tests, OK (six transport, 12 manifest). Fixture CLI: PASS with exactly two upstream requests, ACK-before-output, tuple equality, committed progress, third-request denial, and cleanup; all other traffic counters remain zero. Manifest drift checks and a second full inventory are now in place; the fresh strict SSH capture is PASS with canonical SHA-256 `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`.
+
+These remain fixture, preflight, and read-only capture facts. Production namespace/socket handoff, endpoint/key binding, runtime staging verification, and live final-client acceptance are external.

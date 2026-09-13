@@ -15,6 +15,52 @@ sys.path.insert(0, str(SCRIPTS))
 
 
 class FinalClientManifestTests(unittest.TestCase):
+    def test_digest_blocks_identity_drift_during_hash(self):
+        """Fails if changed bytes on the held file descriptor retain a successful digest."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "module.js"
+            path.write_bytes(b"old")
+            original_sha256 = hashlib.sha256
+
+            class MutatingHash:
+                def __init__(self): self.value = original_sha256()
+                def update(self, data):
+                    self.value.update(data)
+                    path.write_bytes(b"changed length")
+                def hexdigest(self): return self.value.hexdigest()
+
+            with patch.object(module.hashlib, "sha256", MutatingHash), self.assertRaises(module.ManifestBlocked):
+                module.digest(path)
+
+    def test_build_manifest_blocks_file_changes_between_inventory_passes(self):
+        """Fails if a previously captured module changes before final inventory verification."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        for change in ('rewrite', 'add', 'remove'):
+            with self.subTest(change=change):
+                temp, root, node = self.fixture()
+                try:
+                    ldd, _, _ = self.ldd(root)
+                    target = root / "node_modules/.pnpm/beta/node_modules/@fixture/beta/lib/worker.cjs"
+                    original_runtime = module.runtime_dependencies
+                    changed = False
+
+                    def mutate_after_first_inventory(node_path):
+                        nonlocal changed
+                        result = original_runtime(node_path)
+                        if not changed:
+                            changed = True
+                            if change == 'rewrite': target.write_bytes(b'new module bytes')
+                            elif change == 'add': target.with_name('new.js').write_bytes(b'new module')
+                            else: target.unlink()
+                        return result
+
+                    with patch.object(module, "LDD", ldd), patch.object(module, "ACCEPTED_PINS", {"entrypoints": {}, "config_bundles": {}}), patch.object(module, "runtime_dependencies", mutate_after_first_inventory):
+                        with self.assertRaises(module.ManifestBlocked):
+                            module.build_manifest(root / "node_modules", node)
+                finally:
+                    temp.cleanup()
+
     def write(self, path, value):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(value, encoding="utf-8")
