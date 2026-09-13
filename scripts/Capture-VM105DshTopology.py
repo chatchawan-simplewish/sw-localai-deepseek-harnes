@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Read-only, fail-closed capture of the accepted VM105 DSH pnpm topology."""
 import argparse
+import base64
 import hashlib
 import json
 import os
 from pathlib import Path
 import posixpath
 import stat
+import subprocess
 import sys
+import tempfile
+import threading
+import time
 
 
 INSTALL_ROOT_TEXT = "/opt/deepseek-harness"
@@ -16,10 +21,15 @@ START_PACKAGE = Path("node_modules/@deepseek-ai/dsh")
 HEADLESS_NAME = "@deepseek-ai/dsh-headless"
 HEADLESS_PATCH = "cordis.patch.yml"
 ACCEPTED_MANIFEST_SHA256 = "4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b"
+ACCEPTED_MANIFEST_FILE_SHA256 = "54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd"
 ACCEPTED_BUILDER_SHA256 = "371481fe62d6611913f82f65b6e26b12512fda8a853a2f4591b6314f580c885f"
 ACCEPTED_PACKAGE_COUNT = 447
 ACCEPTED_MODULE_COUNT = 10_026
 ACCEPTED_NODE = Path("/opt/node-v24.19.0-linux-x64/bin/node")
+CAPTURE_TIMEOUT_SECONDS = 600
+MAX_CAPTURE_STDOUT_BYTES = 8 * 1024 * 1024
+MAX_CAPTURE_STDERR_BYTES = 64 * 1024
+REMOTE_TARGET = "dsh@192.168.1.139"
 
 
 class CaptureBlocked(RuntimeError):
@@ -44,7 +54,8 @@ def _link_identity(info) -> tuple:
 def _identity_row(info) -> dict:
     return {"device": info.st_dev, "inode": info.st_ino, "mode": stat.S_IMODE(info.st_mode),
             "size": info.st_size, "mtimeNs": info.st_mtime_ns, "ctimeNs": info.st_ctime_ns,
-            "uid": info.st_uid, "gid": info.st_gid, "rootOwned": info.st_uid == 0}
+            "uid": info.st_uid, "gid": info.st_gid,
+            "rootOwned": info.st_uid == 0 and info.st_gid == 0}
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -72,7 +83,8 @@ def _require_secure_real_path(path: Path, root: Path, kind: str) -> os.stat_resu
             checks.append(current)
         for item in checks:
             info = item.lstat()
-            if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
+            if (stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                    or stat.S_IMODE(info.st_mode) & 0o022):
                 raise CaptureBlocked("INSECURE_PATH")
         final = checks[-1].lstat()
     except OSError as error:
@@ -347,7 +359,7 @@ def _valid_identity(value, reason, link=False):
     _exact_keys(value, keys, reason)
     if any(type(value[key]) is not int for key in keys - {"rootOwned"}) or type(value["rootOwned"]) is not bool:
         raise CaptureBlocked(reason)
-    if value["uid"] != 0 or value["rootOwned"] is not True or (link and value["gid"] != 0):
+    if value["uid"] != 0 or value["gid"] != 0 or value["rootOwned"] is not True:
         raise CaptureBlocked(reason)
     if not link and value["mode"] & 0o022:
         raise CaptureBlocked(reason)
@@ -657,11 +669,243 @@ def remote_entry(payload: dict) -> None:
     sys.stdout.write(canonical_bytes(capture_payload(payload)).decode("utf-8") + "\n")
 
 
+def _read_pinned_file(path: Path, expected_sha256: str, reason: str) -> bytes:
+    _hex_digest(expected_sha256, reason)
+    descriptor = None
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            raise CaptureBlocked(reason)
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
+        opened = os.fstat(descriptor)
+        chunks = []
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after_fd = os.fstat(descriptor)
+        after_path = path.lstat()
+    except CaptureBlocked:
+        raise
+    except OSError:
+        raise CaptureBlocked(reason) from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    value = b"".join(chunks)
+    if (_identity(before) != _identity(opened) or _identity(opened) != _identity(after_fd)
+            or _identity(before) != _identity(after_path)
+            or hashlib.sha256(value).hexdigest() != expected_sha256):
+        raise CaptureBlocked(reason)
+    return value
+
+
+def _transport_payload(source: bytes, expected_source_sha256: str,
+                       manifest: dict, builder: bytes) -> bytes:
+    if hashlib.sha256(source).hexdigest() != _hex_digest(
+            expected_source_sha256, "CAPTURE_SOURCE_HASH_MISMATCH"):
+        raise CaptureBlocked("CAPTURE_SOURCE_HASH_MISMATCH")
+    try:
+        value = {"source": source.decode("utf-8"),
+                 "captureSourceSha256": expected_source_sha256,
+                 "installRoot": str(INSTALL_ROOT),
+                 "acceptedManifest": manifest,
+                 "builderSource": builder.decode("utf-8")}
+    except UnicodeDecodeError:
+        raise CaptureBlocked("CAPTURE_INPUT_INVALID") from None
+    return canonical_bytes(value) + b"\n"
+
+
+def _remote_command() -> str:
+    bootstrap = (
+        'import hashlib,json,sys;p=json.load(sys.stdin);s=p.pop("source");'
+        'h=p.pop("captureSourceSha256");b=s.encode("utf-8");'
+        'hashlib.sha256(b).hexdigest()==h or (_ for _ in ()).throw(SystemExit(74));'
+        'n={"__name__":"vm105_topology_capture"};'
+        'exec(compile(s,"<vm105-topology-capture>","exec"),n);n["remote_entry"](p)'
+    )
+    encoded = base64.b64encode(bootstrap.encode("utf-8")).decode("ascii")
+    return ("/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/python3.12 -I -c "
+            f"'import base64;exec(base64.b64decode(\"{encoded}\"))'")
+
+
+def _run_bounded(command: list[str], payload: bytes, timeout_seconds: float,
+                 max_stdout: int, max_stderr: int) -> bytes:
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, bufsize=0)
+    except OSError:
+        raise CaptureBlocked("CAPTURE_TRANSPORT_FAILED") from None
+    output = {"stdout": bytearray(), "stderr": bytearray()}
+    overflow = []
+    write_failed = []
+
+    def drain(name, stream, limit):
+        try:
+            for chunk in iter(lambda: stream.read(65536), b""):
+                if len(output[name]) + len(chunk) > limit:
+                    overflow.append(f"CAPTURE_{name.upper()}_LIMIT_EXCEEDED")
+                    process.kill()
+                    return
+                output[name].extend(chunk)
+        except OSError:
+            pass
+
+    def feed():
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = process.stdin.write(remaining)
+                if not written:
+                    raise BrokenPipeError
+                remaining = remaining[written:]
+            process.stdin.flush()
+        except OSError:
+            write_failed.append(True)
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
+    threads = [threading.Thread(target=feed, daemon=True),
+               threading.Thread(target=drain, args=("stdout", process.stdout, max_stdout), daemon=True),
+               threading.Thread(target=drain, args=("stderr", process.stderr, max_stderr), daemon=True)]
+    for thread in threads:
+        thread.start()
+    timed_out = False
+    try:
+        return_code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.kill()
+        return_code = None
+    for thread in threads:
+        thread.join(max(0, deadline - time.monotonic()))
+    for stream in (process.stdin, process.stdout, process.stderr):
+        try:
+            stream.close()
+        except OSError:
+            pass
+    if timed_out or any(thread.is_alive() for thread in threads):
+        process.kill()
+        raise CaptureBlocked("CAPTURE_TIMEOUT")
+    if overflow:
+        raise CaptureBlocked(overflow[0])
+    if write_failed or return_code != 0:
+        raise CaptureBlocked("CAPTURE_TRANSPORT_FAILED")
+    return bytes(output["stdout"])
+
+
+def _validated_capture_stdout(raw: bytes, manifest: dict) -> bytes:
+    if not raw.endswith(b"\n") or b"\n" in raw[:-1]:
+        raise CaptureBlocked("CAPTURE_RECEIPT_FRAMING_INVALID")
+    try:
+        receipt = json.loads(raw[:-1].decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise CaptureBlocked("CAPTURE_RECEIPT_JSON_INVALID") from None
+    if not isinstance(receipt, dict) or canonical_bytes(receipt) + b"\n" != raw:
+        raise CaptureBlocked("CAPTURE_RECEIPT_CANONICAL_INVALID")
+    claimed = receipt.get("receiptSha256")
+    _hex_digest(claimed, "CAPTURE_RECEIPT_HASH_INVALID")
+    unsigned = dict(receipt)
+    unsigned.pop("receiptSha256")
+    if hashlib.sha256(canonical_bytes(unsigned)).hexdigest() != claimed:
+        raise CaptureBlocked("CAPTURE_RECEIPT_HASH_INVALID")
+    if receipt.get("status") == "PASS":
+        _validated_topology_receipt(manifest, receipt, claimed)
+    elif receipt.get("status") == "BLOCKED":
+        keys = {"status", "reasons", "receiptSha256"}
+        if "details" in receipt:
+            keys.add("details")
+        _exact_keys(receipt, keys, "CAPTURE_RECEIPT_SCHEMA_INVALID")
+        if (not isinstance(receipt["reasons"], list) or not receipt["reasons"]
+                or not all(isinstance(reason, str) and reason for reason in receipt["reasons"])
+                or ("details" in receipt and not isinstance(receipt["details"], dict))):
+            raise CaptureBlocked("CAPTURE_RECEIPT_SCHEMA_INVALID")
+    else:
+        raise CaptureBlocked("CAPTURE_RECEIPT_SCHEMA_INVALID")
+    return canonical_bytes(receipt) + b"\n"
+
+
+def _publish_fresh(path: Path, value: bytes) -> None:
+    temporary = None
+    descriptor = None
+    try:
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        else:
+            os.chmod(temporary, 0o600)
+        with os.fdopen(descriptor, "wb", closefd=True) as handle:
+            descriptor = None
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary, path, follow_symlinks=False)
+    except FileExistsError:
+        raise CaptureBlocked("CAPTURE_EVIDENCE_EXISTS") from None
+    except OSError:
+        raise CaptureBlocked("CAPTURE_EVIDENCE_PUBLISH_FAILED") from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
+def capture_via_ssh(source_path: Path, expected_source_sha256: str, manifest_path: Path,
+                    builder_path: Path, evidence_path: Path, ssh_exe: Path,
+                    identity_path: Path) -> dict:
+    source = _read_pinned_file(source_path, expected_source_sha256, "CAPTURE_SOURCE_HASH_MISMATCH")
+    manifest_raw = _read_pinned_file(manifest_path, ACCEPTED_MANIFEST_FILE_SHA256,
+                                     "ACCEPTED_MANIFEST_FILE_HASH_MISMATCH")
+    builder = _read_pinned_file(builder_path, ACCEPTED_BUILDER_SHA256,
+                                "ACCEPTED_BUILDER_HASH_MISMATCH")
+    try:
+        manifest = json.loads(manifest_raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise CaptureBlocked("ACCEPTED_MANIFEST_INVALID") from None
+    _validate_manifest(manifest, INSTALL_ROOT, ACCEPTED_MANIFEST_SHA256,
+                       ACCEPTED_PACKAGE_COUNT, ACCEPTED_MODULE_COUNT)
+    payload = _transport_payload(source, expected_source_sha256, manifest, builder)
+    command = [str(ssh_exe), "-T", "-i", str(identity_path), "-o", "BatchMode=yes",
+               "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=yes",
+               "-o", "ConnectTimeout=10", REMOTE_TARGET, _remote_command()]
+    raw = _run_bounded(command, payload, CAPTURE_TIMEOUT_SECONDS,
+                       MAX_CAPTURE_STDOUT_BYTES, MAX_CAPTURE_STDERR_BYTES)
+    validated = _validated_capture_stdout(raw, manifest)
+    _publish_fresh(evidence_path, validated)
+    return json.loads(validated)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--accepted-manifest", type=Path, required=True)
     parser.add_argument("--builder", type=Path, required=True)
+    parser.add_argument("--capture-via-ssh", action="store_true")
+    parser.add_argument("--evidence", type=Path)
+    parser.add_argument("--expected-source-sha256")
+    parser.add_argument("--ssh-exe", type=Path)
+    parser.add_argument("--identity", type=Path)
     args = parser.parse_args(argv)
+    if args.capture_via_ssh:
+        try:
+            if None in (args.evidence, args.expected_source_sha256, args.ssh_exe, args.identity):
+                raise CaptureBlocked("CAPTURE_ARGUMENT_INVALID")
+            value = capture_via_ssh(Path(__file__).resolve(), args.expected_source_sha256,
+                                    args.accepted_manifest, args.builder, args.evidence,
+                                    args.ssh_exe, args.identity)
+        except CaptureBlocked as error:
+            sys.stderr.write(str(error) + "\n")
+            return 1
+        sys.stdout.write(canonical_bytes(value).decode("utf-8") + "\n")
+        return 0
     try:
         payload = {"installRoot": str(INSTALL_ROOT),
                    "acceptedManifest": json.loads(args.accepted_manifest.read_text(encoding="utf-8")),

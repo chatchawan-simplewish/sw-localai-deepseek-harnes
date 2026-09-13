@@ -14,6 +14,7 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 - Pinned Node runtime: `/opt/node-v24.19.0-linux-x64/bin/node`
 - Target interpreter: `/usr/bin/python3.12 -I`
 - Local capture source: `scripts/Capture-VM105DshTopology.py`
+- Independently pinned capture-source SHA-256: `5a2ca5d427e650f7c23a0925cb931d9d241ff4cf3ba8b48a5c644219b46aef82`
 - Accepted manifest: `docs/evidence/vm105-final-client-runtime-manifest-20260913.json`
 - Accepted manifest canonical SHA-256: `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`
 - Accepted manifest file SHA-256: `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd`
@@ -24,9 +25,9 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 
 ## Preconditions and authority
 
-The coordinator must issue a fresh, explicit dispatch for this exact read-only capture. Before dispatch, the local manifest and builder hashes above must still match, strict host-key verification and the pinned identity must succeed, and no other owner may be changing `/opt/deepseek-harness`. The capture is invalid if the installed tree changes while it runs.
+The coordinator must issue a fresh, explicit dispatch for this exact read-only capture. Before SSH starts, the local capture source must be a regular non-link file matching its independently supplied hash above, and the manifest and builder must likewise be stable regular non-link files matching their hashes above. Strict host-key verification and the pinned identity must succeed, and no other owner may be changing `/opt/deepseek-harness`. The capture is invalid if the installed tree changes while it runs.
 
-The remote process receives the capture source, accepted manifest, and pinned builder source over stdin and executes them in memory. It performs no writes, provider requests, credential reads, Node/DSH package execution, runtime launch, service change, namespace change, cgroup change, or profile/default mutation. The pinned builder invokes `ldd` only to revalidate the accepted Node shared-library closure; the dispatch gives it a fixed `/usr/bin:/bin` PATH. SSH is only the transport used by the coordinator outside the capture process.
+The remote process receives the capture source, its independently supplied expected hash, accepted manifest, and pinned builder source over stdin. The fixed bootstrap hashes the exact UTF-8 source bytes and fails before `compile`/`exec` unless they match. It performs no writes, provider requests, credential reads, Node/DSH package execution, runtime launch, service change, namespace change, cgroup change, or profile/default mutation. The pinned builder invokes `ldd` only to revalidate the accepted Node shared-library closure; the dispatch gives it a fixed `/usr/bin:/bin` PATH. SSH is only the transport used by the coordinator outside the capture process.
 
 ## Fail-closed checks and receipt
 
@@ -34,13 +35,13 @@ The source validates the pinned builder hash, executes that exact source under a
 
 After full-manifest revalidation, the source traverses every present dependency, optional-dependency, and peer-dependency link reachable from `@deepseek-ai/dsh`.
 
-Every recorded link contains its install-root-relative logical path, raw relative target, resolved install-root-relative canonical package path, stable `lstat` identity, root owner, package name/version, and stable `package.json` SHA-256. Absolute or escaping links, changing identities, missing required dependencies, non-root-owned links or real paths, group/world-writable real paths, and any missing or extra canonical package identity block the receipt. Nominal symlink mode bits are recorded but are not treated as writable-file permissions.
+Every recorded link contains its install-root-relative logical path, raw relative target, resolved install-root-relative canonical package path, stable `lstat` identity, root:root ownership, package name/version, and stable `package.json` SHA-256. Absolute or escaping links, changing identities, missing required dependencies, links or real paths whose UID or GID is nonzero, group/world-writable real paths, and any missing or extra canonical package identity block the receipt. Nominal symlink mode bits are recorded but are not treated as writable-file permissions.
 
 The receipt also records the exact reachable logical and canonical paths, stable identity, and SHA-256 of `@deepseek-ai/dsh-headless/cordis.patch.yml`. A PASS receipt contains a `receiptSha256` calculated over canonical JSON before that field is inserted. BLOCKED receipts use the same self-hash format and contain no path-dependent traceback.
 
 ## Exact coordinator dispatch command
 
-Run only after the fresh capture dispatch is granted. The command keeps the target read-only and persists the single canonical stdout receipt locally as the new evidence file.
+Run only after the fresh capture dispatch is granted. The existing capture script enforces the independent source, manifest-file, and builder hashes before SSH; a 600-second total process deadline; an 8 MiB stdout limit; a 64 KiB stderr limit; and the existing 10-second SSH connection timeout. It accepts exactly one canonical UTF-8 JSON line, validates the exact PASS or BLOCKED schema and canonical self-hash, writes only those validated canonical bytes to a private same-directory file, and publishes them through a fresh no-overwrite hard link. Timeout, transport, oversized output, malformed output, hash failure, a symlink/non-regular input, or an existing evidence leaf fails with a constant reason and leaves the intended evidence path untouched.
 
 ```powershell
 $worktree = 'C:\Users\chatc\Projects\sw-localai-deepseek-harnes\.worktrees\vm105-authoritative-roadmap'
@@ -48,32 +49,19 @@ $sourcePath = Join-Path $worktree 'scripts\Capture-VM105DshTopology.py'
 $manifestPath = Join-Path $worktree 'docs\evidence\vm105-final-client-runtime-manifest-20260913.json'
 $builderPath = Join-Path $worktree 'scripts\Build-VM105FinalClientManifest.py'
 $evidencePath = Join-Path $worktree 'docs\evidence\vm105-dsh-topology-capture-20260913.json'
-$payload = [ordered]@{
-    source = [IO.File]::ReadAllText($sourcePath)
-    installRoot = '/opt/deepseek-harness'
-    acceptedManifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
-    builderSource = [IO.File]::ReadAllText($builderPath)
-} | ConvertTo-Json -Depth 100 -Compress
-$bootstrap = 'import json,sys;p=json.load(sys.stdin);s=p.pop("source");n={"__name__":"vm105_topology_capture"};exec(compile(s,"<vm105-topology-capture>","exec"),n);n["remote_entry"](p)'
-$bootstrap64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bootstrap))
-$remoteCommand = "/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/python3.12 -I -c 'import base64;exec(base64.b64decode(`"$bootstrap64`"))'"
-$previousEncoding = $OutputEncoding
-$OutputEncoding = [Text.UTF8Encoding]::new($false)
-try {
-    $receipt = $payload | & 'C:\Windows\System32\OpenSSH\ssh.exe' -T `
-        -i 'C:\Users\chatc\.ssh\codex-prox01-vms-ed25519' `
-        -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 `
-        'dsh@192.168.1.139' $remoteCommand
-    if ($LASTEXITCODE -ne 0) { throw 'VM105_TOPOLOGY_CAPTURE_TRANSPORT_FAILED' }
-} finally {
-    $OutputEncoding = $previousEncoding
-}
-[IO.File]::WriteAllText($evidencePath, $receipt, [Text.UTF8Encoding]::new($false))
-$receipt
+$expectedCaptureSourceSha256 = '5a2ca5d427e650f7c23a0925cb931d9d241ff4cf3ba8b48a5c644219b46aef82'
+& python $sourcePath --capture-via-ssh `
+    --accepted-manifest $manifestPath `
+    --builder $builderPath `
+    --evidence $evidencePath `
+    --expected-source-sha256 $expectedCaptureSourceSha256 `
+    --ssh-exe 'C:\Windows\System32\OpenSSH\ssh.exe' `
+    --identity 'C:\Users\chatc\.ssh\codex-prox01-vms-ed25519'
+if ($LASTEXITCODE -ne 0) { throw 'VM105_TOPOLOGY_CAPTURE_FAILED' }
 ```
 
 The coordinator must independently recompute `receiptSha256`, verify `status=PASS`, confirm `reachablePackageCount=447`, review the missing/extra closure result, and pin the headless patch path/hash before any reconstruction or DSH execution source can be accepted.
 
 ## Local verification and limits
 
-`python scripts/test_vm105_dsh_topology_capture.py` exercises a three-package synthetic pnpm closure and proves PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, ownership/writable-path blocking, and fresh pinned-builder inventory equality/failure handling. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots; Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until the newly authorized target capture.
+`python scripts/test_vm105_dsh_topology_capture.py` runs 12 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots; Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until the newly authorized target capture.

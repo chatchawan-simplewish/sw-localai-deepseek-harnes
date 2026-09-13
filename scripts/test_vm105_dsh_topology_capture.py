@@ -7,7 +7,9 @@ from pathlib import Path
 import posixpath
 import shutil
 import stat
+import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -324,8 +326,12 @@ class TopologyCaptureTests(unittest.TestCase):
 
     def test_non_root_or_group_writable_package_path_is_blocked(self):
         info = self.fixture.root.lstat()
-        non_root = SimpleNamespace(st_mode=info.st_mode, st_uid=1)
+        non_root = SimpleNamespace(st_mode=info.st_mode, st_uid=1, st_gid=0)
         with mock.patch.object(Path, "lstat", return_value=non_root):
+            with self.assertRaisesRegex(capture.CaptureBlocked, "INSECURE_PATH"):
+                capture._require_secure_real_path(self.fixture.root, self.fixture.root, "directory")
+        non_root_group = SimpleNamespace(st_mode=info.st_mode, st_uid=0, st_gid=1)
+        with mock.patch.object(Path, "lstat", return_value=non_root_group):
             with self.assertRaisesRegex(capture.CaptureBlocked, "INSECURE_PATH"):
                 capture._require_secure_real_path(self.fixture.root, self.fixture.root, "directory")
         bad_link_group = SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_uid=0, st_gid=1)
@@ -384,6 +390,7 @@ class TopologyCaptureTests(unittest.TestCase):
         for condition, reason in (("tampered_receipt", "TOPOLOGY_RECEIPT_HASH_MISMATCH"),
                                   ("link_collision", "TOPOLOGY_PATH_COLLISION"),
                                   ("link_escape", "TOPOLOGY_LINK_ESCAPE"),
+                                  ("headless_group", "TOPOLOGY_HEADLESS_PATCH_IDENTITY_INVALID"),
                                   ("source_hash", "TOPOLOGY_SOURCE_HASH_MISMATCH")):
             with self.subTest(condition=condition):
                 fixture = TopologyStageFixture()
@@ -402,6 +409,10 @@ class TopologyCaptureTests(unittest.TestCase):
                         fixture.receipt["links"][0]["rawRelativeTarget"] = "../../../outside"
                         fixture.receipt["links"][0]["resolvedCanonicalPackagePath"] = "outside"
                         fixture.resign()
+                    elif condition == "headless_group":
+                        fixture.receipt["headlessPatch"]["lstatIdentity"]["gid"] = 1
+                        fixture.receipt["headlessPatch"]["lstatIdentity"]["rootOwned"] = False
+                        fixture.resign()
                     else:
                         (fixture.source / fixture.cli.replace("node_modules/", "opt/deepseek-harness/node_modules/", 1)).write_bytes(b"tampered\n")
                     with mock.patch.object(capture, "ACCEPTED_MANIFEST_SHA256", fixture.manifest_sha), \
@@ -416,6 +427,63 @@ class TopologyCaptureTests(unittest.TestCase):
                             fixture.manifest, fixture.receipt, fixture.receipt_sha, 101, 102, fixture.builder)
                 finally:
                     fixture.close()
+
+    def test_capture_transport_source_pin_is_independent_and_rechecked_remotely(self):
+        source = b"print('fixture')\n"
+        expected = hashlib.sha256(source).hexdigest()
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        pinned = directory / "capture.py"
+        pinned.write_bytes(source)
+        self.assertEqual(capture._read_pinned_file(pinned, expected, "SOURCE_MISMATCH"), source)
+        with self.assertRaisesRegex(capture.CaptureBlocked, "SOURCE_MISMATCH"):
+            capture._read_pinned_file(pinned, "0" * 64, "SOURCE_MISMATCH")
+        with self.assertRaisesRegex(capture.CaptureBlocked, "SOURCE_MISMATCH"):
+            capture._read_pinned_file(directory, expected, "SOURCE_MISMATCH")
+        with self.assertRaisesRegex(capture.CaptureBlocked, "CAPTURE_SOURCE_HASH_MISMATCH"):
+            capture._transport_payload(source, "0" * 64, {}, b"")
+        payload = json.loads(capture._transport_payload(source, expected, {}, b"{}").decode("utf-8"))
+        self.assertEqual(payload["captureSourceSha256"], expected)
+        encoded = capture._remote_command().split('b64decode("', 1)[1].split('")', 1)[0]
+        bootstrap = __import__("base64").b64decode(encoded).decode("utf-8")
+        self.assertIn('hashlib.sha256(b).hexdigest()==h', bootstrap)
+        self.assertLess(bootstrap.index('hashlib.sha256(b).hexdigest()==h'), bootstrap.index('exec(compile'))
+
+    def test_capture_transport_has_total_and_output_bounds(self):
+        self.assertEqual(capture._run_bounded(
+            [sys.executable, "-c", "import sys;sys.stdout.buffer.write(b'ok')"],
+            b"", 2, 1024, 1024), b"ok")
+        cases = [
+            ("timeout", [sys.executable, "-c", "import time;time.sleep(2)"],
+             0.05, 1024, 1024, "CAPTURE_TIMEOUT"),
+            ("stdout", [sys.executable, "-c", "import sys;sys.stdout.buffer.write(b'x'*2048)"],
+             2, 1024, 1024, "CAPTURE_STDOUT_LIMIT_EXCEEDED"),
+            ("stderr", [sys.executable, "-c", "import sys;sys.stderr.buffer.write(b'x'*2048)"],
+             2, 1024, 1024, "CAPTURE_STDERR_LIMIT_EXCEEDED"),
+        ]
+        for name, command, timeout, stdout_limit, stderr_limit, reason in cases:
+            with self.subTest(name=name):
+                started = time.monotonic()
+                with self.assertRaisesRegex(capture.CaptureBlocked, reason):
+                    capture._run_bounded(command, b"", timeout, stdout_limit, stderr_limit)
+                self.assertLess(time.monotonic() - started, 1.5)
+
+    def test_receipt_is_validated_before_fresh_no_overwrite_publish(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        evidence = directory / "receipt.json"
+        receipt = capture._signed_receipt({"status": "BLOCKED", "reasons": ["FIXTURE_BLOCKED"]})
+        canonical = capture.canonical_bytes(receipt) + b"\n"
+        validated = capture._validated_capture_stdout(canonical, {})
+        capture._publish_fresh(evidence, validated)
+        self.assertEqual(evidence.read_bytes(), canonical)
+        with self.assertRaisesRegex(capture.CaptureBlocked, "CAPTURE_EVIDENCE_EXISTS"):
+            capture._publish_fresh(evidence, canonical)
+        self.assertEqual(evidence.read_bytes(), canonical)
+        tampered = canonical.replace(b"FIXTURE_BLOCKED", b"FIXTURE_CHANGED")
+        with self.assertRaisesRegex(capture.CaptureBlocked, "CAPTURE_RECEIPT_HASH_INVALID"):
+            capture._validated_capture_stdout(tampered, {})
+        self.assertEqual(evidence.read_bytes(), canonical)
 
 
 if __name__ == "__main__":
