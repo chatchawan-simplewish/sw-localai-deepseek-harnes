@@ -52,7 +52,9 @@ class FinalClientManifestTests(unittest.TestCase):
         manifest["canonicalManifestSha256"] = accepted
         return temp, source, staging, manifest, accepted
 
-    def staging_patches(self, module, source, staging, before_enumerate=None):
+    def staging_patches(self, module, source, staging, before_enumerate=None,
+                        file_mode_override=None, directory_mode_override=None):
+        opened_staged = {}
         def open_source(_root_fd, canonical):
             path = source / canonical.lstrip("/")
             if path.is_symlink():
@@ -68,18 +70,29 @@ class FinalClientManifestTests(unittest.TestCase):
             if before_enumerate:
                 before_enumerate()
             files = {path.relative_to(staging).as_posix() for path in staging.rglob("*") if path.is_file()}
-            directories = {path.relative_to(staging).as_posix() for path in staging.rglob("*") if path.is_dir()}
+            directories = {path.relative_to(staging).as_posix(): 0o700 for path in staging.rglob("*") if path.is_dir()}
+            if directory_mode_override:
+                directories[directory_mode_override[0]] = directory_mode_override[1]
             return files, directories
 
         def open_staged(_root_fd, relative):
-            return os.open(staging / relative, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+            descriptor = os.open(staging / relative, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+            opened_staged[descriptor] = relative
+            return descriptor
+
+        def file_mode(descriptor):
+            relative = opened_staged[descriptor]
+            if file_mode_override and relative == file_mode_override[0]:
+                return file_mode_override[1]
+            return 0o500 if relative == "runtime/opt/node" else 0o600
 
         return (patch.object(module, "_require_descriptor_platform"),
                 patch.object(module, "_require_empty_staging", side_effect=lambda _fd: None if not any(staging.iterdir()) else (_ for _ in ()).throw(module.ManifestBlocked("STAGING_ROOT_NOT_EMPTY"))),
                 patch.object(module, "_open_source_at", side_effect=open_source),
                 patch.object(module, "_create_destination_at", side_effect=create_destination),
                 patch.object(module, "_enumerate_staging", side_effect=enumerate_staging),
-                patch.object(module, "_open_staged_at", side_effect=open_staged))
+                patch.object(module, "_open_staged_at", side_effect=open_staged),
+                patch.object(module, "_file_mode", side_effect=file_mode))
 
     def test_stage_verified_closure_copies_complete_pinned_tree(self):
         """Fails until descriptor-held staging copies modules, config, Node, and libraries."""
@@ -87,7 +100,7 @@ class FinalClientManifestTests(unittest.TestCase):
         temp, source, staging, manifest, accepted = self.staging_fixture()
         self.addCleanup(temp.cleanup)
         patches = self.staging_patches(module, source, staging)
-        with patch.object(module, "ACCEPTED_MANIFEST_SHA256", accepted), patch.object(module, "ACCEPTED_MODULE_COUNT", 1), patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patch.object(module.os, "fchmod", create=True) as chmod:
+        with patch.object(module, "ACCEPTED_MANIFEST_SHA256", accepted), patch.object(module, "ACCEPTED_MODULE_COUNT", 1), patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patch.object(module.os, "fchmod", create=True) as chmod:
             receipt = module.stage_verified_closure(manifest, 101, 102)
         self.assertEqual({"status": "PASS", "files": 4, "modules": 1,
                           "canonicalManifestSha256": accepted}, receipt)
@@ -100,7 +113,8 @@ class FinalClientManifestTests(unittest.TestCase):
     def test_stage_verified_closure_blocks_changed_duplicate_link_and_extra_inputs(self):
         """Fails until every new staging trust boundary fails closed."""
         module = importlib.import_module("Build-VM105FinalClientManifest")
-        for condition in ("changed", "duplicate", "link", "extra", "late_mutation", "empty_dir"):
+        for condition in ("changed", "duplicate", "link", "extra", "late_mutation", "empty_dir",
+                          "file_mode", "directory_mode"):
             with self.subTest(condition=condition):
                 temp, source, staging, manifest, accepted = self.staging_fixture()
                 try:
@@ -127,8 +141,11 @@ class FinalClientManifestTests(unittest.TestCase):
                         before_enumerate = lambda: (staging / "modules/a.js").write_bytes(b"late mutation")
                     elif condition == "empty_dir":
                         before_enumerate = lambda: (staging / "empty").mkdir()
-                    patches = self.staging_patches(module, source, staging, before_enumerate)
-                    with patch.object(module, "ACCEPTED_MANIFEST_SHA256", accepted), patch.object(module, "ACCEPTED_MODULE_COUNT", 1), patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patch.object(module.os, "fchmod", create=True), self.assertRaises(module.ManifestBlocked):
+                    file_mode = ("modules/a.js", 0o644) if condition == "file_mode" else None
+                    directory_mode = ("modules", 0o755) if condition == "directory_mode" else None
+                    patches = self.staging_patches(module, source, staging, before_enumerate,
+                                                   file_mode, directory_mode)
+                    with patch.object(module, "ACCEPTED_MANIFEST_SHA256", accepted), patch.object(module, "ACCEPTED_MODULE_COUNT", 1), patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patch.object(module.os, "fchmod", create=True), self.assertRaises(module.ManifestBlocked):
                         module.stage_verified_closure(manifest, 101, 102)
                 finally:
                     temp.cleanup()

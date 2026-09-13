@@ -64,6 +64,8 @@ def _directory_at(root_fd, parts, create=False):
                 except FileExistsError:
                     pass
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+            if create:
+                os.fchmod(child, 0o700)
             os.close(current)
             current = child
         return current
@@ -112,14 +114,14 @@ def _require_empty_staging(root_fd):
 
 
 def _enumerate_staging(root_fd):
-    files, directories = set(), set()
+    files, directories = set(), {}
 
     def visit(directory_fd, prefix):
         for name in os.listdir(directory_fd):
             relative = "/".join((*prefix, name))
             info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
             if stat.S_ISDIR(info.st_mode):
-                directories.add(relative)
+                directories[relative] = stat.S_IMODE(info.st_mode)
                 child = _directory_at(directory_fd, [name])
                 try:
                     visit(child, (*prefix, name))
@@ -182,6 +184,10 @@ def _hash_fd(descriptor):
     return value.hexdigest()
 
 
+def _file_mode(descriptor):
+    return stat.S_IMODE(os.fstat(descriptor).st_mode)
+
+
 def stage_verified_closure(manifest, source_root_fd, staging_root_fd):
     """Copy the accepted closure between held Linux directory descriptors."""
     _require_descriptor_platform()
@@ -221,13 +227,14 @@ def stage_verified_closure(manifest, source_root_fd, staging_root_fd):
             if source_fd is not None:
                 os.close(source_fd)
     files, directories = _enumerate_staging(staging_root_fd)
-    if files != set(expected) or directories != expected_dirs:
+    if (files != set(expected) or set(directories) != expected_dirs
+            or any(mode != 0o700 for mode in directories.values())):
         raise ManifestBlocked("STAGING_TREE_MISMATCH")
-    for path, (expected_hash, _mode) in expected.items():
+    for path, (expected_hash, expected_mode) in expected.items():
         descriptor = _open_staged_at(staging_root_fd, path)
         try:
-            if _hash_fd(descriptor) != expected_hash:
-                raise ManifestBlocked("STAGED_HASH_MISMATCH")
+            if _hash_fd(descriptor) != expected_hash or _file_mode(descriptor) != expected_mode:
+                raise ManifestBlocked("STAGED_FILE_MISMATCH")
         finally:
             os.close(descriptor)
     return {"status": "PASS", "files": len(rows), "modules": len(manifest["modules"]),
