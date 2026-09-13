@@ -676,7 +676,8 @@ def _read_pinned_file(path: Path, expected_sha256: str, reason: str) -> bytes:
         before = path.lstat()
         if not stat.S_ISREG(before.st_mode):
             raise CaptureBlocked(reason)
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0)
+                             | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
         opened = os.fstat(descriptor)
         chunks = []
         while True:

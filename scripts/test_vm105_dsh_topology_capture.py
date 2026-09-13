@@ -477,6 +477,28 @@ $sourceText | & python -I -c 'import sys;exec(sys.stdin.read())'
             self.assertEqual(result.returncode, 73)
             self.assertFalse(marker.exists())
 
+    def test_pinned_file_hashes_exact_crlf_bytes_in_binary_mode(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
+        pinned = directory / "builder.py"
+        raw = b"first\r\nsecond\r\n"
+        pinned.write_bytes(raw)
+        real_open = os.open
+        native_binary_flag = getattr(os, "O_BINARY", 0)
+        binary_flag = native_binary_flag or (1 << 29)
+        seen = []
+
+        def recording_open(path, flags, *args):
+            seen.append(flags)
+            return real_open(path, flags if native_binary_flag else flags & ~binary_flag, *args)
+
+        with mock.patch.object(capture.os, "O_BINARY", binary_flag, create=True), \
+                mock.patch.object(capture.os, "open", side_effect=recording_open):
+            actual = capture._read_pinned_file(
+                pinned, hashlib.sha256(raw).hexdigest(), "PINNED_HASH_MISMATCH")
+        self.assertEqual(actual, raw)
+        self.assertTrue(seen[0] & binary_flag)
+
     def test_capture_transport_has_total_and_output_bounds(self):
         self.assertEqual(capture._run_bounded(
             [sys.executable, "-c", "import sys;sys.stdout.buffer.write(b'ok')"],

@@ -14,7 +14,7 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 - Pinned Node runtime: `/opt/node-v24.19.0-linux-x64/bin/node`
 - Target interpreter: `/usr/bin/python3.12 -I`
 - Local capture source: `scripts/Capture-VM105DshTopology.py`
-- Independently pinned capture-source SHA-256: `3c4b36680d05fd55c9ab3bb33331cc3fc68eee4eee3f26adf7a32f0c47891b66`
+- Independently pinned capture-source SHA-256: `58f0799b56b3bfc99aacadde965bc367f7da02625787ce6241932865fc6ee02a`
 - Accepted manifest: `docs/evidence/vm105-final-client-runtime-manifest-20260913.json`
 - Accepted manifest canonical SHA-256: `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`
 - Accepted manifest file SHA-256: `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd`
@@ -41,7 +41,7 @@ The receipt also records the exact reachable logical and canonical paths, stable
 
 ## Exact coordinator dispatch command
 
-Run only after the fresh capture dispatch is granted. Trusted PowerShell first reads the source as raw bytes from a regular non-link file and verifies the independently pinned hash before any Python from that source can execute. A fixed local bootstrap rechecks those exact bytes before compiling them; the verified coordinator then enforces the manifest-file and builder hashes before SSH, a 600-second total process deadline, an 8 MiB stdout limit, a 64 KiB stderr limit, and the existing 10-second SSH connection timeout. It accepts exactly one canonical UTF-8 JSON line, validates the exact PASS or BLOCKED schema and canonical self-hash, writes only those validated canonical bytes to a private same-directory file, and publishes them through a fresh no-overwrite hard link. Timeout, transport, oversized output, malformed output, hash failure, a symlink/non-regular input, or an existing evidence leaf fails with a constant reason and leaves the intended evidence path untouched.
+Run only after the fresh capture dispatch is granted. Trusted PowerShell first reads the source as raw bytes from a regular non-link file and verifies the independently pinned hash before any Python from that source can execute. A fixed local bootstrap rechecks those exact bytes before compiling them; the verified coordinator then reads the manifest and CRLF-sensitive builder in binary mode and enforces their raw file hashes before SSH, a 600-second total process deadline, an 8 MiB stdout limit, a 64 KiB stderr limit, and the existing 10-second SSH connection timeout. It accepts exactly one canonical UTF-8 JSON line, validates the exact PASS or BLOCKED schema and canonical self-hash, writes only those validated canonical bytes to a private same-directory file, and publishes them through a fresh no-overwrite hard link. Timeout, transport, oversized output, malformed output, hash failure, a symlink/non-regular input, or an existing evidence leaf fails with a constant reason and leaves the intended evidence path untouched.
 
 ```powershell
 $worktree = 'C:\Users\chatc\Projects\sw-localai-deepseek-harnes\.worktrees\vm105-authoritative-roadmap'
@@ -49,7 +49,7 @@ $sourcePath = Join-Path $worktree 'scripts\Capture-VM105DshTopology.py'
 $manifestPath = Join-Path $worktree 'docs\evidence\vm105-final-client-runtime-manifest-20260913.json'
 $builderPath = Join-Path $worktree 'scripts\Build-VM105FinalClientManifest.py'
 $evidencePath = Join-Path $worktree 'docs\evidence\vm105-dsh-topology-capture-20260913.json'
-$expectedCaptureSourceSha256 = '3c4b36680d05fd55c9ab3bb33331cc3fc68eee4eee3f26adf7a32f0c47891b66'
+$expectedCaptureSourceSha256 = '58f0799b56b3bfc99aacadde965bc367f7da02625787ce6241932865fc6ee02a'
 $sourceItem = Get-Item -LiteralPath $sourcePath -Force
 if ($sourceItem.PSIsContainer -or ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     throw 'CAPTURE_SOURCE_NOT_REGULAR'
@@ -81,4 +81,4 @@ The coordinator must independently recompute `receiptSha256`, verify `status=PAS
 
 ## Local verification and limits
 
-`python scripts/test_vm105_dsh_topology_capture.py` runs 12 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots; Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until the newly authorized target capture.
+`python scripts/test_vm105_dsh_topology_capture.py` runs 13 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, exact CRLF binary-byte hashing, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots; Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until the newly authorized target capture.
