@@ -1,4 +1,5 @@
 import array
+import errno
 import hashlib
 import importlib.util
 import json
@@ -103,6 +104,270 @@ class ProductionLauncherTests(unittest.TestCase):
                     "--bindings-json",
                     json.dumps(accepted, separators=(",", ":"))]))
         self.assertEqual([], calls)
+
+    def test_reconstruct_only_main_never_enters_any_live_or_credential_path(self):
+        self.assertTrue(hasattr(launcher, "reconstruction_entry"),
+                        "reconstruction-only entry is missing")
+        expected = {"status": "PASS", "receiptSha256": "a" * 64}
+        forbidden = AssertionError("live path reached")
+        launcher_hash = "b" * 64
+        with patch.object(launcher, "reconstruction_entry", return_value=expected) as entry, \
+                patch.object(launcher.json, "loads", side_effect=forbidden), \
+                patch.object(launcher.sys.stdin.buffer, "fileno", side_effect=forbidden), \
+                patch.object(launcher, "read_bounded_credential", side_effect=forbidden), \
+                patch.object(launcher, "launch", side_effect=forbidden), \
+                patch.object(launcher, "service_entry", side_effect=forbidden), \
+                patch.object(launcher, "systemd_command", side_effect=forbidden), \
+                patch.object(launcher, "_run_dsh_process", side_effect=forbidden), \
+                patch.object(launcher, "run_dsh_entry", side_effect=forbidden), \
+                patch.object(launcher, "contained_composition", side_effect=forbidden), \
+                patch.object(launcher.subprocess, "run", side_effect=forbidden), \
+                patch.object(launcher.subprocess, "Popen", side_effect=forbidden), \
+                patch.object(launcher.socket, "socket", side_effect=forbidden), \
+                patch.object(launcher.socket, "socketpair", side_effect=forbidden, create=True), \
+                patch("builtins.print") as output:
+            self.assertEqual(0, launcher.main([
+                "--reconstruct-only", "--reconstruction-launcher-sha256",
+                launcher_hash]))
+        entry.assert_called_once_with(launcher_hash)
+        self.assertEqual(
+            json.dumps(expected, sort_keys=True, separators=(",", ":")),
+            output.call_args.args[0])
+        with patch.object(
+                launcher, "reconstruction_entry",
+                return_value={"status": "BLOCKED", "receiptSha256": "c" * 64}), \
+                patch("builtins.print"):
+            self.assertEqual(1, launcher.main([
+                "--reconstruct-only", "--reconstruction-launcher-sha256",
+                launcher_hash]))
+
+    def test_reconstruction_gate_and_occupied_staging_root_fail_before_stage(self):
+        self.assertTrue(hasattr(launcher, "RECONSTRUCTION_BINDING"),
+                        "fixed reconstruction binding is missing")
+        accepted = launcher.RECONSTRUCTION_BINDING
+        for key in accepted:
+            bad = dict(accepted)
+            bad.pop(key)
+            with self.subTest(missing=key), self.assertRaisesRegex(
+                    launcher.LaunchBlocked, "RECONSTRUCTION_BINDING_REJECTED"):
+                launcher._reconstruction(bad)
+        with patch.object(launcher, "ACCEPTED_LIVE_BINDINGS", {}), \
+                self.assertRaisesRegex(
+                    launcher.LaunchBlocked, "RECONSTRUCTION_BINDING_REJECTED"):
+            launcher._reconstruction(accepted)
+
+        for kind in (stat.S_IFREG, stat.S_IFDIR, stat.S_IFLNK):
+            calls = []
+            with self.subTest(kind=kind), \
+                    patch.object(launcher.sys, "platform", "linux"), \
+                    patch.object(launcher.os, "geteuid", return_value=0, create=True), \
+                    patch.object(launcher.os, "mkdir",
+                                 side_effect=AssertionError("mkdir reached")), \
+                    patch.object(launcher.os, "unlink",
+                                 side_effect=AssertionError("cleanup reached")), \
+                    patch.object(launcher.os, "rmdir",
+                                 side_effect=AssertionError("cleanup reached")):
+                receipt = launcher.reconstruction_entry(
+                    "a" * 64,
+                    verify_bundle=lambda *_: calls.append("bundle"),
+                    lstat=lambda _path: types.SimpleNamespace(st_mode=kind),
+                    stage=lambda *_args, **_kwargs: calls.append("stage"))
+            self.assertEqual("BLOCKED", receipt["status"])
+            self.assertEqual("STAGING_ROOT_NOT_ABSENT", receipt["reason"])
+            self.assertEqual("PRESENT", receipt["stagingPrecheck"])
+            self.assertFalse(receipt["cleanupAttempted"])
+            self.assertEqual("RETAINED_EXACT_ROOT", receipt["cleanupResult"])
+            self.assertEqual(["bundle"], calls)
+
+        with patch.object(launcher.sys, "platform", "linux"), \
+                patch.object(launcher.os, "geteuid", return_value=0, create=True):
+            receipt = launcher.reconstruction_entry(
+                "a" * 64,
+                verify_bundle=lambda *_: (_ for _ in ()).throw(
+                    launcher.LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED")),
+                lstat=lambda _path: (_ for _ in ()).throw(
+                    AssertionError("staging precheck reached")))
+        self.assertEqual("BLOCKED", receipt["status"])
+        self.assertEqual("UNPROVEN", receipt["stagingPrecheck"])
+        self.assertEqual("UNPROVEN", receipt["cleanupResult"])
+
+    def test_reconstruction_pass_emits_only_fixed_signed_scalar_receipt(self):
+        calls = []
+        stage_result = {
+            "status": "PASS",
+            "canonicalManifestSha256": launcher.ACCEPTED_MANIFEST_SHA256,
+            "topologyReceiptSha256": launcher.ACCEPTED_STAGING_TOPOLOGY_SHA256,
+            "fileCount": 10037,
+            "linkCount": 2029,
+            "directoryCount": 6081,
+            "sealedEntries": 18148,
+            "files": [{"path": "must-not-leak"}],
+            "links": [{"path": "must-not-leak"}],
+            "directories": [{"path": "must-not-leak"}],
+        }
+
+        def stage(bound, authorize):
+            calls.append("stage")
+            self.assertEqual(dict(launcher.RECONSTRUCTION_BINDING), bound)
+            self.assertEqual(bound, authorize(bound))
+            return stage_result
+
+        with patch.object(launcher.sys, "platform", "linux"), \
+                patch.object(launcher.os, "geteuid", return_value=0, create=True):
+            receipt = launcher.reconstruction_entry(
+                "a" * 64,
+                verify_bundle=lambda *_: calls.append("bundle"),
+                lstat=lambda _path: (_ for _ in ()).throw(
+                    FileNotFoundError(errno.ENOENT, "absent")),
+                stage=stage)
+        self.assertEqual(["bundle", "stage"], calls)
+        self.assertEqual({
+            "status", "reason", "manifestCanonicalSha256", "manifestFileSha256",
+            "topologyReceiptSha256", "topologyFileSha256", "stagingPrecheck",
+            "expectedPackageCount", "expectedLinkCount", "fileCount", "linkCount",
+            "directoryCount", "sealedEntries", "cleanupAttempted", "cleanupResult",
+            "receiptSha256",
+        }, set(receipt))
+        self.assertEqual("PASS", receipt["status"])
+        self.assertEqual("ABSENT", receipt["stagingPrecheck"])
+        self.assertEqual(447, receipt["expectedPackageCount"])
+        self.assertEqual(2029, receipt["expectedLinkCount"])
+        self.assertEqual((10037, 2029, 6081, 18148), (
+            receipt["fileCount"], receipt["linkCount"],
+            receipt["directoryCount"], receipt["sealedEntries"]))
+        self.assertFalse(receipt["cleanupAttempted"])
+        self.assertEqual("RETAINED_EXACT_ROOT", receipt["cleanupResult"])
+        unsigned = dict(receipt)
+        claimed = unsigned.pop("receiptSha256")
+        self.assertEqual(claimed, hashlib.sha256(json.dumps(
+            unsigned, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
+        self.assertNotIn("files", receipt)
+        self.assertNotIn("links", receipt)
+        self.assertNotIn("directories", receipt)
+
+    def test_reconstruction_mid_stage_failure_retains_partial_root_without_retry_or_cleanup(self):
+        calls = []
+        states = iter((
+            FileNotFoundError(errno.ENOENT, "absent"),
+            types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o700),
+        ))
+
+        def lstat(_path):
+            state = next(states)
+            if isinstance(state, OSError):
+                raise state
+            return state
+
+        def stage(*_args, **_kwargs):
+            calls.append("stage")
+            raise launcher.LaunchBlocked("STAGING_FAILED")
+
+        with patch.object(launcher.sys, "platform", "linux"), \
+                patch.object(launcher.os, "geteuid", return_value=0, create=True), \
+                patch.object(launcher.os, "unlink",
+                             side_effect=AssertionError("cleanup reached")), \
+                patch.object(launcher.os, "rmdir",
+                             side_effect=AssertionError("cleanup reached")):
+            receipt = launcher.reconstruction_entry(
+                "a" * 64, verify_bundle=lambda *_: None,
+                lstat=lstat, stage=stage)
+        self.assertEqual(["stage"], calls)
+        self.assertEqual("BLOCKED", receipt["status"])
+        self.assertEqual("STAGING_FAILED", receipt["reason"])
+        self.assertEqual("ABSENT", receipt["stagingPrecheck"])
+        self.assertFalse(receipt["cleanupAttempted"])
+        self.assertEqual("RETAINED_EXACT_ROOT", receipt["cleanupResult"])
+        self.assertEqual((0, 0, 0, 0), (
+            receipt["fileCount"], receipt["linkCount"],
+            receipt["directoryCount"], receipt["sealedEntries"]))
+
+    def test_reconstruction_rejects_invalid_stage_proof(self):
+        good = {
+            "status": "PASS",
+            "canonicalManifestSha256": launcher.ACCEPTED_MANIFEST_SHA256,
+            "topologyReceiptSha256": launcher.ACCEPTED_STAGING_TOPOLOGY_SHA256,
+            "fileCount": 10037,
+            "linkCount": 2029,
+            "directoryCount": 6081,
+            "sealedEntries": 18148,
+        }
+        bad_values = (
+            ("status", "BLOCKED"),
+            ("canonicalManifestSha256", "0" * 64),
+            ("topologyReceiptSha256", "0" * 64),
+            ("fileCount", True),
+            ("linkCount", 2028),
+            ("directoryCount", -1),
+            ("sealedEntries", 18147),
+        )
+        for key, value in bad_values:
+            bad = dict(good)
+            bad[key] = value
+            with self.subTest(key=key), \
+                    patch.object(launcher.sys, "platform", "linux"), \
+                    patch.object(launcher.os, "geteuid", return_value=0, create=True):
+                receipt = launcher.reconstruction_entry(
+                    "a" * 64, verify_bundle=lambda *_: None,
+                    lstat=lambda _path: (_ for _ in ()).throw(
+                        FileNotFoundError(errno.ENOENT, "absent")),
+                    stage=lambda *_args, **_kwargs: bad)
+            self.assertEqual("BLOCKED", receipt["status"])
+            self.assertEqual("RECONSTRUCTION_PROOF_FAILED", receipt["reason"])
+
+    def test_reconstruction_bundle_requires_exact_root_owned_stable_regular_files(self):
+        self.assertTrue(hasattr(launcher, "_verify_reconstruction_bundle_file"),
+                        "bundle verifier is missing")
+        payload = b"accepted bytes"
+        expected = hashlib.sha256(payload).hexdigest()
+
+        def info(mode=stat.S_IFREG | 0o640, uid=0, gid=0, inode=2):
+            return types.SimpleNamespace(
+                st_dev=1, st_ino=inode, st_mode=mode, st_size=len(payload),
+                st_mtime_ns=3, st_ctime_ns=4, st_uid=uid, st_gid=gid)
+
+        def verify(rows, digest=expected):
+            stats = iter(rows)
+            reads = iter((payload, b""))
+            return launcher._verify_reconstruction_bundle_file(
+                "/fixed", digest,
+                lstat=lambda _path: next(stats),
+                open_file=lambda *_args: 9,
+                fstat=lambda _fd: next(stats),
+                read=lambda *_args: next(reads),
+                close=lambda _fd: None)
+
+        accepted = info()
+        verify((accepted, accepted, accepted, accepted))
+        for label, rows, digest in (
+                ("symlink", (info(stat.S_IFLNK | 0o777),) * 4, expected),
+                ("owner", (info(uid=1),) * 4, expected),
+                ("group", (info(gid=1),) * 4, expected),
+                ("writable", (info(stat.S_IFREG | 0o660),) * 4, expected),
+                ("drift", (accepted, accepted, info(inode=8), accepted), expected),
+                ("hash", (accepted,) * 4, "0" * 64)):
+            with self.subTest(label=label), self.assertRaisesRegex(
+                    launcher.LaunchBlocked, "RECONSTRUCTION_BUNDLE_REJECTED"):
+                verify(rows, digest)
+
+        calls = []
+        with patch.object(launcher, "__file__",
+                          launcher.RECONSTRUCTION_BINDING["launcherPath"]):
+            launcher._verify_reconstruction_bundle(
+                launcher.RECONSTRUCTION_BINDING, "a" * 64,
+                verify_directory=lambda path: calls.append(("directory", path)),
+                verify=lambda path, digest: calls.append((path, digest)))
+        self.assertEqual([
+            ("directory", launcher.RECONSTRUCTION_BINDING["bundleRoot"]),
+            (launcher.RECONSTRUCTION_BINDING["launcherPath"], "a" * 64),
+            (launcher.RECONSTRUCTION_BINDING["builderPath"],
+             launcher.RECONSTRUCTION_BINDING["builderSha256"]),
+            (launcher.RECONSTRUCTION_BINDING["topologyHelperPath"],
+             launcher.RECONSTRUCTION_BINDING["topologyHelperSha256"]),
+            (launcher.RECONSTRUCTION_BINDING["manifestPath"],
+             launcher.RECONSTRUCTION_BINDING["manifestFileSha256"]),
+            (launcher.RECONSTRUCTION_BINDING["topologyPath"],
+             launcher.RECONSTRUCTION_BINDING["topologyFileSha256"]),
+        ], calls)
 
     def test_systemd_pipe_uses_direct_read_fd_and_exact_hardening(self):
         captured = {}
@@ -684,6 +949,7 @@ class ProductionLauncherTests(unittest.TestCase):
         descriptors = iter((10, 11, 12, 13))
         identity = types.SimpleNamespace(pw_gid=1002)
         bound = bindings()
+        authorize = lambda value: (calls.append(("authorize", value)) or value)
         with self.live(), patch.object(
                 launcher.os, "open", side_effect=lambda *_args, **_kwargs: next(descriptors)), \
                 patch.object(launcher.os, "fdopen", return_value=Opened()), \
@@ -692,21 +958,26 @@ class ProductionLauncherTests(unittest.TestCase):
                 patch.object(launcher.json, "load", return_value=manifest), \
                 patch.object(launcher, "_read_pinned_topology",
                              return_value=topology) as read_topology, \
-                patch.object(launcher, "_load_accepted", side_effect=lambda *args: (
-                    calls.append(("load", args[1], args[3])) or next(helpers))):
+                patch.object(launcher, "_load_accepted", side_effect=lambda *args, **kwargs: (
+                    calls.append(("load", args[1], args[3], kwargs["authorize"])) or
+                    next(helpers))):
             result = launcher.stage_bound_closure(
                 bound, identity,
-                seal_tree=lambda live, root, receipt, gid, hash_fd: (
-                    calls.append(("seal", live, root, receipt, gid, hash_fd)) or 7))
+                seal_tree=lambda live, root, receipt, gid, hash_fd, authorize: (
+                    calls.append(("seal", live, root, receipt, gid, hash_fd,
+                                  authorize)) or 7),
+                authorize=authorize)
         self.assertEqual(7, result["sealedEntries"])
         read_topology.assert_called_once_with(11)
         self.assertIn(("load", "Capture-VM105DshTopology.py",
-                       launcher.TOPOLOGY_SOURCE_SHA256), calls)
+                       launcher.TOPOLOGY_SOURCE_SHA256, authorize), calls)
         stage = next(row for row in calls if row[0] == "stage")[1]
         self.assertEqual((manifest, topology, bound["topologySha256"], 12, 13, builder), stage)
         seal = next(row for row in calls if row[0] == "seal")
         self.assertEqual((bound, 13, 1002, builder._hash_fd),
                          (seal[1], seal[2], seal[4], seal[5]))
+        self.assertIs(authorize, seal[6])
+        self.assertEqual(("authorize", bound), calls[0])
         self.assertEqual(staged, {key: seal[3][key] for key in staged})
 
     def test_service_receipt_reduces_full_topology_inventory_to_exact_scalar_keys(self):

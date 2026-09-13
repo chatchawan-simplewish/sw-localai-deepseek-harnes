@@ -3,6 +3,7 @@
 import argparse
 import array
 import ctypes
+import errno
 import hashlib
 import ipaddress
 import json
@@ -73,6 +74,27 @@ UNIT_RE = re.compile(r"vm105-dsh-[0-9a-f]{32}\.service\Z")
 FINAL_CLIENT_SOURCE_SHA256 = "1381E0717A89667641CE64598911E99DE91A994994401A3F76078074823C9F34"
 MANIFEST_SOURCE_SHA256 = "371481FE62D6611913F82F65B6E26B12512FDA8A853A2F4591B6314F580C885F"
 TOPOLOGY_SOURCE_SHA256 = "AA2CA52F0460279D4FD76314BE96610BFD87B1BF3E6B2C92E5446983468B6190"
+RECONSTRUCTION_BUNDLE_ROOT = "/var/tmp/omniroute-dsh-reconstruction-input-20260914"
+RECONSTRUCTION_BINDING = types.MappingProxyType({
+    "sourceRoot": SOURCE_ROOT,
+    "stagingRoot": STAGING_ROOT,
+    "bundleRoot": RECONSTRUCTION_BUNDLE_ROOT,
+    "launcherPath": RECONSTRUCTION_BUNDLE_ROOT + "/Invoke-VM105ProductionLauncher.py",
+    "builderPath": RECONSTRUCTION_BUNDLE_ROOT + "/Build-VM105FinalClientManifest.py",
+    "builderSha256": MANIFEST_SOURCE_SHA256.lower(),
+    "topologyHelperPath": RECONSTRUCTION_BUNDLE_ROOT + "/Capture-VM105DshTopology.py",
+    "topologyHelperSha256": TOPOLOGY_SOURCE_SHA256.lower(),
+    "manifestPath": RECONSTRUCTION_BUNDLE_ROOT +
+                    "/vm105-final-client-runtime-manifest-20260913.json",
+    "manifestSha256": ACCEPTED_MANIFEST_SHA256,
+    "manifestFileSha256": "54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd",
+    "topologyPath": RECONSTRUCTION_BUNDLE_ROOT +
+                    "/vm105-dsh-topology-capture-successor-20260913.json",
+    "topologySha256": ACCEPTED_STAGING_TOPOLOGY_SHA256,
+    "topologyFileSha256": ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256,
+    "expectedPackageCount": 447,
+    "expectedLinkCount": 2029,
+})
 
 
 class LaunchBlocked(RuntimeError):
@@ -481,8 +503,8 @@ def _close_other_fds(bound, keep):
                 pass
 
 
-def _dsh_identity(bound):
-    _live(bound)
+def _dsh_identity(bound, authorize=_live):
+    authorize(bound)
     identity = pwd.getpwnam("dsh")
     if identity.pw_uid <= 0 or identity.pw_gid <= 0:
         raise LaunchBlocked("DSH_IDENTITY_REJECTED")
@@ -505,8 +527,8 @@ def _ready_writer(bound, receipt_fd, network_namespace, pid_namespace, namespace
     os.write(receipt_fd, line.encode("ascii"))
 
 
-def _load_pinned_source(bound, path, name, expected_sha256):
-    _live(bound)
+def _load_pinned_source(bound, path, name, expected_sha256, authorize=_live):
+    authorize(bound)
     descriptor = os.open(path, os.O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
     try:
         before = os.fstat(descriptor)
@@ -536,9 +558,10 @@ def _load_pinned_source(bound, path, name, expected_sha256):
     return module
 
 
-def _load_accepted(bound, filename, name, expected_sha256):
+def _load_accepted(bound, filename, name, expected_sha256, authorize=_live):
     return _load_pinned_source(
-        bound, Path(__file__).with_name(filename), name, expected_sha256)
+        bound, Path(__file__).with_name(filename), name, expected_sha256,
+        authorize=authorize)
 
 
 def _read_pinned_topology(descriptor):
@@ -747,9 +770,9 @@ def contained_composition(control_fd, credential_fd, bound, runtime,
 def _seal_staged_topology(bound, root_fd, receipt, gid, listdir=os.listdir,
                           statat=os.stat, readlink=os.readlink, openat=os.open,
                           fstat=os.fstat, fchown=None, fchmod=None,
-                          close=os.close, hash_fd=None):
+                          close=os.close, hash_fd=None, authorize=_live):
     """Grant the dsh group read/execute access without following staged links."""
-    _live(bound)
+    authorize(bound)
     fchown = fchown or getattr(os, "fchown", None)
     fchmod = fchmod or getattr(os, "fchmod", None)
     if (fchown is None or fchmod is None or hash_fd is None or
@@ -995,9 +1018,10 @@ def handoff_and_wait(bound, child_pid, control, wait_ready,
                 pass
 
 
-def stage_bound_closure(bound, identity=None, seal_tree=_seal_staged_topology):
-    bound = _live(bound)
-    identity = identity or _dsh_identity(bound)
+def stage_bound_closure(bound, identity=None, seal_tree=_seal_staged_topology,
+                        authorize=_live):
+    bound = authorize(bound)
+    identity = identity or _dsh_identity(bound, authorize=authorize)
     manifest_fd = topology_fd = source_fd = staging_fd = None
     try:
         manifest_fd = os.open(
@@ -1014,16 +1038,16 @@ def stage_bound_closure(bound, identity=None, seal_tree=_seal_staged_topology):
             STAGING_ROOT, os.O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         builder = _load_accepted(
             bound, "Build-VM105FinalClientManifest.py", "vm105_final_manifest",
-            MANIFEST_SOURCE_SHA256)
+            MANIFEST_SOURCE_SHA256, authorize=authorize)
         helper = _load_accepted(
             bound, "Capture-VM105DshTopology.py", "vm105_dsh_topology",
-            TOPOLOGY_SOURCE_SHA256)
+            TOPOLOGY_SOURCE_SHA256, authorize=authorize)
         receipt = helper.stage_verified_topology(
             manifest, topology_receipt, bound["topologySha256"],
             source_fd, staging_fd, builder)
         receipt["sealedEntries"] = seal_tree(
             bound, staging_fd, receipt, identity.pw_gid,
-            hash_fd=builder._hash_fd)
+            hash_fd=builder._hash_fd, authorize=authorize)
         return receipt
     except LaunchBlocked:
         raise
@@ -1149,20 +1173,192 @@ def service_entry(bound, credential_fd=0, contained_entry=contained_composition)
              "namespacePid": result["namespaces"]["namespacePid"]}
 
 
+def _reconstruction(value):
+    if ACCEPTED_LIVE_BINDINGS is not None or dict(value) != dict(RECONSTRUCTION_BINDING):
+        raise LaunchBlocked("RECONSTRUCTION_BINDING_REJECTED")
+    return dict(value)
+
+
+def _signed_reconstruction_receipt(status, reason, staging_precheck,
+                                   cleanup_result, stage=None):
+    stage = stage or {}
+    value = {
+        "status": status,
+        "reason": reason,
+        "manifestCanonicalSha256": ACCEPTED_MANIFEST_SHA256,
+        "manifestFileSha256": RECONSTRUCTION_BINDING["manifestFileSha256"],
+        "topologyReceiptSha256": ACCEPTED_STAGING_TOPOLOGY_SHA256,
+        "topologyFileSha256": ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256,
+        "stagingPrecheck": staging_precheck,
+        "expectedPackageCount": 447,
+        "expectedLinkCount": 2029,
+        "fileCount": stage.get("fileCount", 0),
+        "linkCount": stage.get("linkCount", 0),
+        "directoryCount": stage.get("directoryCount", 0),
+        "sealedEntries": stage.get("sealedEntries", 0),
+        "cleanupAttempted": False,
+        "cleanupResult": cleanup_result,
+    }
+    value["receiptSha256"] = hashlib.sha256(json.dumps(
+        value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return value
+
+
+def _validated_reconstruction_stage(value):
+    counts = tuple(value.get(key) for key in (
+        "fileCount", "linkCount", "directoryCount", "sealedEntries")) \
+        if isinstance(value, dict) else ()
+    if (not isinstance(value, dict) or value.get("status") != "PASS" or
+            value.get("canonicalManifestSha256") != ACCEPTED_MANIFEST_SHA256 or
+            value.get("topologyReceiptSha256") != ACCEPTED_STAGING_TOPOLOGY_SHA256 or
+            len(counts) != 4 or any(type(count) is not int for count in counts) or
+            counts[0] <= 0 or counts[1] != 2029 or counts[2] <= 0 or
+            counts[3] != counts[0] + counts[1] + counts[2] + 1):
+        raise LaunchBlocked("RECONSTRUCTION_PROOF_FAILED")
+    return value
+
+
+def _verify_reconstruction_bundle_file(path, expected_sha256, lstat=os.lstat,
+                                       open_file=os.open, fstat=os.fstat,
+                                       read=os.read, close=os.close):
+    descriptor = None
+    try:
+        before = lstat(path)
+        descriptor = open_file(path, os.O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        opened = fstat(descriptor)
+        digest = hashlib.sha256()
+        while True:
+            chunk = read(descriptor, 65536)
+            if not chunk:
+                break
+            digest.update(chunk)
+        after = fstat(descriptor)
+        final = lstat(path)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns, value.st_uid, value.st_gid)
+        if (identity(before) != identity(opened) or
+                identity(opened) != identity(after) or
+                identity(after) != identity(final) or
+                not stat.S_ISREG(opened.st_mode) or
+                opened.st_uid != 0 or opened.st_gid != 0 or
+                opened.st_mode & 0o022 or
+                digest.hexdigest() != expected_sha256):
+            raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED")
+    except LaunchBlocked:
+        raise
+    except (AttributeError, OSError, TypeError, ValueError):
+        raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED") from None
+    finally:
+        if descriptor is not None:
+            close(descriptor)
+
+
+def _verify_reconstruction_bundle_directory(path, lstat=os.lstat,
+                                            open_directory=os.open,
+                                            fstat=os.fstat, close=os.close):
+    descriptor = None
+    try:
+        before = lstat(path)
+        descriptor = open_directory(
+            path, os.O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        opened = fstat(descriptor)
+        final = lstat(path)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid)
+        if (identity(before) != identity(opened) or identity(opened) != identity(final) or
+                not stat.S_ISDIR(opened.st_mode) or opened.st_uid != 0 or
+                opened.st_gid != 0 or opened.st_mode & 0o022):
+            raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED")
+    except LaunchBlocked:
+        raise
+    except (AttributeError, OSError, TypeError, ValueError):
+        raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED") from None
+    finally:
+        if descriptor is not None:
+            close(descriptor)
+
+
+def _verify_reconstruction_bundle(bound, launcher_sha256,
+                                  verify=_verify_reconstruction_bundle_file,
+                                  verify_directory=_verify_reconstruction_bundle_directory):
+    bound = _reconstruction(bound)
+    if str(__file__) != bound["launcherPath"]:
+        raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED")
+    verify_directory(bound["bundleRoot"])
+    for path, digest in (
+            (bound["launcherPath"], launcher_sha256),
+            (bound["builderPath"], bound["builderSha256"]),
+            (bound["topologyHelperPath"], bound["topologyHelperSha256"]),
+            (bound["manifestPath"], bound["manifestFileSha256"]),
+            (bound["topologyPath"], bound["topologyFileSha256"])):
+        verify(path, digest)
+
+
+def reconstruction_entry(launcher_sha256,
+                         verify_bundle=_verify_reconstruction_bundle,
+                         lstat=os.lstat, stage=stage_bound_closure):
+    staging_precheck = "UNPROVEN"
+    cleanup_result = "UNPROVEN"
+    try:
+        if sys.platform != "linux" or os.geteuid() != 0:
+            raise LaunchBlocked("ROOT_LINUX_RECONSTRUCTION_REQUIRED")
+        bound = _reconstruction(RECONSTRUCTION_BINDING)
+        if (not isinstance(launcher_sha256, str) or
+                not re.fullmatch(r"[0-9a-f]{64}", launcher_sha256)):
+            raise LaunchBlocked("RECONSTRUCTION_LAUNCHER_HASH_REJECTED")
+        verify_bundle(bound, launcher_sha256)
+        try:
+            lstat(STAGING_ROOT)
+        except OSError as error:
+            if error.errno != errno.ENOENT:
+                raise LaunchBlocked("STAGING_PRECHECK_FAILED") from None
+        else:
+            staging_precheck = "PRESENT"
+            cleanup_result = "RETAINED_EXACT_ROOT"
+            raise LaunchBlocked("STAGING_ROOT_NOT_ABSENT")
+        staging_precheck = "ABSENT"
+        result = _validated_reconstruction_stage(
+            stage(bound, authorize=_reconstruction))
+        return _signed_reconstruction_receipt(
+            "PASS", "NONE", staging_precheck, "RETAINED_EXACT_ROOT", result)
+    except Exception as error:
+        reason = str(error) if (
+            isinstance(error, LaunchBlocked) and
+            re.fullmatch(r"[A-Z0-9_]+", str(error))) else "RECONSTRUCTION_FAILED"
+        if staging_precheck == "ABSENT":
+            try:
+                lstat(STAGING_ROOT)
+            except OSError as state_error:
+                cleanup_result = (
+                    "ABSENT" if state_error.errno == errno.ENOENT
+                    else "RETAINED_EXACT_ROOT")
+            else:
+                cleanup_result = "RETAINED_EXACT_ROOT"
+        return _signed_reconstruction_receipt(
+            "BLOCKED", reason, staging_precheck, cleanup_result)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inside-unit", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--inside-unit", action="store_true")
+    mode.add_argument("--reconstruct-only", action="store_true")
     parser.add_argument("--bindings-json")
+    parser.add_argument("--reconstruction-launcher-sha256")
     args = parser.parse_args(argv)
     try:
-        bound = json.loads(args.bindings_json or "{}")
+        if args.reconstruct_only:
+            receipt = reconstruction_entry(args.reconstruction_launcher_sha256)
+        else:
+            bound = json.loads(args.bindings_json or "{}")
         if args.inside_unit:
             receipt = service_entry(bound)
-        else:
+        elif not args.reconstruct_only:
             _live(bound)
             receipt = launch(bound, sys.stdin.buffer.fileno())
         print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
-        return 0
+        return 0 if receipt.get("status") == "PASS" else 1
     except Exception as error:
         reason = str(error) if (
             isinstance(error, LaunchBlocked) and
