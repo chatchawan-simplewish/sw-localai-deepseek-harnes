@@ -8,7 +8,7 @@ The fixed remote bundle is `/var/tmp/omniroute-dsh-reconstruction-input-20260914
 
 | File | Raw SHA-256 |
 |---|---|
-| `Invoke-VM105ProductionLauncher.py` | `05c78b6a14405cf8a42b1625b905ff0627c9a5429503add6f64ec47fa0bc4bf7` |
+| `Invoke-VM105ProductionLauncher.py` | `f2011f4d81831e4fb102f2f9e9755690418387e2f697e5ca3044417de5767c6d` |
 | `Build-VM105FinalClientManifest.py` | `371481fe62d6611913f82f65b6e26b12512fda8a853a2f4591b6314f580c885f` |
 | `Capture-VM105DshTopology.py` | `aa2ca52f0460279d4fd76314be96610bfd87b1bf3e6b2c92e5446983468b6190` |
 | `vm105-final-client-runtime-manifest-20260913.json` | `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd` |
@@ -24,7 +24,7 @@ One separately reviewed bundle-delivery action must copy only the five table ent
 
 The required fresh read-only bundle receipt is `docs/evidence/vm105-dsh-reconstruction-bundle-successor-20260914.json`. It must bind the VM identity, exact final root, directory UID/GID/mode and stable identity, and for each of the five files its fixed basename, regular/non-symlink type, UID/GID, mode, size, stable held-descriptor/path identity, and table SHA-256. The receipt must be canonical, self-hashed, scalar-only apart from the fixed five-row table, and independently accepted before reconstruction authorization. Its file and any private temporary leaf must be absent before that capture.
 
-The sole privileged reconstruction argv is `/usr/bin/sudo`, `-n`, `/usr/bin/python3.12`, `-I`, `-c`, the exact decoded bootstrap expression constructed below, and the exact launcher hash. The authenticated remote bootstrap is 2,072 ASCII bytes with SHA-256 `cb0281b3a3816d355a6e114f11f55776ed1f3ca6a95be3e4874d4b4b613dd171`; the complete remote shell command constructed below is 2,949 ASCII bytes with SHA-256 `a74def12763e5fe5e80086ef9b5759e75aa8af49f5c6bb27cb3f6d8dcd886795`. A separate read-only sudo-policy check must prove that exact argv is allowed passwordlessly; broader Python, shell, wildcard, alternate-argument, or alternate-path authority is not accepted. These delivery, receipt, independent acceptance, and sudo-policy artifacts do not yet exist, so reconstruction dispatch remains blocked.
+The sole privileged reconstruction argv is `/usr/bin/sudo`, `-n`, `/usr/bin/python3.12`, `-I`, `-c`, the exact decoded bootstrap expression constructed below, and the exact launcher hash. The authenticated remote bootstrap is 2,072 ASCII bytes with SHA-256 `cb0281b3a3816d355a6e114f11f55776ed1f3ca6a95be3e4874d4b4b613dd171`; the complete remote shell command constructed below is 2,949 ASCII bytes with SHA-256 `b2f1c14ee67933c33bea9dde2736e384389c926d84837be0820ef73d57ca8d48`. A separate read-only sudo-policy check must prove that exact argv is allowed passwordlessly; broader Python, shell, wildcard, alternate-argument, or alternate-path authority is not accepted. These delivery, receipt, independent acceptance, and sudo-policy artifacts do not yet exist, so reconstruction dispatch remains blocked.
 
 ## Dormant exact invocation
 
@@ -38,7 +38,7 @@ $input = [ordered]@{
     receiptPath = Join-Path $worktree 'docs\evidence\vm105-dsh-reconstruction-successor-20260914.json'
     markerPath = Join-Path $worktree 'docs\evidence\vm105-dsh-reconstruction-successor-attempt-20260914.json'
     launcherPath = Join-Path $worktree 'scripts\Invoke-VM105ProductionLauncher.py'
-    launcherSha256 = '05c78b6a14405cf8a42b1625b905ff0627c9a5429503add6f64ec47fa0bc4bf7'
+    launcherSha256 = 'f2011f4d81831e4fb102f2f9e9755690418387e2f697e5ca3044417de5767c6d'
     sshExe = 'C:\Windows\System32\OpenSSH\ssh.exe'
     identityPath = 'C:\Users\chatc\.ssh\codex-prox01-vms-ed25519'
 } | ConvertTo-Json -Compress
@@ -83,7 +83,7 @@ $input | & python -I -c $bootstrap
 if ($LASTEXITCODE -ne 0) { throw 'VM105_RECONSTRUCTION_BLOCKED_FAILED_OR_UNKNOWN' }
 ```
 
-The marker is written with `O_CREAT|O_EXCL`, canonical JSON, a self-hash, `remoteState=UNPROVEN`, and `retryAuthorized=false` before SSH. After that reservation, every transport timeout, output overflow, unexpected exit, malformed receipt, and nonempty stderr produces a sanitized canonical self-hashed `UNKNOWN` terminal record with `remoteState=UNPROVEN` and `retryAuthorized=false`; stderr content is never retained. Terminal publication also uses `O_CREAT|O_EXCL`. If terminal publication fails, the durable attempt marker remains as proof that the one-shot action was consumed.
+The marker is written with `O_CREAT|O_EXCL`, canonical JSON, a self-hash, `remoteState=UNPROVEN`, and `retryAuthorized=false` before SSH. After that reservation, every transport timeout, output overflow, stdout/stderr drain failure, unexpected exit, malformed receipt, and nonempty stderr produces a sanitized canonical self-hashed `UNKNOWN` terminal record with `remoteState=UNPROVEN` and `retryAuthorized=false`; stderr content is never retained. Terminal publication also uses `O_CREAT|O_EXCL`. If terminal publication fails, the durable attempt marker remains as proof that the one-shot action was consumed.
 
 An accepted remote PASS or BLOCKED result requires empty stderr, exact canonical framing and self-hash, the fixed scalar schema and pins, and a matching exit code. PASS requires `stagingPrecheck=ABSENT`, positive file/directory counts, exactly 2,029 links, the exact sealed-entry sum, and `RETAINED_EXACT_ROOT`. BLOCKED requires an allowlisted uppercase source reason, zero returned counts, and the exact staging/cleanup combination allowed for that reason. No remote traceback, stderr content, path inventory, file inventory, link inventory, credential, or provider data is published.
 

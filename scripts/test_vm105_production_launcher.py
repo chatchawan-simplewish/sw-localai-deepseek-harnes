@@ -598,6 +598,63 @@ class ProductionLauncherTests(unittest.TestCase):
                                 if isinstance(event, tuple) and event[0] == "wait"))
         self.assertEqual(2, events.count("close"))
 
+    def test_local_ssh_drain_failures_publish_unknown_even_after_valid_receipt(self):
+        passed = launcher._signed_reconstruction_receipt(
+            "PASS", "NONE", "ABSENT", "RETAINED_EXACT_ROOT", {
+                "fileCount": 10037, "linkCount": 2029,
+                "directoryCount": 6081, "sealedEntries": 18148})
+        blocked = launcher._signed_reconstruction_receipt(
+            "BLOCKED", "STAGING_ROOT_NOT_ABSENT", "PRESENT",
+            "RETAINED_EXACT_ROOT")
+        framed = lambda value: json.dumps(
+            value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+
+        for name, return_code, stdout_reads, stderr_reads in (
+                ("stdout-immediate", 0, [OSError("read failed")], [b""]),
+                ("stdout-after-pass", 0, [framed(passed), OSError("read failed")], [b""]),
+                ("stdout-after-blocked", 1, [framed(blocked), OSError("read failed")], [b""]),
+                ("stderr-after-pass", 0, [framed(passed), b""], [OSError("read failed")])):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
+                failed = launcher.threading.Event()
+
+                class Pipe:
+                    def __init__(self, reads):
+                        self.reads = iter(reads)
+
+                    def read(self, _size):
+                        value = next(self.reads, b"")
+                        if isinstance(value, OSError):
+                            failed.set()
+                            raise value
+                        return value
+
+                    def close(self):
+                        pass
+
+                class Process:
+                    def __init__(self):
+                        self.stdout = Pipe(stdout_reads)
+                        self.stderr = Pipe(stderr_reads)
+
+                    def wait(self, timeout):
+                        self.assert_failed = failed.wait(1)
+                        return return_code
+
+                    def kill(self):
+                        pass
+
+                process = Process()
+                receipt = Path(folder) / "receipt.json"
+                marker = Path(folder) / "attempt.json"
+                code = launcher._coordinate_reconstruction_attempt(
+                    receipt, marker, lambda: launcher._run_bounded_reconstruction_ssh(
+                        ["ssh"], popen=lambda *_args, **_kwargs: process))
+                self.assertTrue(process.assert_failed)
+                self.assertEqual(1, code)
+                terminal = json.loads(receipt.read_text(encoding="utf-8"))
+                self.assertEqual(("UNKNOWN", "LOCAL_SSH_DRAIN_FAILED", "UNPROVEN"), (
+                    terminal["status"], terminal["reason"], terminal["remoteState"]))
+
     def test_systemd_pipe_uses_direct_read_fd_and_exact_hardening(self):
         captured = {}
 

@@ -1450,6 +1450,7 @@ def _run_bounded_reconstruction_ssh(command, popen=subprocess.Popen,
         raise ReconstructionUnknown("LOCAL_SSH_START_FAILED") from None
     output = {"stdout": bytearray(), "stderr": bytearray()}
     overflow = []
+    drain_failed = threading.Event()
 
     def drain(name, stream, limit):
         try:
@@ -1460,7 +1461,7 @@ def _run_bounded_reconstruction_ssh(command, popen=subprocess.Popen,
                     return
                 output[name].extend(chunk)
         except OSError:
-            pass
+            drain_failed.set()
 
     threads = [
         threading.Thread(target=drain, args=("stdout", process.stdout, max_stdout), daemon=True),
@@ -1489,6 +1490,8 @@ def _run_bounded_reconstruction_ssh(command, popen=subprocess.Popen,
             stop_and_reap()
         for thread in threads:
             thread.join(max(0, deadline - time.monotonic()) if not timed_out else 5)
+        if drain_failed.is_set():
+            raise ReconstructionUnknown("LOCAL_SSH_DRAIN_FAILED")
         if timed_out:
             raise ReconstructionUnknown("LOCAL_SSH_TIMEOUT")
         if overflow or any(thread.is_alive() for thread in threads):
