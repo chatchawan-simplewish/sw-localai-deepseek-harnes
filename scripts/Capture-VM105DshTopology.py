@@ -859,10 +859,12 @@ def _publish_fresh(path: Path, value: bytes) -> None:
                 pass
 
 
-def capture_via_ssh(source_path: Path, expected_source_sha256: str, manifest_path: Path,
+def capture_via_ssh(source: bytes, expected_source_sha256: str, manifest_path: Path,
                     builder_path: Path, evidence_path: Path, ssh_exe: Path,
                     identity_path: Path) -> dict:
-    source = _read_pinned_file(source_path, expected_source_sha256, "CAPTURE_SOURCE_HASH_MISMATCH")
+    if hashlib.sha256(source).hexdigest() != _hex_digest(
+            expected_source_sha256, "CAPTURE_SOURCE_HASH_MISMATCH"):
+        raise CaptureBlocked("CAPTURE_SOURCE_HASH_MISMATCH")
     manifest_raw = _read_pinned_file(manifest_path, ACCEPTED_MANIFEST_FILE_SHA256,
                                      "ACCEPTED_MANIFEST_FILE_HASH_MISMATCH")
     builder = _read_pinned_file(builder_path, ACCEPTED_BUILDER_SHA256,
@@ -884,28 +886,26 @@ def capture_via_ssh(source_path: Path, expected_source_sha256: str, manifest_pat
     return json.loads(validated)
 
 
+def coordinator_entry(payload: dict, source: bytes) -> int:
+    try:
+        _exact_keys(payload, {"expectedCaptureSourceSha256", "acceptedManifestPath", "builderPath",
+                              "evidencePath", "sshExe", "identityPath"}, "CAPTURE_ARGUMENT_INVALID")
+        value = capture_via_ssh(source, payload["expectedCaptureSourceSha256"],
+                                Path(payload["acceptedManifestPath"]), Path(payload["builderPath"]),
+                                Path(payload["evidencePath"]), Path(payload["sshExe"]),
+                                Path(payload["identityPath"]))
+    except (CaptureBlocked, TypeError):
+        sys.stderr.write("CAPTURE_COORDINATOR_BLOCKED\n")
+        return 1
+    sys.stdout.write(canonical_bytes(value).decode("utf-8") + "\n")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--accepted-manifest", type=Path, required=True)
     parser.add_argument("--builder", type=Path, required=True)
-    parser.add_argument("--capture-via-ssh", action="store_true")
-    parser.add_argument("--evidence", type=Path)
-    parser.add_argument("--expected-source-sha256")
-    parser.add_argument("--ssh-exe", type=Path)
-    parser.add_argument("--identity", type=Path)
     args = parser.parse_args(argv)
-    if args.capture_via_ssh:
-        try:
-            if None in (args.evidence, args.expected_source_sha256, args.ssh_exe, args.identity):
-                raise CaptureBlocked("CAPTURE_ARGUMENT_INVALID")
-            value = capture_via_ssh(Path(__file__).resolve(), args.expected_source_sha256,
-                                    args.accepted_manifest, args.builder, args.evidence,
-                                    args.ssh_exe, args.identity)
-        except CaptureBlocked as error:
-            sys.stderr.write(str(error) + "\n")
-            return 1
-        sys.stdout.write(canonical_bytes(value).decode("utf-8") + "\n")
-        return 0
     try:
         payload = {"installRoot": str(INSTALL_ROOT),
                    "acceptedManifest": json.loads(args.accepted_manifest.read_text(encoding="utf-8")),

@@ -7,6 +7,7 @@ from pathlib import Path
 import posixpath
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -448,6 +449,33 @@ class TopologyCaptureTests(unittest.TestCase):
         bootstrap = __import__("base64").b64decode(encoded).decode("utf-8")
         self.assertIn('hashlib.sha256(b).hexdigest()==h', bootstrap)
         self.assertLess(bootstrap.index('hashlib.sha256(b).hexdigest()==h'), bootstrap.index('exec(compile'))
+
+        contract = (SCRIPT.parent.parent / "docs/contracts/vm105-dsh-topology-capture-contract-20260913.md").read_text()
+        command = contract.split("```powershell", 1)[1].split("```", 1)[0]
+        self.assertLess(command.index("CAPTURE_SOURCE_HASH_MISMATCH"), command.index("| & python"))
+        self.assertIn("source = $sourceText", command)
+
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        if powershell:
+            altered = directory / "altered.py"
+            marker = directory / "executed.txt"
+            altered.write_text('import os;open(os.environ["CAPTURE_TEST_MARKER"],"w").write("executed")\n')
+            environment = os.environ.copy()
+            environment.update(CAPTURE_TEST_SOURCE=str(altered), CAPTURE_TEST_MARKER=str(marker),
+                               CAPTURE_TEST_EXPECTED=hashlib.sha256(b"pass\n").hexdigest())
+            guard = r'''
+$sourceBytes = [IO.File]::ReadAllBytes($env:CAPTURE_TEST_SOURCE)
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try { $actual = [BitConverter]::ToString($sha256.ComputeHash($sourceBytes)).Replace('-', '').ToLowerInvariant() }
+finally { $sha256.Dispose() }
+if ($actual -cne $env:CAPTURE_TEST_EXPECTED) { exit 73 }
+$sourceText = [Text.UTF8Encoding]::new($false, $true).GetString($sourceBytes)
+$sourceText | & python -I -c 'import sys;exec(sys.stdin.read())'
+'''
+            result = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", guard],
+                                    env=environment, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 73)
+            self.assertFalse(marker.exists())
 
     def test_capture_transport_has_total_and_output_bounds(self):
         self.assertEqual(capture._run_bounded(

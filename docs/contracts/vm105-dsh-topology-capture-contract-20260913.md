@@ -14,7 +14,7 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 - Pinned Node runtime: `/opt/node-v24.19.0-linux-x64/bin/node`
 - Target interpreter: `/usr/bin/python3.12 -I`
 - Local capture source: `scripts/Capture-VM105DshTopology.py`
-- Independently pinned capture-source SHA-256: `5a2ca5d427e650f7c23a0925cb931d9d241ff4cf3ba8b48a5c644219b46aef82`
+- Independently pinned capture-source SHA-256: `3c4b36680d05fd55c9ab3bb33331cc3fc68eee4eee3f26adf7a32f0c47891b66`
 - Accepted manifest: `docs/evidence/vm105-final-client-runtime-manifest-20260913.json`
 - Accepted manifest canonical SHA-256: `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`
 - Accepted manifest file SHA-256: `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd`
@@ -41,7 +41,7 @@ The receipt also records the exact reachable logical and canonical paths, stable
 
 ## Exact coordinator dispatch command
 
-Run only after the fresh capture dispatch is granted. The existing capture script enforces the independent source, manifest-file, and builder hashes before SSH; a 600-second total process deadline; an 8 MiB stdout limit; a 64 KiB stderr limit; and the existing 10-second SSH connection timeout. It accepts exactly one canonical UTF-8 JSON line, validates the exact PASS or BLOCKED schema and canonical self-hash, writes only those validated canonical bytes to a private same-directory file, and publishes them through a fresh no-overwrite hard link. Timeout, transport, oversized output, malformed output, hash failure, a symlink/non-regular input, or an existing evidence leaf fails with a constant reason and leaves the intended evidence path untouched.
+Run only after the fresh capture dispatch is granted. Trusted PowerShell first reads the source as raw bytes from a regular non-link file and verifies the independently pinned hash before any Python from that source can execute. A fixed local bootstrap rechecks those exact bytes before compiling them; the verified coordinator then enforces the manifest-file and builder hashes before SSH, a 600-second total process deadline, an 8 MiB stdout limit, a 64 KiB stderr limit, and the existing 10-second SSH connection timeout. It accepts exactly one canonical UTF-8 JSON line, validates the exact PASS or BLOCKED schema and canonical self-hash, writes only those validated canonical bytes to a private same-directory file, and publishes them through a fresh no-overwrite hard link. Timeout, transport, oversized output, malformed output, hash failure, a symlink/non-regular input, or an existing evidence leaf fails with a constant reason and leaves the intended evidence path untouched.
 
 ```powershell
 $worktree = 'C:\Users\chatc\Projects\sw-localai-deepseek-harnes\.worktrees\vm105-authoritative-roadmap'
@@ -49,14 +49,31 @@ $sourcePath = Join-Path $worktree 'scripts\Capture-VM105DshTopology.py'
 $manifestPath = Join-Path $worktree 'docs\evidence\vm105-final-client-runtime-manifest-20260913.json'
 $builderPath = Join-Path $worktree 'scripts\Build-VM105FinalClientManifest.py'
 $evidencePath = Join-Path $worktree 'docs\evidence\vm105-dsh-topology-capture-20260913.json'
-$expectedCaptureSourceSha256 = '5a2ca5d427e650f7c23a0925cb931d9d241ff4cf3ba8b48a5c644219b46aef82'
-& python $sourcePath --capture-via-ssh `
-    --accepted-manifest $manifestPath `
-    --builder $builderPath `
-    --evidence $evidencePath `
-    --expected-source-sha256 $expectedCaptureSourceSha256 `
-    --ssh-exe 'C:\Windows\System32\OpenSSH\ssh.exe' `
-    --identity 'C:\Users\chatc\.ssh\codex-prox01-vms-ed25519'
+$expectedCaptureSourceSha256 = '3c4b36680d05fd55c9ab3bb33331cc3fc68eee4eee3f26adf7a32f0c47891b66'
+$sourceItem = Get-Item -LiteralPath $sourcePath -Force
+if ($sourceItem.PSIsContainer -or ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw 'CAPTURE_SOURCE_NOT_REGULAR'
+}
+$sourceBytes = [IO.File]::ReadAllBytes($sourcePath)
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try {
+    $actualCaptureSourceSha256 = [BitConverter]::ToString($sha256.ComputeHash($sourceBytes)).Replace('-', '').ToLowerInvariant()
+} finally {
+    $sha256.Dispose()
+}
+if ($actualCaptureSourceSha256 -cne $expectedCaptureSourceSha256) { throw 'CAPTURE_SOURCE_HASH_MISMATCH' }
+$sourceText = [Text.UTF8Encoding]::new($false, $true).GetString($sourceBytes)
+$payload = [ordered]@{
+    source = $sourceText
+    expectedCaptureSourceSha256 = $expectedCaptureSourceSha256
+    acceptedManifestPath = $manifestPath
+    builderPath = $builderPath
+    evidencePath = $evidencePath
+    sshExe = 'C:\Windows\System32\OpenSSH\ssh.exe'
+    identityPath = 'C:\Users\chatc\.ssh\codex-prox01-vms-ed25519'
+} | ConvertTo-Json -Compress
+$localBootstrap = 'import hashlib,json,sys;p=json.load(sys.stdin);s=p.pop("source");b=s.encode("utf-8");hashlib.sha256(b).hexdigest()==p["expectedCaptureSourceSha256"] or (_ for _ in ()).throw(SystemExit(73));n={"__name__":"vm105_topology_capture"};exec(compile(s,"<vm105-topology-capture>","exec"),n);raise SystemExit(n["coordinator_entry"](p,b))'
+$payload | & python -I -c $localBootstrap
 if ($LASTEXITCODE -ne 0) { throw 'VM105_TOPOLOGY_CAPTURE_FAILED' }
 ```
 
