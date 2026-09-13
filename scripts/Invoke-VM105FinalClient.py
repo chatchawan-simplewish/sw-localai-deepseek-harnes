@@ -80,12 +80,14 @@ def receive_gateway_sockets(control, expected_ip, expected_port):
 
 class TwoRequestRelay:
     """Two-request relay backed by fixture connections or an accepted socket pair."""
-    def __init__(self, gateway_base, key='fixture-key-not-secret', timeout=3, upstream_sockets=None):
+    def __init__(self, gateway_base, key='fixture-key-not-secret', timeout=3,
+                 upstream_sockets=None, listen_port=0):
         target = urllib.parse.urlsplit(gateway_base)
         fixture = upstream_sockets is None
         if target.scheme != 'http' or target.path != '/v1' or target.query or target.fragment or target.username or not target.hostname or not isinstance(key, str) or not key or '\r' in key or '\n' in key or (fixture and (target.hostname != '127.0.0.1' or key != 'fixture-key-not-secret')):
             raise ValueError('fixture binding required')
-        if not fixture and len(upstream_sockets) != 2:
+        if (not fixture and len(upstream_sockets) != 2) or (fixture and listen_port != 0) or \
+                type(listen_port) is not int or not 0 <= listen_port < 65536:
             raise ValueError('production socket pair required')
         self.target, self.timeout = target, timeout
         self.key = key
@@ -93,7 +95,10 @@ class TwoRequestRelay:
         self.claimed_upstreams = [False, False]
         self.lock, self.ack = threading.Lock(), threading.Event()
         self.chat_forwarded = threading.Event()
-        self.state = {'count': 0, 'tuple': None, 'failed': False, 'committed': False, 'output': False}
+        self.state = {
+            'count': 0, 'requestAttempts': 0, 'deniedRequests': 0,
+            'tuple': None, 'failed': False, 'committed': False, 'output': False,
+        }
         self.connections = []
         relay = self
 
@@ -101,8 +106,11 @@ class TwoRequestRelay:
             def log_message(self, *args):
                 pass
 
-            def deny(self, send=True):
+            def deny(self, send=True, request_counted=False):
                 with relay.lock:
+                    if not request_counted:
+                        relay.state['requestAttempts'] += 1
+                    relay.state['deniedRequests'] += 1
                     if not relay.state['output']:
                         relay.state['failed'] = True
                         relay._close_upstream_sockets()
@@ -120,6 +128,8 @@ class TwoRequestRelay:
             def do_POST(self):
                 sent = False
                 self.connection.settimeout(relay.timeout)
+                with relay.lock:
+                    relay.state['requestAttempts'] += 1
                 try:
                     lengths = self.headers.get_all('Content-Length', [])
                     if len(lengths) != 1 or self.headers.get('Transfer-Encoding') or not 0 < int(lengths[0]) <= 65536:
@@ -170,30 +180,35 @@ class TwoRequestRelay:
                         with relay.lock:
                             if not relay.state['committed'] or relay.state['failed']:
                                 raise ValueError()
-                            relay.state['output'] = True
                         sent = True
                         self.send_response(200)
                         self.send_header('Content-Type', 'text/event-stream')
                         self.end_headers()
                         self.wfile.write(first)
                         self.wfile.flush()
+                        with relay.lock:
+                            if relay.state['failed']:
+                                raise ValueError()
+                            relay.state['output'] = True
                         while chunk := response.read1(4096):
                             self.wfile.write(chunk)
                             self.wfile.flush()
                 except (ValueError, TypeError, AttributeError, OSError, http.client.HTTPException):
-                    self.deny(send=not sent)
+                    self.deny(send=not sent, request_counted=True)
                 finally:
                     if 'upstream' in locals():
                         upstream.close()
 
-        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', listen_port), Handler)
         self.server.daemon_threads = False
         self.address = self.server.server_address
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': .02})
 
     @classmethod
-    def from_socket_handoff(cls, control, gateway_ip, gateway_port, key, timeout=3):
-        if not isinstance(key, str) or not key or '\r' in key or '\n' in key:
+    def from_socket_handoff(cls, control, gateway_ip, gateway_port, key, timeout=3,
+                            listen_port=None):
+        if (not isinstance(key, str) or not key or '\r' in key or '\n' in key or
+                type(listen_port) is not int or not 0 < listen_port < 65536):
             control.close()
             raise ValueError('production key binding required')
         try:
@@ -203,7 +218,8 @@ class TwoRequestRelay:
         try:
             ip = ipaddress.ip_address(gateway_ip)
             host = '[%s]' % ip if ip.version == 6 else str(ip)
-            return cls('http://%s:%s/v1' % (host, gateway_port), key, timeout, streams)
+            return cls('http://%s:%s/v1' % (host, gateway_port), key, timeout,
+                       streams, listen_port)
         except Exception:
             for stream in streams:
                 stream.close()

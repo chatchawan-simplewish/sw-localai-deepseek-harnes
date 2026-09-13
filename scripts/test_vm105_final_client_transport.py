@@ -101,7 +101,8 @@ class TransportTest(unittest.TestCase):
         control = MagicMock()
         with patch.object(transport, 'receive_gateway_sockets', return_value=tuple(pair)) as receive:
             relay = transport.TwoRequestRelay.from_socket_handoff(
-                control, '192.0.2.10', 20128, 'test-key', timeout=1)
+                control, '192.0.2.10', 20128, 'test-key', timeout=1,
+                listen_port=39105)
         try:
             receive.assert_called_once_with(control, '192.0.2.10', 20128)
             control.close.assert_called_once_with()
@@ -112,6 +113,7 @@ class TransportTest(unittest.TestCase):
             self.assertIs(ack.sock, pair[1])
             for stream in pair:
                 stream.settimeout.assert_called_once_with(1)
+            self.assertEqual(('127.0.0.1', 39105), relay.address)
         finally:
             relay.server.server_close()
             relay._close_upstream_sockets()
@@ -134,13 +136,13 @@ class TransportTest(unittest.TestCase):
         self.assertFalse(transport.production_preflight(transport.GATEWAY, 'opaque-ref', manifest)['clientInvoked'])
 
 class ReviewRegressionTest(unittest.TestCase):
-    def test_third_request_after_output_commit_cannot_poison_transaction(self):
+    def test_third_request_after_output_commit_is_counted_as_denied(self):
         import http.client
         import http.server
         import json
         import threading
 
-        paused, release, chat_arrived = (threading.Event() for _ in range(3))
+        chat_arrived = threading.Event()
         results, workers, relay_ref = {}, [], []
         identity = dict(taskId='t', runId='r', turnId='u', idempotencyKey='i')
 
@@ -158,15 +160,6 @@ class ReviewRegressionTest(unittest.TestCase):
         gateway.daemon_threads = False
         gateway_thread = threading.Thread(target=gateway.serve_forever, kwargs={'poll_interval': .01})
         gateway_thread.start()
-        original_send_response = http.server.BaseHTTPRequestHandler.send_response
-
-        def pause_committed_chat(handler, status, *args, **kwargs):
-            if status == 200 and relay_ref and handler.server is relay_ref[0].server:
-                paused.set()
-                if not release.wait(3):
-                    raise OSError('committed chat pause timed out')
-            return original_send_response(handler, status, *args, **kwargs)
-
         def request(method, path, payload=None):
             connection = http.client.HTTPConnection(*relay_ref[0].address, timeout=4)
             try:
@@ -181,27 +174,25 @@ class ReviewRegressionTest(unittest.TestCase):
         try:
             with transport.TwoRequestRelay('http://127.0.0.1:%s/v1' % gateway.server_port) as relay:
                 relay_ref.append(relay)
-                with patch.object(http.server.BaseHTTPRequestHandler, 'send_response', pause_committed_chat):
-                    chat = threading.Thread(target=request, args=('POST', transport.CHAT, dict(identity, model='agent/normal', stream=True, tools=[], tool_choice='none')))
-                    workers.append(chat); chat.start()
-                    self.assertTrue(chat_arrived.wait(2))
-                    ack = threading.Thread(target=request, args=('POST', transport.ACK, dict(identity, event='output_started')))
-                    workers.append(ack); ack.start()
-                    try:
-                        self.assertTrue(paused.wait(2))
-                        self.assertTrue(relay.state['output'])
-                        self.assertFalse(relay.state['failed'])
-                        self.assertEqual(request('GET', '/third'), (403, b''))
-                        self.assertFalse(relay.state['failed'])
-                    finally:
-                        release.set()
-                        for worker in workers: worker.join(4)
+                chat = threading.Thread(target=request, args=('POST', transport.CHAT, dict(identity, model='agent/normal', stream=True, tools=[], tool_choice='none')))
+                workers.append(chat); chat.start()
+                self.assertTrue(chat_arrived.wait(2))
+                ack = threading.Thread(target=request, args=('POST', transport.ACK, dict(identity, event='output_started')))
+                workers.append(ack); ack.start()
+                for worker in workers: worker.join(4)
                 self.assertEqual(results[('POST', transport.CHAT)], (200, b'data: complete\n\n'))
                 self.assertEqual(results[('POST', transport.ACK)], (202, b'{"accepted":true}'))
+                self.assertTrue(relay.state['output'])
+                self.assertEqual(request('GET', '/third'), (403, b''))
                 self.assertFalse(relay.state['failed'])
+                self.assertEqual(relay.state['count'], 2)
+                self.assertEqual(relay.state['requestAttempts'], 3)
+                self.assertEqual(relay.state['deniedRequests'], 1)
+                self.assertEqual(request('POST', '/invalid', identity), (403, b''))
+                self.assertEqual(relay.state['requestAttempts'], 4)
+                self.assertEqual(relay.state['deniedRequests'], 2)
             self.assertFalse(relay.state['failed'])
         finally:
-            release.set()
             for worker in workers: worker.join(4)
             gateway.shutdown(); gateway.server_close(); gateway_thread.join()
 
@@ -300,20 +291,26 @@ class ReviewRegressionTest(unittest.TestCase):
             for worker in workers: worker.join(4)
             gateway.shutdown(); gateway.server_close(); gateway_thread.join()
 
-    def test_chat_waits_for_downstream_ack_write_and_failure_releases_nothing(self):
+    def test_chat_commits_output_only_after_ack_and_first_byte_writes(self):
         import http.server
+        import socketserver
         import threading
         from unittest.mock import patch
         original = http.server.BaseHTTPRequestHandler.end_headers
-        for fail_write in (False, True):
+        original_write = socketserver._SocketWriter.write
+        for failure in (None, 'ack', 'chat'):
             entered, release, chat_output = threading.Event(), threading.Event(), threading.Event()
             def delayed(handler):
                 if handler.path == transport.ACK and handler.server.server_address == address[0]:
                     entered.set()
                     release.wait(2)
-                    if fail_write:
+                    if failure == 'ack':
                         raise OSError('fixture failed downstream ACK write')
                 return original(handler)
+            def write_first(stream, data):
+                if failure == 'chat' and data == b'd':
+                    raise OSError('fixture failed downstream chat first-byte write')
+                return original_write(stream, data)
             # The gateway is real; only the downstream socket-write boundary is held/fails.
             class Gateway(http.server.BaseHTTPRequestHandler):
                 def log_message(self, *args): pass
@@ -340,7 +337,8 @@ class ReviewRegressionTest(unittest.TestCase):
             try:
                 with transport.TwoRequestRelay('http://127.0.0.1:%s/v1' % gateway.server_port) as relay:
                     address.append(relay.address)
-                    with patch.object(http.server.BaseHTTPRequestHandler, 'end_headers', delayed):
+                    with patch.object(http.server.BaseHTTPRequestHandler, 'end_headers', delayed), \
+                         patch.object(socketserver._SocketWriter, 'write', write_first):
                         chat = threading.Thread(target=request, args=(transport.CHAT, dict(identity, model='agent/normal', stream=True, tools=[], tool_choice='none'))); workers.append(chat); chat.start()
                         import time
                         deadline = time.monotonic()+2
@@ -351,7 +349,9 @@ class ReviewRegressionTest(unittest.TestCase):
                             self.assertFalse(chat_output.wait(.15), 'chat escaped before downstream ACK write')
                         finally: release.set()
                         for w in workers: w.join(3)
-                        self.assertEqual(chat_output.is_set(), not fail_write)
+                        self.assertEqual(chat_output.is_set(), failure is None)
+                        self.assertEqual(relay.state['output'], failure is None)
+                        self.assertEqual(relay.state['failed'], failure is not None)
                 self.assertFalse(relay.thread.is_alive())
                 self.assertTrue(all(not w.is_alive() for w in workers))
                 self.assertTrue(all(c.sock is None for c in relay.connections + clients))
