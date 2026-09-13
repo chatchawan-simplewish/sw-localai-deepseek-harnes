@@ -17,6 +17,8 @@ INSTALL_ROOT = "/opt/deepseek-harness/node_modules"
 NODE = "/opt/node-v24.19.0-linux-x64/bin/node"
 LDD = ("ldd",)
 MODULE_SUFFIXES = {".js", ".cjs", ".mjs", ".json", ".node", ".wasm"}
+ACCEPTED_MANIFEST_SHA256 = "4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b"
+ACCEPTED_MODULE_COUNT = 10_026
 ACCEPTED_PINS = {
     "entrypoints": {
         ("@deepseek-ai/dsh", "lib/bin.js"): "c0226687bb20f45c603ec6fe50f3de16d1c3510c3a803304ec575ef9bc366c62",
@@ -36,6 +38,200 @@ class ManifestBlocked(RuntimeError):
 
 def canonical_bytes(manifest: dict) -> bytes:
     return json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _require_descriptor_platform():
+    if os.name != "posix" or not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
+        raise ManifestBlocked("DESCRIPTOR_STAGING_UNSUPPORTED")
+
+
+def _parts(path, absolute):
+    if not isinstance(path, str) or "\\" in path or path.startswith("/") != absolute:
+        raise ManifestBlocked("STAGING_PATH_INVALID")
+    parts = path.split("/")[1:] if absolute else path.split("/")
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ManifestBlocked("STAGING_PATH_INVALID")
+    return parts
+
+
+def _directory_at(root_fd, parts, create=False):
+    current = os.dup(root_fd)
+    try:
+        for part in parts:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=current)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+            os.close(current)
+            current = child
+        return current
+    except OSError as error:
+        os.close(current)
+        raise ManifestBlocked("STAGING_PATH_UNRESOLVED") from error
+
+
+def _open_regular_at(root_fd, path, absolute):
+    parts = _parts(path, absolute)
+    parent = _directory_at(root_fd, parts[:-1])
+    try:
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    finally:
+        os.close(parent)
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise ManifestBlocked("SOURCE_NOT_REGULAR")
+    return descriptor
+
+
+def _open_source_at(root_fd, canonical_path):
+    return _open_regular_at(root_fd, canonical_path, True)
+
+
+def _open_staged_at(root_fd, relative_path):
+    return _open_regular_at(root_fd, relative_path, False)
+
+
+def _create_destination_at(root_fd, relative_path):
+    parts = _parts(relative_path, False)
+    parent = _directory_at(root_fd, parts[:-1], create=True)
+    try:
+        return os.open(parts[-1], os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                       0o600, dir_fd=parent)
+    finally:
+        os.close(parent)
+
+
+def _require_empty_staging(root_fd):
+    try:
+        if os.listdir(root_fd):
+            raise ManifestBlocked("STAGING_ROOT_NOT_EMPTY")
+    except OSError as error:
+        raise ManifestBlocked("STAGING_ROOT_UNRESOLVED") from error
+
+
+def _enumerate_staging(root_fd):
+    files, directories = set(), set()
+
+    def visit(directory_fd, prefix):
+        for name in os.listdir(directory_fd):
+            relative = "/".join((*prefix, name))
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                directories.add(relative)
+                child = _directory_at(directory_fd, [name])
+                try:
+                    visit(child, (*prefix, name))
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(info.st_mode):
+                files.add(relative)
+            else:
+                raise ManifestBlocked("STAGING_ARTIFACT_NOT_REGULAR")
+
+    visit(root_fd, ())
+    return files, directories
+
+
+def _manifest_staging_rows(manifest):
+    if not isinstance(manifest, dict) or manifest.get("status") != "PASS":
+        raise ManifestBlocked("ACCEPTED_MANIFEST_REQUIRED")
+    unsigned = dict(manifest)
+    claimed = unsigned.pop("canonicalManifestSha256", None)
+    actual = hashlib.sha256(canonical_bytes(unsigned)).hexdigest()
+    modules = manifest.get("modules")
+    if claimed != ACCEPTED_MANIFEST_SHA256 or actual != ACCEPTED_MANIFEST_SHA256:
+        raise ManifestBlocked("ACCEPTED_MANIFEST_MISMATCH")
+    if not isinstance(modules, list) or len(modules) != ACCEPTED_MODULE_COUNT:
+        raise ManifestBlocked("ACCEPTED_MODULE_COUNT_MISMATCH")
+    runtime = manifest.get("runtime")
+    if not isinstance(runtime, dict) or not isinstance(runtime.get("dependencies"), list):
+        raise ManifestBlocked("RUNTIME_UNRESOLVED")
+
+    rows = []
+    for row in modules:
+        rows.append((row.get("sourceCanonicalPath"), row.get("stagedRelativePath"), row.get("sha256"), 0o600))
+    for row in manifest.get("configBundles", []):
+        logical = row.get("logicalPath")
+        rows.append((row.get("canonicalPath"), "config/" + "/".join(_parts(logical, False)), row.get("sha256"), 0o600))
+    for index, row in enumerate([runtime.get("node"), *runtime["dependencies"]]):
+        if not isinstance(row, dict):
+            raise ManifestBlocked("RUNTIME_UNRESOLVED")
+        logical = row.get("logicalPath")
+        rows.append((row.get("canonicalPath"), "runtime/" + "/".join(_parts(logical, True)),
+                     row.get("sha256"), 0o500 if index == 0 else 0o600))
+
+    destinations = set()
+    for source, destination, expected, _mode in rows:
+        _parts(source, True)
+        _parts(destination, False)
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ManifestBlocked("STAGING_HASH_INVALID")
+        if destination in destinations:
+            raise ManifestBlocked("STAGING_PATH_COLLISION")
+        destinations.add(destination)
+    return rows
+
+
+def _hash_fd(descriptor):
+    value = hashlib.sha256()
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    for part in iter(lambda: os.read(descriptor, 65536), b""):
+        value.update(part)
+    return value.hexdigest()
+
+
+def stage_verified_closure(manifest, source_root_fd, staging_root_fd):
+    """Copy the accepted closure between held Linux directory descriptors."""
+    _require_descriptor_platform()
+    _require_empty_staging(staging_root_fd)
+    rows = _manifest_staging_rows(manifest)
+    expected = {destination: (expected_hash, mode) for _, destination, expected_hash, mode in rows}
+    expected_dirs = {"/".join(parts[:index]) for path in expected
+                     for parts in [path.split("/")] for index in range(1, len(parts))}
+    for source_path, destination_path, expected_hash, mode in rows:
+        source_fd = destination_fd = None
+        try:
+            source_fd = _open_source_at(source_root_fd, source_path)
+            before = os.fstat(source_fd)
+            identity = (before.st_dev, before.st_ino, before.st_mode, before.st_size,
+                        before.st_mtime_ns, before.st_ctime_ns)
+            if _hash_fd(source_fd) != expected_hash:
+                raise ManifestBlocked("SOURCE_HASH_MISMATCH")
+            destination_fd = _create_destination_at(staging_root_fd, destination_path)
+            os.lseek(source_fd, 0, os.SEEK_SET)
+            for part in iter(lambda: os.read(source_fd, 65536), b""):
+                view = memoryview(part)
+                while view:
+                    view = view[os.write(destination_fd, view):]
+            os.fchmod(destination_fd, mode)
+            os.fsync(destination_fd)
+            after = os.fstat(source_fd)
+            if identity != (after.st_dev, after.st_ino, after.st_mode, after.st_size,
+                            after.st_mtime_ns, after.st_ctime_ns):
+                raise ManifestBlocked("SOURCE_IDENTITY_DRIFT")
+            if _hash_fd(destination_fd) != expected_hash:
+                raise ManifestBlocked("STAGED_HASH_MISMATCH")
+        except OSError as error:
+            raise ManifestBlocked("STAGING_COPY_FAILED") from error
+        finally:
+            if destination_fd is not None:
+                os.close(destination_fd)
+            if source_fd is not None:
+                os.close(source_fd)
+    files, directories = _enumerate_staging(staging_root_fd)
+    if files != set(expected) or directories != expected_dirs:
+        raise ManifestBlocked("STAGING_TREE_MISMATCH")
+    for path, (expected_hash, _mode) in expected.items():
+        descriptor = _open_staged_at(staging_root_fd, path)
+        try:
+            if _hash_fd(descriptor) != expected_hash:
+                raise ManifestBlocked("STAGED_HASH_MISMATCH")
+        finally:
+            os.close(descriptor)
+    return {"status": "PASS", "files": len(rows), "modules": len(manifest["modules"]),
+            "canonicalManifestSha256": ACCEPTED_MANIFEST_SHA256}
 
 
 def digest(path):

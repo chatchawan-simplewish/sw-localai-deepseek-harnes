@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 import unittest
@@ -15,6 +16,138 @@ sys.path.insert(0, str(SCRIPTS))
 
 
 class FinalClientManifestTests(unittest.TestCase):
+    def staging_fixture(self):
+        temp = tempfile.TemporaryDirectory()
+        root = Path(temp.name)
+        source, staging = root / "source", root / "staging"
+        files = {
+            "/opt/modules/a.js": b"module\n",
+            "/opt/config/agent.yml": b"config\n",
+            "/opt/node": b"node\n",
+            "/lib/libfixture.so": b"library\n",
+        }
+        for logical, value in files.items():
+            path = source / logical.lstrip("/")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(value)
+        staging.mkdir()
+
+        def row(logical, staged=None):
+            value = {"logicalPath": logical, "canonicalPath": logical,
+                     "sha256": hashlib.sha256(files[logical]).hexdigest()}
+            if staged:
+                value = {"sourceLogicalPath": logical, "sourceCanonicalPath": logical,
+                         "stagedRelativePath": staged, "sha256": value["sha256"]}
+            return value
+
+        config = row("/opt/config/agent.yml")
+        config["logicalPath"] = "opt/config/agent.yml"
+        manifest = {
+            "status": "PASS", "packages": [], "edges": [], "entrypoints": [],
+            "configBundles": [config],
+            "modules": [row("/opt/modules/a.js", "modules/a.js")],
+            "runtime": {"node": row("/opt/node"), "dependencies": [row("/lib/libfixture.so")]},
+        }
+        accepted = hashlib.sha256(importlib.import_module("Build-VM105FinalClientManifest").canonical_bytes(manifest)).hexdigest()
+        manifest["canonicalManifestSha256"] = accepted
+        return temp, source, staging, manifest, accepted
+
+    def staging_patches(self, module, source, staging, before_enumerate=None):
+        def open_source(_root_fd, canonical):
+            path = source / canonical.lstrip("/")
+            if path.is_symlink():
+                raise module.ManifestBlocked("SOURCE_LINK")
+            return os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+
+        def create_destination(_root_fd, relative):
+            path = staging / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+
+        def enumerate_staging(_root_fd):
+            if before_enumerate:
+                before_enumerate()
+            files = {path.relative_to(staging).as_posix() for path in staging.rglob("*") if path.is_file()}
+            directories = {path.relative_to(staging).as_posix() for path in staging.rglob("*") if path.is_dir()}
+            return files, directories
+
+        def open_staged(_root_fd, relative):
+            return os.open(staging / relative, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+
+        return (patch.object(module, "_require_descriptor_platform"),
+                patch.object(module, "_require_empty_staging", side_effect=lambda _fd: None if not any(staging.iterdir()) else (_ for _ in ()).throw(module.ManifestBlocked("STAGING_ROOT_NOT_EMPTY"))),
+                patch.object(module, "_open_source_at", side_effect=open_source),
+                patch.object(module, "_create_destination_at", side_effect=create_destination),
+                patch.object(module, "_enumerate_staging", side_effect=enumerate_staging),
+                patch.object(module, "_open_staged_at", side_effect=open_staged))
+
+    def test_stage_verified_closure_copies_complete_pinned_tree(self):
+        """Fails until descriptor-held staging copies modules, config, Node, and libraries."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        temp, source, staging, manifest, accepted = self.staging_fixture()
+        self.addCleanup(temp.cleanup)
+        patches = self.staging_patches(module, source, staging)
+        with patch.object(module, "ACCEPTED_MANIFEST_SHA256", accepted), patch.object(module, "ACCEPTED_MODULE_COUNT", 1), patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patch.object(module.os, "fchmod", create=True) as chmod:
+            receipt = module.stage_verified_closure(manifest, 101, 102)
+        self.assertEqual({"status": "PASS", "files": 4, "modules": 1,
+                          "canonicalManifestSha256": accepted}, receipt)
+        self.assertEqual(b"module\n", (staging / "modules/a.js").read_bytes())
+        self.assertEqual(b"config\n", (staging / "config/opt/config/agent.yml").read_bytes())
+        self.assertEqual(b"node\n", (staging / "runtime/opt/node").read_bytes())
+        self.assertEqual(b"library\n", (staging / "runtime/lib/libfixture.so").read_bytes())
+        self.assertEqual([0o600, 0o600, 0o500, 0o600], [call.args[1] for call in chmod.call_args_list])
+
+    def test_stage_verified_closure_blocks_changed_duplicate_link_and_extra_inputs(self):
+        """Fails until every new staging trust boundary fails closed."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        for condition in ("changed", "duplicate", "link", "extra", "late_mutation", "empty_dir"):
+            with self.subTest(condition=condition):
+                temp, source, staging, manifest, accepted = self.staging_fixture()
+                try:
+                    if condition == "changed":
+                        (source / "opt/modules/a.js").write_bytes(b"changed\n")
+                    elif condition == "duplicate":
+                        manifest["configBundles"].append(dict(manifest["configBundles"][0]))
+                        unsigned = dict(manifest)
+                        unsigned.pop("canonicalManifestSha256")
+                        accepted = hashlib.sha256(module.canonical_bytes(unsigned)).hexdigest()
+                        manifest["canonicalManifestSha256"] = accepted
+                    elif condition == "link":
+                        target = source / "opt/modules/real.js"
+                        target.write_bytes(b"module\n")
+                        (source / "opt/modules/a.js").unlink()
+                        try:
+                            os.symlink(target, source / "opt/modules/a.js")
+                        except OSError:
+                            continue
+                    before_enumerate = None
+                    if condition == "extra":
+                        before_enumerate = lambda: (staging / "extra").write_bytes(b"extra")
+                    elif condition == "late_mutation":
+                        before_enumerate = lambda: (staging / "modules/a.js").write_bytes(b"late mutation")
+                    elif condition == "empty_dir":
+                        before_enumerate = lambda: (staging / "empty").mkdir()
+                    patches = self.staging_patches(module, source, staging, before_enumerate)
+                    with patch.object(module, "ACCEPTED_MANIFEST_SHA256", accepted), patch.object(module, "ACCEPTED_MODULE_COUNT", 1), patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patch.object(module.os, "fchmod", create=True), self.assertRaises(module.ManifestBlocked):
+                        module.stage_verified_closure(manifest, 101, 102)
+                finally:
+                    temp.cleanup()
+
+    def test_open_source_leaf_is_nonblocking_before_regular_file_check(self):
+        """Fails if a FIFO leaf can block the source open before fstat rejects it."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        regular = os.stat_result((stat.S_IFREG | 0o600, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        with patch.object(module, "_directory_at", return_value=98), patch.object(module.os, "O_NOFOLLOW", 0, create=True), patch.object(module.os, "O_NONBLOCK", 0x4000, create=True), patch.object(module.os, "open", return_value=99) as opened, patch.object(module.os, "fstat", return_value=regular), patch.object(module.os, "close"):
+            self.assertEqual(99, module._open_source_at(1, "/source"))
+        self.assertTrue(opened.call_args.args[1] & 0x4000)
+
+    @unittest.skipUnless(os.name == "nt", "Windows-specific platform gate")
+    def test_descriptor_staging_fails_closed_unpatched_on_windows(self):
+        """Fails if Windows reaches descriptor-relative staging primitives."""
+        module = importlib.import_module("Build-VM105FinalClientManifest")
+        with self.assertRaisesRegex(module.ManifestBlocked, "DESCRIPTOR_STAGING_UNSUPPORTED"):
+            module.stage_verified_closure({}, -1, -1)
+
     def test_digest_blocks_identity_drift_during_hash(self):
         """Fails if changed bytes on the held file descriptor retain a successful digest."""
         module = importlib.import_module("Build-VM105FinalClientManifest")
