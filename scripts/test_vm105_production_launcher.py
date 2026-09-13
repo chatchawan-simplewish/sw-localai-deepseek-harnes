@@ -320,7 +320,7 @@ class ProductionLauncherTests(unittest.TestCase):
         payload = b"accepted bytes"
         expected = hashlib.sha256(payload).hexdigest()
 
-        def info(mode=stat.S_IFREG | 0o640, uid=0, gid=0, inode=2):
+        def info(mode=stat.S_IFREG | 0o440, uid=0, gid=0, inode=2):
             return types.SimpleNamespace(
                 st_dev=1, st_ino=inode, st_mode=mode, st_size=len(payload),
                 st_mtime_ns=3, st_ctime_ns=4, st_uid=uid, st_gid=gid)
@@ -342,12 +342,27 @@ class ProductionLauncherTests(unittest.TestCase):
                 ("symlink", (info(stat.S_IFLNK | 0o777),) * 4, expected),
                 ("owner", (info(uid=1),) * 4, expected),
                 ("group", (info(gid=1),) * 4, expected),
-                ("writable", (info(stat.S_IFREG | 0o660),) * 4, expected),
+                ("mode", (info(stat.S_IFREG | 0o640),) * 4, expected),
                 ("drift", (accepted, accepted, info(inode=8), accepted), expected),
                 ("hash", (accepted,) * 4, "0" * 64)):
             with self.subTest(label=label), self.assertRaisesRegex(
                     launcher.LaunchBlocked, "RECONSTRUCTION_BUNDLE_REJECTED"):
                 verify(rows, digest)
+
+        directory = types.SimpleNamespace(
+            st_dev=1, st_ino=3, st_mode=stat.S_IFDIR | 0o550, st_uid=0, st_gid=0)
+        launcher._verify_reconstruction_bundle_directory(
+            "/fixed", lstat=lambda _path: directory,
+            open_directory=lambda *_args: 9, fstat=lambda _fd: directory,
+            close=lambda _fd: None)
+        with self.assertRaisesRegex(
+                launcher.LaunchBlocked, "RECONSTRUCTION_BUNDLE_REJECTED"):
+            wrong_mode = types.SimpleNamespace(**{
+                **vars(directory), "st_mode": stat.S_IFDIR | 0o750})
+            launcher._verify_reconstruction_bundle_directory(
+                "/fixed", lstat=lambda _path: wrong_mode,
+                open_directory=lambda *_args: 9, fstat=lambda _fd: wrong_mode,
+                close=lambda _fd: None)
 
         calls = []
         with patch.object(launcher, "__file__",
@@ -368,6 +383,220 @@ class ProductionLauncherTests(unittest.TestCase):
             (launcher.RECONSTRUCTION_BINDING["topologyPath"],
              launcher.RECONSTRUCTION_BINDING["topologyFileSha256"]),
         ], calls)
+
+    def test_remote_bootstrap_authenticates_before_tampered_import_can_run(self):
+        self.assertTrue(hasattr(launcher, "RECONSTRUCTION_REMOTE_BOOTSTRAP"),
+                        "authenticated remote bootstrap is missing")
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "tampered-import-ran"
+            source = (
+                "from pathlib import Path\n"
+                f"Path({str(marker)!r}).write_text('ran')\n").encode()
+            metadata = types.SimpleNamespace(
+                st_dev=1, st_ino=2, st_mode=stat.S_IFREG | 0o440,
+                st_size=len(source), st_mtime_ns=3, st_ctime_ns=4,
+                st_uid=0, st_gid=0)
+            reads = iter((source, b""))
+            with patch.object(launcher.os, "lstat", return_value=metadata), \
+                    patch.object(launcher.os, "open", return_value=9), \
+                    patch.object(launcher.os, "fstat", return_value=metadata), \
+                    patch.object(launcher.os, "read",
+                                 side_effect=lambda *_: next(reads)), \
+                    patch.object(launcher.os, "close"), \
+                    patch.object(launcher.sys, "argv", ["-c", "0" * 64]), \
+                    self.assertRaises(SystemExit) as stopped:
+                exec(launcher.RECONSTRUCTION_REMOTE_BOOTSTRAP, {})
+            self.assertEqual(74, stopped.exception.code)
+            self.assertFalse(marker.exists())
+
+    def test_remote_bootstrap_watchdog_terminates_kills_and_reaps_surviving_group(self):
+        self.assertTrue(hasattr(launcher, "RECONSTRUCTION_REMOTE_BOOTSTRAP"),
+                        "remote watchdog is missing")
+        source = b"def main(argv=None): return 0\n"
+        digest = hashlib.sha256(source).hexdigest()
+        metadata = types.SimpleNamespace(
+            st_dev=1, st_ino=2, st_mode=stat.S_IFREG | 0o440,
+            st_size=len(source), st_mtime_ns=3, st_ctime_ns=4,
+            st_uid=0, st_gid=0)
+        reads = iter((source, b""))
+        waits = iter(((0, 0), (0, 0), (4242, 0)))
+        clocks = iter((0.0, 576.0, 576.0, 582.0, 582.0))
+        kills = []
+        with patch.object(launcher.os, "lstat", return_value=metadata), \
+                patch.object(launcher.os, "open", return_value=9), \
+                patch.object(launcher.os, "fstat", return_value=metadata), \
+                patch.object(launcher.os, "read", side_effect=lambda *_: next(reads)), \
+                patch.object(launcher.os, "close"), \
+                patch.object(launcher.os, "setsid", return_value=None, create=True), \
+                patch.object(launcher.os, "fork", return_value=4242, create=True), \
+                patch.object(launcher.os, "WNOHANG", 1, create=True), \
+                patch.object(launcher.os, "waitpid", side_effect=lambda *_: next(waits)), \
+                patch.object(launcher.os, "killpg",
+                             side_effect=lambda pid, sig: kills.append((pid, sig)),
+                             create=True), \
+                patch.object(launcher.signal, "SIGHUP", 1, create=True), \
+                patch.object(launcher.signal, "SIGKILL", 9, create=True), \
+                patch.object(launcher.signal, "signal"), \
+                patch.object(launcher.time, "monotonic",
+                             side_effect=lambda: next(clocks)), \
+                patch.object(launcher.time, "sleep"), \
+                patch.object(launcher.sys, "argv", ["-c", digest]), \
+                self.assertRaises(SystemExit) as stopped:
+            exec(launcher.RECONSTRUCTION_REMOTE_BOOTSTRAP, {})
+        self.assertEqual(124, stopped.exception.code)
+        self.assertEqual([
+            (4242, launcher.signal.SIGTERM),
+            (4242, 9),
+        ], kills)
+
+    def test_remote_stderr_and_invalid_blocked_receipts_become_sanitized_unknown(self):
+        self.assertTrue(hasattr(launcher, "_classify_reconstruction_terminal"),
+                        "terminal classifier is missing")
+        attempt = "a" * 64
+        blocked = launcher._signed_reconstruction_receipt(
+            "BLOCKED", "STAGING_ROOT_NOT_ABSENT", "PRESENT",
+            "RETAINED_EXACT_ROOT")
+        raw = json.dumps(blocked, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        passed = launcher._signed_reconstruction_receipt(
+            "PASS", "NONE", "ABSENT", "RETAINED_EXACT_ROOT", {
+                "fileCount": 10037, "linkCount": 2029,
+                "directoryCount": 6081, "sealedEntries": 18148})
+        pass_raw = json.dumps(
+            passed, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        for return_code, framed in ((0, pass_raw), (1, raw)):
+            value = launcher._classify_reconstruction_terminal(
+                return_code, framed, b"sensitive diagnostic", attempt)
+            self.assertEqual("UNKNOWN", value["status"])
+            self.assertEqual("REMOTE_STDERR_NONEMPTY", value["reason"])
+            self.assertEqual("UNPROVEN", value["remoteState"])
+            self.assertFalse(value["retryAuthorized"])
+            self.assertEqual(len(b"sensitive diagnostic"), value["stderrBytes"])
+            self.assertEqual(hashlib.sha256(b"sensitive diagnostic").hexdigest(),
+                             value["stderrSha256"])
+            self.assertNotIn("sensitive", json.dumps(value))
+
+        unsigned = dict(blocked)
+        unsigned["stagingPrecheck"] = "PRESENT"
+        unsigned["cleanupResult"] = "ABSENT"
+        unsigned.pop("receiptSha256")
+        unsigned["receiptSha256"] = hashlib.sha256(json.dumps(
+            unsigned, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        invalid = json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        value = launcher._classify_reconstruction_terminal(1, invalid, b"", attempt)
+        self.assertEqual(("UNKNOWN", "REMOTE_RECEIPT_INVALID", "UNPROVEN", False), (
+            value["status"], value["reason"], value["remoteState"],
+            value["retryAuthorized"]))
+
+        value = launcher._classify_reconstruction_terminal(1, raw, b"", attempt)
+        self.assertEqual(("BLOCKED", "STAGING_ROOT_NOT_ABSENT", "PROVEN_BLOCKED", False), (
+            value["status"], value["reason"], value["remoteState"],
+            value["retryAuthorized"]))
+
+        pre_stage = launcher._signed_reconstruction_receipt(
+            "BLOCKED", "RECONSTRUCTION_BUNDLE_REJECTED", "UNPROVEN", "UNPROVEN")
+        value = launcher._classify_reconstruction_terminal(
+            1, json.dumps(pre_stage, sort_keys=True, separators=(",", ":")).encode() + b"\n",
+            b"", attempt)
+        self.assertEqual(("BLOCKED", "PROVEN_BLOCKED"), (
+            value["status"], value["remoteState"]))
+
+    def test_attempt_marker_precedes_transport_and_survives_terminal_publish_failure(self):
+        self.assertTrue(hasattr(launcher, "_coordinate_reconstruction_attempt"),
+                        "durable attempt coordinator is missing")
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "attempt.json"
+            receipt = Path(folder) / "receipt.json"
+            events = []
+
+            def publish(path, raw):
+                events.append(("publish", Path(path).name))
+                if Path(path) == receipt:
+                    raise OSError("terminal publication failed")
+                launcher._publish_reconstruction_record(path, raw)
+
+            def transport():
+                events.append(("transport", None))
+                raise launcher.ReconstructionUnknown("LOCAL_SSH_TIMEOUT")
+
+            code = launcher._coordinate_reconstruction_attempt(
+                receipt, marker, transport, publish=publish)
+            self.assertEqual(75, code)
+            self.assertEqual([
+                ("publish", "attempt.json"),
+                ("transport", None),
+                ("publish", "receipt.json"),
+            ], events)
+            self.assertTrue(marker.is_file())
+            attempt = json.loads(marker.read_text(encoding="utf-8"))
+            claimed = attempt.pop("receiptSha256")
+            self.assertEqual(claimed, hashlib.sha256(json.dumps(
+                attempt, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
+            self.assertFalse(receipt.exists())
+
+    def test_transport_failure_publishes_unknown_and_occupied_receipt_stops_before_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "attempt.json"
+            receipt = Path(folder) / "receipt.json"
+            calls = []
+            code = launcher._coordinate_reconstruction_attempt(
+                receipt, marker,
+                lambda: (_ for _ in ()).throw(
+                    launcher.ReconstructionUnknown("LOCAL_SSH_TIMEOUT")))
+            self.assertEqual(1, code)
+            terminal = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual(("UNKNOWN", "LOCAL_SSH_TIMEOUT", "UNPROVEN", False), (
+                terminal["status"], terminal["reason"], terminal["remoteState"],
+                terminal["retryAuthorized"]))
+            self.assertTrue(marker.is_file())
+
+            occupied = Path(folder) / "occupied.json"
+            occupied.write_text("occupied", encoding="utf-8")
+            untouched_marker = Path(folder) / "untouched-attempt.json"
+            code = launcher._coordinate_reconstruction_attempt(
+                occupied, untouched_marker,
+                lambda: calls.append("transport"))
+            self.assertEqual(76, code)
+            self.assertEqual([], calls)
+            self.assertFalse(untouched_marker.exists())
+
+    def test_local_ssh_timeout_kills_waits_drains_and_closes(self):
+        self.assertTrue(hasattr(launcher, "_run_bounded_reconstruction_ssh"),
+                        "bounded local SSH runner is missing")
+        events = []
+
+        class Pipe:
+            def read(self, _size):
+                events.append("drain")
+                return b""
+
+            def close(self):
+                events.append("close")
+
+        class Process:
+            def __init__(self):
+                self.stdout, self.stderr = Pipe(), Pipe()
+                self.waits = 0
+
+            def wait(self, timeout):
+                self.waits += 1
+                events.append(("wait", timeout))
+                if self.waits == 1:
+                    raise launcher.subprocess.TimeoutExpired("ssh", timeout)
+                return 0
+
+            def kill(self):
+                events.append("kill")
+
+        process = Process()
+        with self.assertRaisesRegex(
+                launcher.ReconstructionUnknown, "LOCAL_SSH_TIMEOUT"):
+            launcher._run_bounded_reconstruction_ssh(
+                ["ssh"], popen=lambda *_args, **_kwargs: process,
+                timeout_seconds=0.001)
+        self.assertIn("kill", events)
+        self.assertEqual(2, sum(1 for event in events
+                                if isinstance(event, tuple) and event[0] == "wait"))
+        self.assertEqual(2, events.count("close"))
 
     def test_systemd_pipe_uses_direct_read_fd_and_exact_hardening(self):
         captured = {}

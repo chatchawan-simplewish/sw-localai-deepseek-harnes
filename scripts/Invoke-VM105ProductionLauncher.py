@@ -2,6 +2,7 @@
 
 import argparse
 import array
+import base64
 import ctypes
 import errno
 import hashlib
@@ -17,6 +18,7 @@ import struct
 import stat
 import subprocess
 import sys
+import threading
 import time
 import types
 import urllib.parse
@@ -95,9 +97,75 @@ RECONSTRUCTION_BINDING = types.MappingProxyType({
     "expectedPackageCount": 447,
     "expectedLinkCount": 2029,
 })
+RECONSTRUCTION_REMOTE_BOOTSTRAP = r'''import hashlib,os,signal,stat,sys,time
+P="/var/tmp/omniroute-dsh-reconstruction-input-20260914/Invoke-VM105ProductionLauncher.py"
+M=131072
+if len(sys.argv)!=2 or not isinstance(sys.argv[1],str) or len(sys.argv[1])!=64:
+    raise SystemExit(74)
+H=sys.argv[1]
+F=None
+try:
+    A=os.lstat(P)
+    F=os.open(P,os.O_RDONLY|getattr(os,"O_CLOEXEC",0)|getattr(os,"O_NOFOLLOW",0))
+    B=os.fstat(F)
+    D=hashlib.sha256()
+    C=[]
+    N=0
+    while True:
+        Q=os.read(F,min(65536,M+1-N))
+        if not Q: break
+        N+=len(Q)
+        if N>M: raise SystemExit(74)
+        C.append(Q);D.update(Q)
+    E=os.fstat(F);Z=os.lstat(P)
+    I=lambda x:(x.st_dev,x.st_ino,x.st_mode,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_uid,x.st_gid)
+    if (I(A)!=I(B) or I(B)!=I(E) or I(E)!=I(Z) or not stat.S_ISREG(B.st_mode)
+            or B.st_uid!=0 or B.st_gid!=0 or stat.S_IMODE(B.st_mode)!=0o440 or B.st_size>M
+            or D.hexdigest()!=H): raise SystemExit(74)
+    K=compile(b"".join(C),P,"exec")
+finally:
+    if F is not None: os.close(F)
+signal.signal(signal.SIGHUP,signal.SIG_IGN)
+try: os.setsid()
+except OSError: raise SystemExit(74)
+R=os.fork()
+if R==0:
+    try:
+        os.setpgid(0,0)
+        signal.signal(signal.SIGHUP,signal.SIG_DFL)
+        V=[P,"--reconstruct-only","--reconstruction-launcher-sha256",H]
+        sys.argv=V
+        G={"__name__":"vm105_reconstruction_launcher","__file__":P}
+        exec(K,G)
+        X=G["main"](V[1:])
+        sys.stdout.flush();sys.stderr.flush()
+    except BaseException:
+        os._exit(70)
+    os._exit(X if type(X) is int and 0<=X<=255 else 70)
+def W(end):
+    while True:
+        w,s=os.waitpid(R,os.WNOHANG)
+        if w==R: return s
+        if w!=0 or time.monotonic()>=end: return None
+        time.sleep(0.1)
+S=W(time.monotonic()+575)
+if S is not None: raise SystemExit(os.waitstatus_to_exitcode(S))
+try: os.killpg(R,signal.SIGTERM)
+except ProcessLookupError: pass
+S=W(time.monotonic()+5)
+if S is None:
+    try: os.killpg(R,signal.SIGKILL)
+    except ProcessLookupError: pass
+    S=W(time.monotonic()+5)
+raise SystemExit(124)
+'''
 
 
 class LaunchBlocked(RuntimeError):
+    pass
+
+
+class ReconstructionUnknown(RuntimeError):
     pass
 
 
@@ -1204,6 +1272,239 @@ def _signed_reconstruction_receipt(status, reason, staging_precheck,
     return value
 
 
+def _canonical_line(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+
+
+def _signed_record(value):
+    value = dict(value)
+    value["receiptSha256"] = hashlib.sha256(_canonical_line(value)[:-1]).hexdigest()
+    return value
+
+
+def _unknown_reconstruction_terminal(reason, attempt_sha256, return_code=-1,
+                                     stderr=b""):
+    return _signed_record({
+        "status": "UNKNOWN", "reason": reason, "remoteState": "UNPROVEN",
+        "retryAuthorized": False, "attemptMarkerSha256": attempt_sha256,
+        "remoteReceiptSha256": "", "transportExitCode": return_code,
+        "stderrBytes": len(stderr),
+        "stderrSha256": hashlib.sha256(stderr).hexdigest() if stderr else "",
+        "manifestCanonicalSha256": ACCEPTED_MANIFEST_SHA256,
+        "manifestFileSha256": RECONSTRUCTION_BINDING["manifestFileSha256"],
+        "topologyReceiptSha256": ACCEPTED_STAGING_TOPOLOGY_SHA256,
+        "topologyFileSha256": ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256,
+        "stagingPrecheck": "UNPROVEN", "expectedPackageCount": 447,
+        "expectedLinkCount": 2029, "fileCount": 0, "linkCount": 0,
+        "directoryCount": 0, "sealedEntries": 0,
+        "cleanupAttempted": False, "cleanupResult": "UNPROVEN",
+    })
+
+
+def _validated_remote_reconstruction_receipt(return_code, raw):
+    if not raw.endswith(b"\n") or b"\n" in raw[:-1]:
+        raise ValueError()
+    receipt = json.loads(raw[:-1].decode("utf-8"))
+    keys = {
+        "status", "reason", "manifestCanonicalSha256", "manifestFileSha256",
+        "topologyReceiptSha256", "topologyFileSha256", "stagingPrecheck",
+        "expectedPackageCount", "expectedLinkCount", "fileCount", "linkCount",
+        "directoryCount", "sealedEntries", "cleanupAttempted", "cleanupResult",
+        "receiptSha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != keys or _canonical_line(receipt) != raw:
+        raise ValueError()
+    unsigned = dict(receipt)
+    claimed = unsigned.pop("receiptSha256")
+    counts = tuple(receipt[key] for key in (
+        "fileCount", "linkCount", "directoryCount", "sealedEntries"))
+    if (not isinstance(claimed, str) or not re.fullmatch(r"[0-9a-f]{64}", claimed) or
+            hashlib.sha256(_canonical_line(unsigned)[:-1]).hexdigest() != claimed or
+            receipt["manifestCanonicalSha256"] != ACCEPTED_MANIFEST_SHA256 or
+            receipt["manifestFileSha256"] != RECONSTRUCTION_BINDING["manifestFileSha256"] or
+            receipt["topologyReceiptSha256"] != ACCEPTED_STAGING_TOPOLOGY_SHA256 or
+            receipt["topologyFileSha256"] != ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256 or
+            receipt["expectedPackageCount"] != 447 or receipt["expectedLinkCount"] != 2029 or
+            receipt["cleanupAttempted"] is not False or
+            any(type(count) is not int or count < 0 for count in counts)):
+        raise ValueError()
+    if receipt["status"] == "PASS":
+        if (return_code != 0 or receipt["reason"] != "NONE" or
+                receipt["stagingPrecheck"] != "ABSENT" or
+                receipt["cleanupResult"] != "RETAINED_EXACT_ROOT" or
+                counts[0] <= 0 or counts[1] != 2029 or counts[2] <= 0 or
+                counts[3] != counts[0] + counts[1] + counts[2] + 1):
+            raise ValueError()
+        return receipt
+    if receipt["status"] != "BLOCKED" or return_code != 1 or any(counts):
+        raise ValueError()
+    pre_stage = {
+        "ROOT_LINUX_RECONSTRUCTION_REQUIRED", "RECONSTRUCTION_BINDING_REJECTED",
+        "RECONSTRUCTION_LAUNCHER_HASH_REJECTED", "RECONSTRUCTION_BUNDLE_REJECTED",
+        "STAGING_PRECHECK_FAILED",
+    }
+    staged = {
+        "DSH_IDENTITY_REJECTED", "TOPOLOGY_FILE_REJECTED",
+        "ACCEPTED_SOURCE_REJECTED", "STAGING_OWNERSHIP_UNSUPPORTED",
+        "STAGING_SEAL_REJECTED", "STAGING_FAILED", "RECONSTRUCTION_PROOF_FAILED",
+    }
+    state = (receipt["stagingPrecheck"], receipt["cleanupResult"])
+    valid = (
+        receipt["reason"] in pre_stage and state == ("UNPROVEN", "UNPROVEN") or
+        receipt["reason"] == "STAGING_ROOT_NOT_ABSENT" and
+        state == ("PRESENT", "RETAINED_EXACT_ROOT") or
+        receipt["reason"] in staged and state[0] == "ABSENT" and
+        state[1] in ("ABSENT", "RETAINED_EXACT_ROOT") or
+        receipt["reason"] == "RECONSTRUCTION_FAILED" and (
+            state == ("UNPROVEN", "UNPROVEN") or
+            state[0] == "ABSENT" and state[1] in ("ABSENT", "RETAINED_EXACT_ROOT")))
+    if not valid or not re.fullmatch(r"[A-Z0-9_]+", receipt["reason"]):
+        raise ValueError()
+    return receipt
+
+
+def _classify_reconstruction_terminal(return_code, stdout, stderr,
+                                      attempt_sha256):
+    if stderr:
+        return _unknown_reconstruction_terminal(
+            "REMOTE_STDERR_NONEMPTY", attempt_sha256, return_code, stderr)
+    try:
+        remote = _validated_remote_reconstruction_receipt(return_code, stdout)
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return _unknown_reconstruction_terminal(
+            "REMOTE_RECEIPT_INVALID", attempt_sha256, return_code)
+    terminal = dict(remote)
+    terminal.pop("receiptSha256")
+    terminal.update({
+        "remoteState": "PROVEN_PASS" if remote["status"] == "PASS" else "PROVEN_BLOCKED",
+        "retryAuthorized": False, "attemptMarkerSha256": attempt_sha256,
+        "remoteReceiptSha256": remote["receiptSha256"],
+        "transportExitCode": return_code, "stderrBytes": 0, "stderrSha256": "",
+    })
+    return _signed_record(terminal)
+
+
+def _publish_reconstruction_record(path, raw):
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
+        0o600)
+    try:
+        remaining = memoryview(raw)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("short reconstruction record write")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _coordinate_reconstruction_attempt(receipt_path, marker_path, transport,
+                                       publish=_publish_reconstruction_record,
+                                       lstat=os.lstat):
+    try:
+        lstat(receipt_path)
+    except OSError as error:
+        if error.errno != errno.ENOENT:
+            return 76
+    else:
+        return 76
+    attempt = _signed_record({
+        "status": "ATTEMPTED", "reason": "DISPATCH_RESERVED",
+        "remoteState": "UNPROVEN", "retryAuthorized": False,
+    })
+    attempt_raw = _canonical_line(attempt)
+    try:
+        publish(marker_path, attempt_raw)
+    except OSError:
+        return 77
+    try:
+        return_code, stdout, stderr = transport()
+        terminal = _classify_reconstruction_terminal(
+            return_code, stdout, stderr, attempt["receiptSha256"])
+    except ReconstructionUnknown as error:
+        reason = str(error) if re.fullmatch(r"[A-Z0-9_]+", str(error)) else "LOCAL_TRANSPORT_UNKNOWN"
+        terminal = _unknown_reconstruction_terminal(
+            reason, attempt["receiptSha256"])
+    except Exception:
+        terminal = _unknown_reconstruction_terminal(
+            "LOCAL_TRANSPORT_UNKNOWN", attempt["receiptSha256"])
+    try:
+        publish(receipt_path, _canonical_line(terminal))
+    except OSError:
+        return 75
+    return 0 if terminal["status"] == "PASS" else 1
+
+
+def _run_bounded_reconstruction_ssh(command, popen=subprocess.Popen,
+                                    timeout_seconds=600,
+                                    max_stdout=8 * 1024 * 1024,
+                                    max_stderr=64 * 1024):
+    try:
+        process = popen(
+            command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=0,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    except OSError:
+        raise ReconstructionUnknown("LOCAL_SSH_START_FAILED") from None
+    output = {"stdout": bytearray(), "stderr": bytearray()}
+    overflow = []
+
+    def drain(name, stream, limit):
+        try:
+            for chunk in iter(lambda: stream.read(65536), b""):
+                if len(output[name]) + len(chunk) > limit:
+                    overflow.append(name)
+                    process.kill()
+                    return
+                output[name].extend(chunk)
+        except OSError:
+            pass
+
+    threads = [
+        threading.Thread(target=drain, args=("stdout", process.stdout, max_stdout), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr, max_stderr), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + timeout_seconds
+    timed_out = False
+
+    def stop_and_reap():
+        for _ in range(2):
+            process.kill()
+            try:
+                process.wait(timeout=5)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+        raise ReconstructionUnknown("LOCAL_SSH_REAP_UNPROVEN")
+
+    try:
+        try:
+            return_code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            stop_and_reap()
+        for thread in threads:
+            thread.join(max(0, deadline - time.monotonic()) if not timed_out else 5)
+        if timed_out:
+            raise ReconstructionUnknown("LOCAL_SSH_TIMEOUT")
+        if overflow or any(thread.is_alive() for thread in threads):
+            stop_and_reap()
+            raise ReconstructionUnknown("LOCAL_SSH_OUTPUT_LIMIT")
+        return return_code, bytes(output["stdout"]), bytes(output["stderr"])
+    finally:
+        for stream in (process.stdout, process.stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+        for thread in threads:
+            thread.join(5)
+
+
 def _validated_reconstruction_stage(value):
     counts = tuple(value.get(key) for key in (
         "fileCount", "linkCount", "directoryCount", "sealedEntries")) \
@@ -1242,7 +1543,7 @@ def _verify_reconstruction_bundle_file(path, expected_sha256, lstat=os.lstat,
                 identity(after) != identity(final) or
                 not stat.S_ISREG(opened.st_mode) or
                 opened.st_uid != 0 or opened.st_gid != 0 or
-                opened.st_mode & 0o022 or
+                stat.S_IMODE(opened.st_mode) != 0o440 or
                 digest.hexdigest() != expected_sha256):
             raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED")
     except LaunchBlocked:
@@ -1268,7 +1569,7 @@ def _verify_reconstruction_bundle_directory(path, lstat=os.lstat,
             value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid)
         if (identity(before) != identity(opened) or identity(opened) != identity(final) or
                 not stat.S_ISDIR(opened.st_mode) or opened.st_uid != 0 or
-                opened.st_gid != 0 or opened.st_mode & 0o022):
+                opened.st_gid != 0 or stat.S_IMODE(opened.st_mode) != 0o550):
             raise LaunchBlocked("RECONSTRUCTION_BUNDLE_REJECTED")
     except LaunchBlocked:
         raise
