@@ -22,6 +22,7 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 - Pinned builder SHA-256: `371481fe62d6611913f82f65b6e26b12512fda8a853a2f4591b6314f580c885f`
 - Expected accepted closure: 447 package identities and 10,026 module rows
 - Preserved third-attempt BLOCKED evidence: `docs/evidence/vm105-dsh-topology-capture-20260913.json`
+- Prepared successor evidence leaf: `docs/evidence/vm105-dsh-topology-capture-successor-20260913.json` (verified absent; no authority implied)
 
 ## Preconditions and authority
 
@@ -39,17 +40,21 @@ Every recorded link contains its install-root-relative logical path, raw relativ
 
 The receipt also records the exact reachable logical and canonical paths, stable identity, and SHA-256 of `@deepseek-ai/dsh-headless/cordis.patch.yml`. A PASS receipt contains a `receiptSha256` calculated over canonical JSON before that field is inserted. BLOCKED receipts use the same self-hash format and contain no path-dependent traceback.
 
-## Historical third dispatch command — spent
+## Historical third dispatch — spent
 
-The following is the exact third dispatch and must not be rerun. It pinned source commit `2c16a3d7d6a953d6d8ad35ab8e37cce46b950c61` and source SHA-256 `17e43721293d3bffe5c33f63ad2491cd79905bc961993bf40ac0072e48a2bb73`. Trusted PowerShell read the source as raw bytes from a regular non-link file and verified the independently pinned hash before any Python from that source could execute. The coordinator then enforced the raw manifest and CRLF-sensitive builder hashes before SSH and bounded total time and output. It accepted one canonical signed BLOCKED line and published it through a fresh no-overwrite hard link. That evidence leaf is now occupied and the one-shot authority is spent.
+The third dispatch must not be rerun. It pinned source commit `2c16a3d7d6a953d6d8ad35ab8e37cce46b950c61`, source SHA-256 `17e43721293d3bffe5c33f63ad2491cd79905bc961993bf40ac0072e48a2bb73`, and evidence leaf `docs/evidence/vm105-dsh-topology-capture-20260913.json`. It accepted one canonical signed BLOCKED line and published it through a fresh no-overwrite hard link. That leaf is occupied and the one-shot authority is spent.
+
+## Exact source-only successor invocation — not authorized
+
+This is the prepared successor command for independent review. It binds the fixed source SHA-256 and the verified-absent successor evidence leaf while retaining the accepted manifest, raw CRLF builder, strict host key, identity, timeout, and no-overwrite boundaries. It must not be run unless a later coordinator dispatch explicitly authorizes this exact frozen source, contract, tests, inputs, and evidence leaf.
 
 ```powershell
 $worktree = 'C:\Users\chatc\Projects\sw-localai-deepseek-harnes\.worktrees\vm105-authoritative-roadmap'
 $sourcePath = Join-Path $worktree 'scripts\Capture-VM105DshTopology.py'
 $manifestPath = Join-Path $worktree 'docs\evidence\vm105-final-client-runtime-manifest-20260913.json'
 $builderPath = Join-Path $worktree 'scripts\Build-VM105FinalClientManifest.py'
-$evidencePath = Join-Path $worktree 'docs\evidence\vm105-dsh-topology-capture-20260913.json'
-$expectedCaptureSourceSha256 = '17e43721293d3bffe5c33f63ad2491cd79905bc961993bf40ac0072e48a2bb73'
+$evidencePath = Join-Path $worktree 'docs\evidence\vm105-dsh-topology-capture-successor-20260913.json'
+$expectedCaptureSourceSha256 = 'aa2ca52f0460279d4fd76314be96610bfd87b1bf3e6b2c92e5446983468b6190'
 $sourceItem = Get-Item -LiteralPath $sourcePath -Force
 if ($sourceItem.PSIsContainer -or ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     throw 'CAPTURE_SOURCE_NOT_REGULAR'
@@ -76,6 +81,8 @@ $localBootstrap = 'import hashlib,json,sys;p=json.load(sys.stdin);s=p.pop("sourc
 $payload | & python -I -c $localBootstrap
 if ($LASTEXITCODE -ne 0) { throw 'VM105_TOPOLOGY_CAPTURE_FAILED' }
 ```
+
+This prepared invocation grants no capture, staging, credential, service, provider, profile, or default-routing authority. Its successor evidence leaf must still be absent at action time.
 
 The coordinator must independently recompute `receiptSha256`, verify `status=PASS`, confirm `reachablePackageCount=447`, review the missing/extra closure result, and pin the headless patch path/hash before any reconstruction or DSH execution source can be accepted.
 

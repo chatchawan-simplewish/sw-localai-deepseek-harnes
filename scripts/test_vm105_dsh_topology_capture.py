@@ -454,6 +454,8 @@ class TopologyCaptureTests(unittest.TestCase):
         command = contract.split("```powershell", 1)[1].split("```", 1)[0]
         self.assertLess(command.index("CAPTURE_SOURCE_HASH_MISMATCH"), command.index("| & python"))
         self.assertIn("source = $sourceText", command)
+        self.assertIn(hashlib.sha256(SCRIPT.read_bytes()).hexdigest(), command)
+        self.assertIn("vm105-dsh-topology-capture-successor-20260913.json", command)
 
         powershell = shutil.which("powershell.exe") or shutil.which("powershell")
         if powershell:
