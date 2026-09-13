@@ -639,6 +639,15 @@ class ProductionLauncherTests(unittest.TestCase):
             value = launcher._read_pinned_topology(descriptor)
         finally:
             os.close(descriptor)
+        metadata = types.SimpleNamespace(
+            st_dev=1, st_ino=2, st_mode=stat.S_IFREG | 0o600, st_size=3,
+            st_mtime_ns=4, st_ctime_ns=5)
+        with patch.object(launcher, "TOPOLOGY_RECEIPT_MAX_BYTES", 4), \
+                patch.object(launcher.os, "fstat", return_value=metadata), \
+                patch.object(launcher.os, "read", side_effect=(b"abc", b"de")), \
+                self.assertRaisesRegex(
+                    launcher.LaunchBlocked, "TOPOLOGY_FILE_REJECTED"):
+            launcher._read_pinned_topology(9)
         self.assertEqual(
             launcher.ACCEPTED_STAGING_TOPOLOGY_SHA256,
             value["receiptSha256"])

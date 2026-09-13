@@ -32,6 +32,7 @@ ACCEPTED_MANIFEST_SHA256 = "4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b61007
 ACCEPTED_LIVE_BINDINGS = None
 ACCEPTED_STAGING_TOPOLOGY_SHA256 = "cc7ca73f74bd1e515416cbff65809531fff2c052d0f7e406b9cc2efdb4c1ab20"
 ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256 = "86882398a06921bd351c84dbfc1eecc9abeb963912df41499ee21462b50cb47f"
+TOPOLOGY_RECEIPT_MAX_BYTES = 8 * 1024 * 1024
 SOURCE_ROOT = "/"
 STAGING_ROOT = "/var/tmp/omniroute-dsh-client-final-20260913"
 STAGED_NODE = STAGING_ROOT + "/runtime/opt/node-v24.19.0-linux-x64/bin/node"
@@ -542,14 +543,20 @@ def _load_accepted(bound, filename, name, expected_sha256):
 
 def _read_pinned_topology(descriptor):
     before = os.fstat(descriptor)
-    if not stat.S_ISREG(before.st_mode) or before.st_size > 8 * 1024 * 1024:
+    if (not stat.S_ISREG(before.st_mode) or
+            before.st_size > TOPOLOGY_RECEIPT_MAX_BYTES):
         raise LaunchBlocked("TOPOLOGY_FILE_REJECTED")
     chunks = []
     digest = hashlib.sha256()
+    total = 0
     while True:
-        chunk = os.read(descriptor, 65536)
+        chunk = os.read(
+            descriptor, min(65536, TOPOLOGY_RECEIPT_MAX_BYTES + 1 - total))
         if not chunk:
             break
+        total += len(chunk)
+        if total > TOPOLOGY_RECEIPT_MAX_BYTES:
+            raise LaunchBlocked("TOPOLOGY_FILE_REJECTED")
         chunks.append(chunk)
         digest.update(chunk)
     after = os.fstat(descriptor)
