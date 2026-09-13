@@ -655,7 +655,7 @@ def stage_verified_topology(manifest, topology_receipt, accepted_receipt_sha,
 
 def capture_payload(payload: dict) -> dict:
     try:
-        if not isinstance(payload, dict) or payload.get("installRoot") != str(INSTALL_ROOT):
+        if not isinstance(payload, dict) or payload.get("installRoot") != INSTALL_ROOT_TEXT:
             raise CaptureBlocked("CAPTURE_TARGET_MISMATCH")
         builder = payload.get("builderSource")
         if not isinstance(builder, str):
@@ -718,7 +718,7 @@ def _transport_payload(source: bytes, expected_source_sha256: str,
     try:
         value = {"source": source.decode("utf-8"),
                  "captureSourceSha256": expected_source_sha256,
-                 "installRoot": str(INSTALL_ROOT),
+                 "installRoot": INSTALL_ROOT_TEXT,
                  "acceptedManifest": manifest,
                  "builderSource": builder.decode("utf-8")}
     except UnicodeDecodeError:
@@ -922,7 +922,7 @@ def main(argv=None) -> int:
         builder_raw = _read_pinned_file(
             args.builder, ACCEPTED_BUILDER_SHA256,
             "ACCEPTED_BUILDER_HASH_MISMATCH")
-        payload = {"installRoot": str(INSTALL_ROOT),
+        payload = {"installRoot": INSTALL_ROOT_TEXT,
                    "acceptedManifest": json.loads(manifest_raw.decode("utf-8")),
                    "builderSource": builder_raw.decode("utf-8")}
         value = capture_payload(payload)

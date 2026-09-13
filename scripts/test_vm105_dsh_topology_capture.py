@@ -520,9 +520,13 @@ $sourceText | & python -I -c 'import sys;exec(sys.stdin.read())'
                     invalid, capture.INSTALL_ROOT,
                     invalid["canonicalManifestSha256"], 1, 0)
 
-    def test_real_accepted_manifest_reaches_no_network_transport_stub(self):
+    def test_real_inputs_cross_serialized_remote_target_before_no_network_builder_stub(self):
         root = SCRIPT.parent.parent
         source = SCRIPT.read_bytes()
+        manifest = json.loads((
+            root / "docs/evidence/vm105-final-client-runtime-manifest-20260913.json"
+        ).read_bytes().decode("utf-8"))
+        builder = (root / "scripts/Build-VM105FinalClientManifest.py").read_bytes()
 
         class ReachedTransport(Exception):
             pass
@@ -536,6 +540,27 @@ $sourceText | & python -I -c 'import sys;exec(sys.stdin.read())'
                     root / "scripts/Build-VM105FinalClientManifest.py",
                     root / "docs/evidence/never-written-topology-receipt.json",
                     Path("ssh-no-network-stub"), Path("identity-no-network-stub"))
+
+        remote_payload = json.loads(capture._transport_payload(
+            source, hashlib.sha256(source).hexdigest(), manifest, builder))
+        self.assertEqual("/opt/deepseek-harness", remote_payload["installRoot"])
+        remote_payload.pop("source")
+        remote_payload.pop("captureSourceSha256")
+        events, output = [], []
+
+        def simulated_builder(builder_source, accepted_manifest, expected_sha):
+            events.append((builder_source, accepted_manifest, expected_sha))
+
+        with mock.patch.object(
+                capture, "_revalidate_fresh_manifest", side_effect=simulated_builder), \
+                mock.patch.object(capture, "capture_topology",
+                                  return_value={"status": "PASS", "fixture": "NO_NETWORK"}), \
+                mock.patch.object(capture.sys, "stdout", new=SimpleNamespace(
+                    write=output.append)):
+            capture.remote_entry(remote_payload)
+        self.assertEqual(1, len(events))
+        self.assertEqual(capture.ACCEPTED_MANIFEST_SHA256, events[0][2])
+        self.assertEqual("PASS", json.loads("".join(output))["status"])
 
     def test_cli_entry_preserves_real_crlf_builder_bytes(self):
         root = SCRIPT.parent.parent
@@ -555,6 +580,7 @@ $sourceText | & python -I -c 'import sys;exec(sys.stdin.read())'
                 str(root / "docs/evidence/vm105-final-client-runtime-manifest-20260913.json"),
                 "--builder", str(root / "scripts/Build-VM105FinalClientManifest.py")]))
         self.assertEqual(1, len(captured))
+        self.assertEqual("/opt/deepseek-harness", captured[0]["installRoot"])
         self.assertEqual(
             capture.ACCEPTED_BUILDER_SHA256,
             hashlib.sha256(captured[0]["builderSource"].encode("utf-8")).hexdigest())

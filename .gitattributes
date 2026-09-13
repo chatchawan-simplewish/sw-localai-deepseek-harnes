@@ -7,3 +7,5 @@ scripts/test-native-codex-owner-linux.mjs text eol=lf
 scripts/Test-VM105NativeBridgeLinux.py text eol=lf
 scripts/test-native-authorization-contract.mjs text eol=lf
 docs/evidence/vm105-native-core-source-2026-09-09.json text eol=lf
+scripts/Capture-VM105DshTopology.py text eol=lf
+docs/evidence/vm105-dsh-topology-capture-20260913.json text eol=lf
