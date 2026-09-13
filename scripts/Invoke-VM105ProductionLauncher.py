@@ -30,7 +30,8 @@ except ModuleNotFoundError:  # Windows imports only to prove the gate.
 
 ACCEPTED_MANIFEST_SHA256 = "4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b"
 ACCEPTED_LIVE_BINDINGS = None
-ACCEPTED_STAGING_TOPOLOGY_SHA256 = None
+ACCEPTED_STAGING_TOPOLOGY_SHA256 = "cc7ca73f74bd1e515416cbff65809531fff2c052d0f7e406b9cc2efdb4c1ab20"
+ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256 = "86882398a06921bd351c84dbfc1eecc9abeb963912df41499ee21462b50cb47f"
 SOURCE_ROOT = "/"
 STAGING_ROOT = "/var/tmp/omniroute-dsh-client-final-20260913"
 STAGED_NODE = STAGING_ROOT + "/runtime/opt/node-v24.19.0-linux-x64/bin/node"
@@ -539,6 +540,31 @@ def _load_accepted(bound, filename, name, expected_sha256):
         bound, Path(__file__).with_name(filename), name, expected_sha256)
 
 
+def _read_pinned_topology(descriptor):
+    before = os.fstat(descriptor)
+    if not stat.S_ISREG(before.st_mode) or before.st_size > 8 * 1024 * 1024:
+        raise LaunchBlocked("TOPOLOGY_FILE_REJECTED")
+    chunks = []
+    digest = hashlib.sha256()
+    while True:
+        chunk = os.read(descriptor, 65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        digest.update(chunk)
+    after = os.fstat(descriptor)
+    identity = lambda value: (
+        value.st_dev, value.st_ino, value.st_mode, value.st_size,
+        value.st_mtime_ns, value.st_ctime_ns)
+    if (identity(before) != identity(after) or digest.hexdigest() !=
+            ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256):
+        raise LaunchBlocked("TOPOLOGY_FILE_REJECTED")
+    try:
+        return json.loads(b"".join(chunks))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise LaunchBlocked("TOPOLOGY_FILE_REJECTED") from error
+
+
 _SAFE_SECRET = re.compile(rb"[\x21\x23-\x5b\x5d-\x7e]{1,2048}\Z")
 _TOOL_ROWS = (
     "tools", "session-title-llm", "compaction", "delegation",
@@ -973,8 +999,7 @@ def stage_bound_closure(bound, identity=None, seal_tree=_seal_staged_topology):
             manifest = json.load(source)
         topology_fd = os.open(
             bound["topologyPath"], os.O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        with os.fdopen(os.dup(topology_fd), "r", encoding="utf-8") as source:
-            topology_receipt = json.load(source)
+        topology_receipt = _read_pinned_topology(topology_fd)
         source_fd = os.open(
             SOURCE_ROOT, os.O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         os.mkdir(STAGING_ROOT, 0o700)

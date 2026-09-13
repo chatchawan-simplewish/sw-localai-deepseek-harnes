@@ -2,9 +2,9 @@
 
 ## Status and purpose
 
-`LOCAL SUCCESSOR FIXED / THREE CAPTURE AUTHORITIES SPENT / SIGNED REMOTE RECEIPT BLOCKED`
+`SUCCESSOR CAPTURE PASS / FOUR CAPTURE AUTHORITIES SPENT / RECEIPT INDEPENDENTLY ACCEPTED`
 
-This is the smallest new read-only capture needed to prove whether the accepted VM105 DSH installation can be reconstructed as an executable pnpm closure. It does not reuse a spent gate and does not authorize staging, package execution, provider traffic, credential access, a launch, or default activation.
+This contract records the completed read-only capture of the accepted VM105 DSH pnpm closure. The PASS receipt is accepted topology evidence only; it does not authorize reconstruction, staging, package execution, provider traffic, credential access, a launch, or default activation.
 
 ## Exact target and inputs
 
@@ -22,11 +22,11 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 - Pinned builder SHA-256: `371481fe62d6611913f82f65b6e26b12512fda8a853a2f4591b6314f580c885f`
 - Expected accepted closure: 447 package identities and 10,026 module rows
 - Preserved third-attempt BLOCKED evidence: `docs/evidence/vm105-dsh-topology-capture-20260913.json`
-- Prepared successor evidence leaf: `docs/evidence/vm105-dsh-topology-capture-successor-20260913.json` (verified absent; no authority implied)
+- Accepted successor evidence: `docs/evidence/vm105-dsh-topology-capture-successor-20260913.json`, raw SHA-256 `86882398a06921bd351c84dbfc1eecc9abeb963912df41499ee21462b50cb47f`, canonical self-hash `cc7ca73f74bd1e515416cbff65809531fff2c052d0f7e406b9cc2efdb4c1ab20`
 
 ## Preconditions and authority
 
-There is no current capture authority. The first two one-shot authorities stopped locally before SSH. The third reached the authenticated remote source entry and published the canonical signed BLOCKED receipt above with sole reason `CAPTURE_TARGET_MISMATCH`; it stopped before accepted-manifest validation, builder execution, `ldd`, or topology traversal. All three authorities are spent. A future attempt requires a newly frozen source/contract/test set, independent review, a newly named absent evidence leaf, and a fresh explicit dispatch. Before that future SSH starts, the local capture source must be a regular non-link file matching its independently supplied hash, and the manifest and builder must likewise be stable regular non-link files matching their hashes. Strict host-key verification and the pinned identity must succeed, and no other owner may be changing `/opt/deepseek-harness`.
+There is no current capture authority. The first two one-shot authorities stopped locally before SSH. The third reached authenticated remote source entry and published the preserved BLOCKED receipt. The fourth successor invocation ran once under terminal handle `339`, returned `rc=0`, and published the accepted PASS receipt through the fresh no-overwrite leaf. All four authorities are spent and none may be retried. Any later capture requires a newly frozen source/contract/test set, independent review, a newly named absent evidence leaf, and fresh explicit authority.
 
 The remote process receives the capture source, its independently supplied expected hash, accepted manifest, and pinned builder source over stdin. The fixed bootstrap hashes the exact UTF-8 source bytes and fails before `compile`/`exec` unless they match. It performs no writes, provider requests, credential reads, Node/DSH package execution, runtime launch, service change, namespace change, cgroup change, or profile/default mutation. The pinned builder invokes `ldd` only to revalidate the accepted Node shared-library closure; the dispatch gives it a fixed `/usr/bin:/bin` PATH. SSH is only the transport used by the coordinator outside the capture process.
 
@@ -44,9 +44,9 @@ The receipt also records the exact reachable logical and canonical paths, stable
 
 The third dispatch must not be rerun. It pinned source commit `2c16a3d7d6a953d6d8ad35ab8e37cce46b950c61`, source SHA-256 `17e43721293d3bffe5c33f63ad2491cd79905bc961993bf40ac0072e48a2bb73`, and evidence leaf `docs/evidence/vm105-dsh-topology-capture-20260913.json`. It accepted one canonical signed BLOCKED line and published it through a fresh no-overwrite hard link. That leaf is occupied and the one-shot authority is spent.
 
-## Exact source-only successor invocation — not authorized
+## Historical successor dispatch — spent
 
-This is the prepared successor command for independent review. It binds the fixed source SHA-256 and the verified-absent successor evidence leaf while retaining the accepted manifest, raw CRLF builder, strict host key, identity, timeout, and no-overwrite boundaries. It must not be run unless a later coordinator dispatch explicitly authorizes this exact frozen source, contract, tests, inputs, and evidence leaf.
+The following exact command was independently reviewed, authorized once, and executed once under handle `339`. It is retained for evidence and must not be run again.
 
 ```powershell
 $worktree = 'C:\Users\chatc\Projects\sw-localai-deepseek-harnes\.worktrees\vm105-authoritative-roadmap'
@@ -82,10 +82,10 @@ $payload | & python -I -c $localBootstrap
 if ($LASTEXITCODE -ne 0) { throw 'VM105_TOPOLOGY_CAPTURE_FAILED' }
 ```
 
-This prepared invocation grants no capture, staging, credential, service, provider, profile, or default-routing authority. Its successor evidence leaf must still be absent at action time.
+This invocation is spent. Its occupied PASS evidence leaf must remain unchanged. It grants no reconstruction, staging, credential, service, provider, profile, or default-routing authority.
 
-The coordinator must independently recompute `receiptSha256`, verify `status=PASS`, confirm `reachablePackageCount=447`, review the missing/extra closure result, and pin the headless patch path/hash before any reconstruction or DSH execution source can be accepted.
+Independent receipt review recomputed the canonical self-hash, verified `status=PASS`, confirmed 447 accepted and reachable packages with zero missing or extra identities, validated 2,029 non-escaping links, and pinned headless patch SHA-256 `534dc49c84b0fb9c2d3278dc8990f577d57b7a88442941444b58c96ac1a09ba0`. External review artifact SHA-256 is `0a0a71517e8dc7fe5f9a97439f844913fc69011b25ea8d3b809e6287d7ec73da`, commit `40a7c734bd91c93f1109493b502decca58a5ccdf` in the named external review worktree.
 
 ## Local verification and limits
 
-`python scripts/test_vm105_dsh_topology_capture.py` runs 16 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, exact CRLF binary-byte hashing, coordinator-independent POSIX manifest paths with relative/traversal rejection, the complete accepted manifest/builder path reaching a no-network transport stub, literal `/opt/deepseek-harness` serialization through both the CLI and actual remote payload, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots. The third remote entry proved only the target-equality stop. Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until a future separately authorized target capture.
+`python scripts/test_vm105_dsh_topology_capture.py` runs 16 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, exact CRLF binary-byte hashing, coordinator-independent POSIX manifest paths with relative/traversal rejection, the complete accepted manifest/builder path reaching a no-network transport stub, literal `/opt/deepseek-harness` serialization through both the CLI and actual remote payload, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. The accepted remote capture additionally proves the exact installed `lstat`, `readlink`, builder rescan, `ldd`, ownership, and topology checks for that read-only action. Reconstruction, copied-tree sealing, DSH boot, systemd, namespace, cgroup, socket, credential, provider, and default-routing behavior remain unexecuted.

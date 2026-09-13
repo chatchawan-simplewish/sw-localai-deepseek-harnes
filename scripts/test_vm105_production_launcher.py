@@ -57,11 +57,20 @@ class ProductionLauncherTests(unittest.TestCase):
 
     def test_shape_valid_json_and_every_action_remain_hard_gated(self):
         calls = []
+        self.assertIsNone(launcher.ACCEPTED_LIVE_BINDINGS)
+        self.assertEqual(
+            "cc7ca73f74bd1e515416cbff65809531fff2c052d0f7e406b9cc2efdb4c1ab20",
+            launcher.ACCEPTED_STAGING_TOPOLOGY_SHA256)
+        self.assertEqual(
+            "86882398a06921bd351c84dbfc1eecc9abeb963912df41499ee21462b50cb47f",
+            launcher.ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256)
+        accepted = bindings()
+        accepted["topologySha256"] = launcher.ACCEPTED_STAGING_TOPOLOGY_SHA256
         with self.assertRaisesRegex(launcher.LaunchBlocked, "LIVE_BINDINGS_UNBOUND"):
-            launcher.launch(bindings(), 9, run_unit=lambda *_: calls.append("run"))
+            launcher.launch(accepted, 9, run_unit=lambda *_: calls.append("run"))
         with self.assertRaisesRegex(launcher.LaunchBlocked, "LIVE_BINDINGS_UNBOUND"):
             launcher.copy_credential_to_pipe(
-                bindings(), bytearray(b"secret"), pipe2=lambda *_: calls.append("pipe"))
+                accepted, bytearray(b"secret"), pipe2=lambda *_: calls.append("pipe"))
         with patch.object(launcher, "ACCEPTED_LIVE_BINDINGS", bindings()), \
                 self.assertRaisesRegex(
                     launcher.LaunchBlocked, "LIVE_BINDINGS_UNBOUND"):
@@ -92,7 +101,7 @@ class ProductionLauncherTests(unittest.TestCase):
             self.assertEqual(
                 1, launcher.main([
                     "--bindings-json",
-                    json.dumps(bindings(), separators=(",", ":"))]))
+                    json.dumps(accepted, separators=(",", ":"))]))
         self.assertEqual([], calls)
 
     def test_systemd_pipe_uses_direct_read_fd_and_exact_hardening(self):
@@ -622,6 +631,27 @@ class ProductionLauncherTests(unittest.TestCase):
                 launcher._load_pinned_source(
                     bindings(), source, "rejected_test", "0" * 64)
 
+    def test_topology_receipt_raw_file_hash_is_checked_before_json_use(self):
+        receipt = (SCRIPT.parent.parent /
+                   "docs/evidence/vm105-dsh-topology-capture-successor-20260913.json")
+        descriptor = os.open(receipt, os.O_RDONLY)
+        try:
+            value = launcher._read_pinned_topology(descriptor)
+        finally:
+            os.close(descriptor)
+        self.assertEqual(
+            launcher.ACCEPTED_STAGING_TOPOLOGY_SHA256,
+            value["receiptSha256"])
+        descriptor = os.open(receipt, os.O_RDONLY)
+        try:
+            with patch.object(
+                    launcher, "ACCEPTED_STAGING_TOPOLOGY_FILE_SHA256",
+                    "0" * 64), self.assertRaisesRegex(
+                        launcher.LaunchBlocked, "TOPOLOGY_FILE_REJECTED"):
+                launcher._read_pinned_topology(descriptor)
+        finally:
+            os.close(descriptor)
+
     def test_topology_receipt_is_pinned_reconstructed_then_symlink_aware_sealed(self):
         manifest, topology = {"manifest": True}, {"status": "PASS"}
         staged = {"files": [], "links": [], "directories": []}
@@ -650,7 +680,9 @@ class ProductionLauncherTests(unittest.TestCase):
                 patch.object(launcher.os, "fdopen", return_value=Opened()), \
                 patch.object(launcher.os, "dup", side_effect=lambda fd: fd + 100), \
                 patch.object(launcher.os, "mkdir"), patch.object(launcher.os, "close"), \
-                patch.object(launcher.json, "load", side_effect=(manifest, topology)), \
+                patch.object(launcher.json, "load", return_value=manifest), \
+                patch.object(launcher, "_read_pinned_topology",
+                             return_value=topology) as read_topology, \
                 patch.object(launcher, "_load_accepted", side_effect=lambda *args: (
                     calls.append(("load", args[1], args[3])) or next(helpers))):
             result = launcher.stage_bound_closure(
@@ -658,6 +690,7 @@ class ProductionLauncherTests(unittest.TestCase):
                 seal_tree=lambda live, root, receipt, gid, hash_fd: (
                     calls.append(("seal", live, root, receipt, gid, hash_fd)) or 7))
         self.assertEqual(7, result["sealedEntries"])
+        read_topology.assert_called_once_with(11)
         self.assertIn(("load", "Capture-VM105DshTopology.py",
                        launcher.TOPOLOGY_SOURCE_SHA256), calls)
         stage = next(row for row in calls if row[0] == "stage")[1]
