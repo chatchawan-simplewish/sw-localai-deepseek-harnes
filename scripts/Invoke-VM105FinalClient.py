@@ -1,8 +1,10 @@
-"""Loopback fixture relay and non-executing final-client binding preflight."""
+"""Two-request loopback relay, socket handoff, and binding preflight."""
 import argparse
+import array
 import hashlib
 import http.client
 import http.server
+import ipaddress
 import json
 import socket
 import threading
@@ -12,15 +14,83 @@ GATEWAY = 'http://192.168.1.68:20128/v1'
 TUPLE = ('taskId', 'runId', 'turnId', 'idempotencyKey')
 CHAT = '/v1/chat/completions'
 ACK = '/v1/agent-routes/events'
+GATEWAY_FD_MESSAGE = b'VM105_GATEWAY_FDS_V1 chat ack'
+
+
+def receive_gateway_sockets(control, expected_ip, expected_port):
+    """Receive the fixed chat/ACK TCP pair from one Unix control socket."""
+    if (not getattr(socket, 'SCM_RIGHTS', None) or not getattr(socket, 'AF_UNIX', None) or
+            not getattr(socket, 'CMSG_SPACE', None) or not getattr(socket, 'MSG_CMSG_CLOEXEC', None)):
+        raise RuntimeError('SCM_RIGHTS close-on-exec Unix descriptor passing is unavailable')
+    if (getattr(control, 'family', None) != socket.AF_UNIX or
+            getattr(control, 'type', 0) & socket.SOCK_STREAM != socket.SOCK_STREAM or
+            not callable(getattr(control, 'recvmsg', None))):
+        raise ValueError('gateway socket handoff rejected')
+    try:
+        expected = (str(ipaddress.ip_address(expected_ip)), int(expected_port))
+        if not 0 < expected[1] < 65536:
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise ValueError('gateway socket handoff rejected') from None
+
+    itemsize = array.array('i').itemsize
+    wrapped = []
+    try:
+        payload, ancillary, flags, _ = control.recvmsg(
+            len(GATEWAY_FD_MESSAGE) + 1, socket.CMSG_SPACE(itemsize * 3),
+            socket.MSG_CMSG_CLOEXEC)
+        values = []
+        valid_ancillary = bool(ancillary)
+        for level, kind, data in ancillary:
+            if level != socket.SOL_SOCKET or kind != socket.SCM_RIGHTS:
+                valid_ancillary = False
+                continue
+            rights = array.array('i')
+            complete = len(data) - len(data) % itemsize
+            rights.frombytes(data[:complete])
+            values.extend(rights)
+            if complete != len(data):
+                valid_ancillary = False
+        for index, descriptor in enumerate(values):
+            try:
+                wrapped.append(socket.socket(fileno=descriptor))
+            except OSError:
+                for unopened in values[index:]:
+                    try:
+                        socket.close(unopened)
+                    except OSError:
+                        pass
+                raise
+        if payload != GATEWAY_FD_MESSAGE or flags or not valid_ancillary or len(wrapped) != 2:
+            raise ValueError()
+        for stream in wrapped:
+            peer = stream.getpeername()
+            actual = (str(ipaddress.ip_address(peer[0])), int(peer[1]))
+            if (stream.family not in (socket.AF_INET, socket.AF_INET6) or
+                    stream.proto != socket.IPPROTO_TCP or stream.get_inheritable() or
+                    stream.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE) != socket.SOCK_STREAM or
+                    actual != expected):
+                raise ValueError()
+        return tuple(wrapped)
+    except (AttributeError, IndexError, OSError, TypeError, ValueError):
+        for stream in wrapped:
+            stream.close()
+        raise ValueError('gateway socket handoff rejected') from None
 
 
 class TwoRequestRelay:
-    """Fixture only. Production namespace/socket handoff is intentionally unimplemented."""
-    def __init__(self, gateway_base, key='fixture-key-not-secret', timeout=3):
+    """Two-request relay backed by fixture connections or an accepted socket pair."""
+    def __init__(self, gateway_base, key='fixture-key-not-secret', timeout=3, upstream_sockets=None):
         target = urllib.parse.urlsplit(gateway_base)
-        if target.scheme != 'http' or target.hostname != '127.0.0.1' or target.path != '/v1' or target.query or target.fragment or target.username or key != 'fixture-key-not-secret':
+        fixture = upstream_sockets is None
+        if target.scheme != 'http' or target.path != '/v1' or target.query or target.fragment or target.username or not target.hostname or not isinstance(key, str) or not key or '\r' in key or '\n' in key or (fixture and (target.hostname != '127.0.0.1' or key != 'fixture-key-not-secret')):
             raise ValueError('fixture binding required')
+        if not fixture and len(upstream_sockets) != 2:
+            raise ValueError('production socket pair required')
         self.target, self.timeout = target, timeout
+        self.key = key
+        self.upstream_sockets = [] if fixture else list(upstream_sockets)
+        self.claimed_upstreams = [False, False]
         self.lock, self.ack = threading.Lock(), threading.Event()
         self.chat_forwarded = threading.Event()
         self.state = {'count': 0, 'tuple': None, 'failed': False, 'committed': False, 'output': False}
@@ -33,7 +103,9 @@ class TwoRequestRelay:
 
             def deny(self, send=True):
                 with relay.lock:
-                    relay.state['failed'] = True
+                    if not relay.state['output']:
+                        relay.state['failed'] = True
+                        relay._close_upstream_sockets()
                 relay.ack.set()
                 relay.chat_forwarded.set()
                 if send:
@@ -64,14 +136,13 @@ class TwoRequestRelay:
                             raise ValueError()
                         relay.state['count'] += 1
                         relay.state['tuple'] = identity
-                        upstream = http.client.HTTPConnection('127.0.0.1', relay.target.port, timeout=relay.timeout)
-                        relay.connections.append(upstream)
+                        upstream = relay._upstream_connection(n)
                     if self.path == ACK and not relay.chat_forwarded.wait(relay.timeout):
                         raise ValueError()
                     with relay.lock:
                         if relay.state['failed']:
                             raise ValueError()
-                    upstream.request('POST', self.path, body, {'Content-Type': 'application/json', 'Authorization': 'Bearer fixture-key-not-secret'})
+                    upstream.request('POST', self.path, body, {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + relay.key})
                     response = upstream.getresponse()
                     if self.path == ACK:
                         accepted = response.status == 202 and json.loads(response.read(4097)) == {'accepted': True}
@@ -120,13 +191,49 @@ class TwoRequestRelay:
         self.address = self.server.server_address
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': .02})
 
+    @classmethod
+    def from_socket_handoff(cls, control, gateway_ip, gateway_port, key, timeout=3):
+        if not isinstance(key, str) or not key or '\r' in key or '\n' in key:
+            control.close()
+            raise ValueError('production key binding required')
+        try:
+            streams = receive_gateway_sockets(control, gateway_ip, gateway_port)
+        finally:
+            control.close()
+        try:
+            ip = ipaddress.ip_address(gateway_ip)
+            host = '[%s]' % ip if ip.version == 6 else str(ip)
+            return cls('http://%s:%s/v1' % (host, gateway_port), key, timeout, streams)
+        except Exception:
+            for stream in streams:
+                stream.close()
+            raise
+
+    def _upstream_connection(self, index):
+        if not self.upstream_sockets:
+            upstream = http.client.HTTPConnection('127.0.0.1', self.target.port, timeout=self.timeout)
+        else:
+            if index not in (0, 1) or self.claimed_upstreams[index]:
+                raise ValueError('production socket already assigned')
+            self.claimed_upstreams[index] = True
+            upstream = http.client.HTTPConnection(self.target.hostname, self.target.port, timeout=self.timeout)
+            self.upstream_sockets[index].settimeout(self.timeout)
+            upstream.sock = self.upstream_sockets[index]
+        self.connections.append(upstream)
+        return upstream
+
+    def _close_upstream_sockets(self):
+        for stream in self.upstream_sockets:
+            stream.close()
+
     def __enter__(self):
         self.thread.start()
         return self
 
     def __exit__(self, *args):
         with self.lock:
-            self.state['failed'] = True
+            if not self.state['output']:
+                self.state['failed'] = True
         self.ack.set()
         self.chat_forwarded.set()
         self.server.shutdown()
@@ -136,6 +243,7 @@ class TwoRequestRelay:
         with self.lock:
             for connection in self.connections:
                 connection.close()
+            self._close_upstream_sockets()
 
 
 def valid_manifest(manifest, expected_hash):

@@ -1,6 +1,9 @@
 import importlib.util
+import array
 from pathlib import Path
+import socket
 import unittest
+from unittest.mock import MagicMock, patch
 
 spec = importlib.util.spec_from_file_location('transport', Path(__file__).with_name('Invoke-VM105FinalClient.py'))
 transport = importlib.util.module_from_spec(spec)
@@ -8,6 +11,112 @@ spec.loader.exec_module(transport)
 
 
 class TransportTest(unittest.TestCase):
+    def test_socket_handoff_fails_closed_without_scm_rights(self):
+        control = MagicMock()
+        with patch.object(transport.socket, 'SCM_RIGHTS', None, create=True):
+            with self.assertRaisesRegex(RuntimeError, 'SCM_RIGHTS'):
+                transport.receive_gateway_sockets(control, '192.0.2.10', 20128)
+        control.recvmsg.assert_not_called()
+        with patch.object(transport.socket, 'SCM_RIGHTS', 1, create=True), \
+             patch.object(transport.socket, 'AF_UNIX', 1, create=True), \
+             patch.object(transport.socket, 'CMSG_SPACE', lambda size: size, create=True), \
+             patch.object(transport.socket, 'MSG_CMSG_CLOEXEC', None, create=True):
+            with self.assertRaisesRegex(RuntimeError, 'close-on-exec'):
+                transport.receive_gateway_sockets(control, '192.0.2.10', 20128)
+        control.recvmsg.assert_not_called()
+
+    def test_socket_handoff_accepts_only_fixed_chat_ack_pair_and_closes_failures(self):
+        af_unix, scm_rights, msg_cmsg_cloexec = 1, 1, 0x40000000
+
+        def exercise(payload=b'VM105_GATEWAY_FDS_V1 chat ack', fds=(11, 12), peers=None,
+                     flags=0, ancillary_type=None, made=None, families=None, protocols=None,
+                     malformed_rights=False):
+            control = MagicMock(family=af_unix, type=socket.SOCK_STREAM)
+            rights = array.array('i', fds).tobytes() + (b'x' if malformed_rights else b'')
+            control.recvmsg.return_value = (
+                payload,
+                [(socket.SOL_SOCKET,
+                  scm_rights if ancillary_type is None else ancillary_type,
+                  rights)],
+                flags,
+                None,
+            )
+            made = [] if made is None else made
+            peers = peers or [('192.0.2.10', 20128)] * len(fds)
+            families = families or [socket.AF_INET] * len(fds)
+            protocols = protocols or [socket.IPPROTO_TCP] * len(fds)
+            for peer, family, protocol in zip(peers, families, protocols):
+                wrapped = MagicMock(family=family, type=socket.SOCK_STREAM, proto=protocol)
+                wrapped.getsockopt.return_value = socket.SOCK_STREAM
+                wrapped.getpeername.return_value = peer
+                wrapped.get_inheritable.return_value = False
+                made.append(wrapped)
+            with patch.object(transport.socket, 'AF_UNIX', af_unix, create=True), \
+                 patch.object(transport.socket, 'SCM_RIGHTS', scm_rights, create=True), \
+                 patch.object(transport.socket, 'CMSG_SPACE', lambda size: size, create=True), \
+                 patch.object(transport.socket, 'MSG_CMSG_CLOEXEC', msg_cmsg_cloexec, create=True), \
+                 patch.object(transport.socket, 'socket', side_effect=made):
+                try:
+                    result = transport.receive_gateway_sockets(control, '192.0.2.10', 20128)
+                finally:
+                    control.recvmsg.assert_called_once_with(
+                        len(transport.GATEWAY_FD_MESSAGE) + 1,
+                        len(array.array('i').tobytes()) + array.array('i').itemsize * 3,
+                        msg_cmsg_cloexec)
+            return result, made
+
+        pair, accepted = exercise()
+        self.assertEqual(pair, tuple(accepted))
+        self.assertTrue(all(not item.close.called for item in accepted))
+
+        failures = (
+            dict(payload=b'wrong'),
+            dict(fds=(11,)),
+            dict(fds=(11, 12, 13)),
+            dict(peers=[('192.0.2.10', 20128), ('192.0.2.11', 20128)]),
+            dict(families=[socket.AF_INET, 999]),
+            dict(protocols=[socket.IPPROTO_TCP, 999]),
+            dict(malformed_rights=True),
+            dict(flags=getattr(socket, 'MSG_CTRUNC', 0x08)),
+            dict(ancillary_type=999),
+        )
+        for case in failures:
+            with self.subTest(case=case):
+                made = []
+                with self.assertRaisesRegex(ValueError, 'handoff rejected'):
+                    exercise(**case, made=made)
+                if case.get('ancillary_type') is None:
+                    self.assertTrue(all(item.close.called for item in made))
+
+    def test_production_relay_wraps_received_sockets_without_connecting(self):
+        blocked_control = MagicMock()
+        with patch.object(transport, 'receive_gateway_sockets') as receive:
+            with self.assertRaisesRegex(ValueError, 'key binding'):
+                transport.TwoRequestRelay.from_socket_handoff(
+                    blocked_control, '192.0.2.10', 20128, '')
+        blocked_control.close.assert_called_once_with()
+        receive.assert_not_called()
+
+        pair = [MagicMock(), MagicMock()]
+        control = MagicMock()
+        with patch.object(transport, 'receive_gateway_sockets', return_value=tuple(pair)) as receive:
+            relay = transport.TwoRequestRelay.from_socket_handoff(
+                control, '192.0.2.10', 20128, 'test-key', timeout=1)
+        try:
+            receive.assert_called_once_with(control, '192.0.2.10', 20128)
+            control.close.assert_called_once_with()
+            with patch.object(transport.http.client.HTTPConnection, 'connect', side_effect=AssertionError('connect forbidden')):
+                chat = relay._upstream_connection(0)
+                ack = relay._upstream_connection(1)
+            self.assertIs(chat.sock, pair[0])
+            self.assertIs(ack.sock, pair[1])
+            for stream in pair:
+                stream.settimeout.assert_called_once_with(1)
+        finally:
+            relay.server.server_close()
+            relay._close_upstream_sockets()
+        self.assertTrue(all(item.close.called for item in pair))
+
     def test_output_waits_for_ack_and_third_request_never_reaches_gateway(self):
         result = transport.run_fixture_regression()
         self.assertEqual(result['status'], 'PASS')
@@ -25,6 +134,77 @@ class TransportTest(unittest.TestCase):
         self.assertFalse(transport.production_preflight(transport.GATEWAY, 'opaque-ref', manifest)['clientInvoked'])
 
 class ReviewRegressionTest(unittest.TestCase):
+    def test_third_request_after_output_commit_cannot_poison_transaction(self):
+        import http.client
+        import http.server
+        import json
+        import threading
+
+        paused, release, chat_arrived = (threading.Event() for _ in range(3))
+        results, workers, relay_ref = {}, [], []
+        identity = dict(taskId='t', runId='r', turnId='u', idempotencyKey='i')
+
+        class Gateway(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                if self.path == transport.CHAT:
+                    chat_arrived.set()
+                self.send_response(200 if self.path == transport.CHAT else 202)
+                self.end_headers()
+                self.wfile.write(b'data: complete\n\n' if self.path == transport.CHAT else b'{"accepted":true}')
+
+        gateway = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Gateway)
+        gateway.daemon_threads = False
+        gateway_thread = threading.Thread(target=gateway.serve_forever, kwargs={'poll_interval': .01})
+        gateway_thread.start()
+        original_send_response = http.server.BaseHTTPRequestHandler.send_response
+
+        def pause_committed_chat(handler, status, *args, **kwargs):
+            if status == 200 and relay_ref and handler.server is relay_ref[0].server:
+                paused.set()
+                if not release.wait(3):
+                    raise OSError('committed chat pause timed out')
+            return original_send_response(handler, status, *args, **kwargs)
+
+        def request(method, path, payload=None):
+            connection = http.client.HTTPConnection(*relay_ref[0].address, timeout=4)
+            try:
+                connection.request(method, path, json.dumps(payload) if payload else None)
+                response = connection.getresponse()
+                result = response.status, response.read()
+                results[(method, path)] = result
+                return result
+            finally:
+                connection.close()
+
+        try:
+            with transport.TwoRequestRelay('http://127.0.0.1:%s/v1' % gateway.server_port) as relay:
+                relay_ref.append(relay)
+                with patch.object(http.server.BaseHTTPRequestHandler, 'send_response', pause_committed_chat):
+                    chat = threading.Thread(target=request, args=('POST', transport.CHAT, dict(identity, model='agent/normal', stream=True, tools=[], tool_choice='none')))
+                    workers.append(chat); chat.start()
+                    self.assertTrue(chat_arrived.wait(2))
+                    ack = threading.Thread(target=request, args=('POST', transport.ACK, dict(identity, event='output_started')))
+                    workers.append(ack); ack.start()
+                    try:
+                        self.assertTrue(paused.wait(2))
+                        self.assertTrue(relay.state['output'])
+                        self.assertFalse(relay.state['failed'])
+                        self.assertEqual(request('GET', '/third'), (403, b''))
+                        self.assertFalse(relay.state['failed'])
+                    finally:
+                        release.set()
+                        for worker in workers: worker.join(4)
+                self.assertEqual(results[('POST', transport.CHAT)], (200, b'data: complete\n\n'))
+                self.assertEqual(results[('POST', transport.ACK)], (202, b'{"accepted":true}'))
+                self.assertFalse(relay.state['failed'])
+            self.assertFalse(relay.state['failed'])
+        finally:
+            release.set()
+            for worker in workers: worker.join(4)
+            gateway.shutdown(); gateway.server_close(); gateway_thread.join()
+
     def test_unsupported_method_between_chat_and_ack_releases_no_output(self):
         """Fails if a rejected method leaves the in-flight chat eligible for release."""
         for method in ('GET', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'CONNECT', 'TRACE', 'CUSTOM'):
