@@ -298,8 +298,9 @@ class ReviewRegressionTest(unittest.TestCase):
         from unittest.mock import patch
         original = http.server.BaseHTTPRequestHandler.end_headers
         original_write = socketserver._SocketWriter.write
-        for failure in (None, 'ack', 'chat'):
+        for failure in (None, 'ack', 'chat', 'race'):
             entered, release, chat_output = threading.Event(), threading.Event(), threading.Event()
+            first_write, release_first, denied = threading.Event(), threading.Event(), []
             def delayed(handler):
                 if handler.path == transport.ACK and handler.server.server_address == address[0]:
                     entered.set()
@@ -310,6 +311,10 @@ class ReviewRegressionTest(unittest.TestCase):
             def write_first(stream, data):
                 if failure == 'chat' and data == b'd':
                     raise OSError('fixture failed downstream chat first-byte write')
+                if failure == 'race' and data == b'd':
+                    first_write.set()
+                    if not release_first.wait(2):
+                        raise OSError('fixture first-byte race timed out')
                 return original_write(stream, data)
             # The gateway is real; only the downstream socket-write boundary is held/fails.
             class Gateway(http.server.BaseHTTPRequestHandler):
@@ -334,6 +339,13 @@ class ReviewRegressionTest(unittest.TestCase):
                     r.read()
                 except (OSError, http.client.HTTPException): pass
                 finally: c.close()
+            def deny_request():
+                import http.client
+                c = http.client.HTTPConnection(*address[0], timeout=3); clients.append(c)
+                try:
+                    c.request('GET', '/third')
+                    r = c.getresponse(); denied.append((r.status, r.read()))
+                finally: c.close()
             try:
                 with transport.TwoRequestRelay('http://127.0.0.1:%s/v1' % gateway.server_port) as relay:
                     address.append(relay.address)
@@ -348,10 +360,20 @@ class ReviewRegressionTest(unittest.TestCase):
                             self.assertTrue(entered.wait(2))
                             self.assertFalse(chat_output.wait(.15), 'chat escaped before downstream ACK write')
                         finally: release.set()
+                        if failure == 'race':
+                            self.assertTrue(first_write.wait(2))
+                            third = threading.Thread(target=deny_request); workers.append(third); third.start()
+                            time.sleep(.15)
+                            self.assertTrue(third.is_alive(), 'denial raced ahead of output commit')
+                            release_first.set()
                         for w in workers: w.join(3)
-                        self.assertEqual(chat_output.is_set(), failure is None)
-                        self.assertEqual(relay.state['output'], failure is None)
-                        self.assertEqual(relay.state['failed'], failure is not None)
+                        self.assertEqual(chat_output.is_set(), failure in (None, 'race'))
+                        self.assertEqual(relay.state['output'], failure in (None, 'race'))
+                        self.assertEqual(relay.state['failed'], failure in ('ack', 'chat'))
+                        if failure == 'race':
+                            self.assertEqual(denied, [(403, b'')])
+                            self.assertEqual(relay.state['requestAttempts'], 3)
+                            self.assertEqual(relay.state['deniedRequests'], 1)
                 self.assertFalse(relay.thread.is_alive())
                 self.assertTrue(all(not w.is_alive() for w in workers))
                 self.assertTrue(all(c.sock is None for c in relay.connections + clients))
@@ -359,6 +381,7 @@ class ReviewRegressionTest(unittest.TestCase):
                 self.assertEqual(relay.server.socket.fileno(), -1)
             finally:
                 release.set()
+                release_first.set()
                 for w in workers: w.join(3)
                 gateway.shutdown(); gateway.server_close(); gt.join()
 

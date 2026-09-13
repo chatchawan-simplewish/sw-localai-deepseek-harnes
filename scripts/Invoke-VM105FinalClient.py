@@ -184,11 +184,11 @@ class TwoRequestRelay:
                         self.send_response(200)
                         self.send_header('Content-Type', 'text/event-stream')
                         self.end_headers()
-                        self.wfile.write(first)
-                        self.wfile.flush()
                         with relay.lock:
                             if relay.state['failed']:
                                 raise ValueError()
+                            self.wfile.write(first)
+                            self.wfile.flush()
                             relay.state['output'] = True
                         while chunk := response.read1(4096):
                             self.wfile.write(chunk)
