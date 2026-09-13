@@ -499,6 +499,67 @@ $sourceText | & python -I -c 'import sys;exec(sys.stdin.read())'
         self.assertEqual(actual, raw)
         self.assertTrue(seen[0] & binary_flag)
 
+    def test_fixed_posix_manifest_paths_validate_on_every_coordinator_os(self):
+        def manifest_for(path):
+            value = {"status": "PASS", "packages": [
+                {"name": "fixture", "version": "1", "canonicalPath": path}],
+                "modules": []}
+            value["canonicalManifestSha256"] = hashlib.sha256(
+                capture.canonical_bytes(value)).hexdigest()
+            return value
+
+        valid = manifest_for("/opt/deepseek-harness/node_modules/fixture")
+        capture._validate_manifest(
+            valid, capture.INSTALL_ROOT, valid["canonicalManifestSha256"], 1, 0)
+        for path in ("opt/deepseek-harness/node_modules/fixture",
+                     "/opt/deepseek-harness/../escape", "C:\\fixture"):
+            with self.subTest(path=path), self.assertRaisesRegex(
+                    capture.CaptureBlocked, "ACCEPTED_PACKAGE_IDENTITY_INVALID"):
+                invalid = manifest_for(path)
+                capture._validate_manifest(
+                    invalid, capture.INSTALL_ROOT,
+                    invalid["canonicalManifestSha256"], 1, 0)
+
+    def test_real_accepted_manifest_reaches_no_network_transport_stub(self):
+        root = SCRIPT.parent.parent
+        source = SCRIPT.read_bytes()
+
+        class ReachedTransport(Exception):
+            pass
+
+        with mock.patch.object(
+                capture, "_run_bounded", side_effect=ReachedTransport):
+            with self.assertRaises(ReachedTransport):
+                capture.capture_via_ssh(
+                    source, hashlib.sha256(source).hexdigest(),
+                    root / "docs/evidence/vm105-final-client-runtime-manifest-20260913.json",
+                    root / "scripts/Build-VM105FinalClientManifest.py",
+                    root / "docs/evidence/never-written-topology-receipt.json",
+                    Path("ssh-no-network-stub"), Path("identity-no-network-stub"))
+
+    def test_cli_entry_preserves_real_crlf_builder_bytes(self):
+        root = SCRIPT.parent.parent
+        captured = []
+        output = []
+
+        def fake_capture(payload):
+            captured.append(payload)
+            return capture._signed_receipt(
+                {"status": "BLOCKED", "reasons": ["NO_NETWORK_FIXTURE"]})
+
+        with mock.patch.object(capture, "capture_payload", side_effect=fake_capture), \
+                mock.patch.object(capture.sys, "stdout", new=SimpleNamespace(
+                    write=output.append)):
+            self.assertEqual(0, capture.main([
+                "--accepted-manifest",
+                str(root / "docs/evidence/vm105-final-client-runtime-manifest-20260913.json"),
+                "--builder", str(root / "scripts/Build-VM105FinalClientManifest.py")]))
+        self.assertEqual(1, len(captured))
+        self.assertEqual(
+            capture.ACCEPTED_BUILDER_SHA256,
+            hashlib.sha256(captured[0]["builderSource"].encode("utf-8")).hexdigest())
+        self.assertIn("NO_NETWORK_FIXTURE", "".join(output))
+
     def test_capture_transport_has_total_and_output_bounds(self):
         self.assertEqual(capture._run_bounded(
             [sys.executable, "-c", "import sys;sys.stdout.buffer.write(b'ok')"],

@@ -5,7 +5,7 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import posixpath
 import stat
 import subprocess
@@ -185,15 +185,23 @@ def _validate_manifest(manifest: dict, root: Path, expected_sha: str, expected_c
         if not isinstance(modules, list) or len(modules) != expected_modules:
             raise CaptureBlocked("ACCEPTED_MODULE_COUNT_MISMATCH")
     identities = set()
+    fixed_install_root = str(root).replace("\\", "/") == INSTALL_ROOT_TEXT
+    identity_root = PurePosixPath(INSTALL_ROOT_TEXT) if fixed_install_root else root
     for row in packages:
         try:
             name, version = row["name"], row["version"]
-            canonical = Path(row["canonicalPath"])
+            canonical_text = row["canonicalPath"]
         except (KeyError, TypeError) as error:
             raise CaptureBlocked("ACCEPTED_PACKAGE_IDENTITY_INVALID") from error
-        if not isinstance(name, str) or not isinstance(version, str) or not canonical.is_absolute():
+        if (not isinstance(name, str) or not isinstance(version, str)
+                or not isinstance(canonical_text, str) or "\0" in canonical_text
+                or (fixed_install_root and "\\" in canonical_text)):
             raise CaptureBlocked("ACCEPTED_PACKAGE_IDENTITY_INVALID")
-        identities.add((name, version, _relative(canonical, root)))
+        canonical = (PurePosixPath(canonical_text) if fixed_install_root
+                     else Path(canonical_text))
+        if not canonical.is_absolute() or ".." in canonical.parts:
+            raise CaptureBlocked("ACCEPTED_PACKAGE_IDENTITY_INVALID")
+        identities.add((name, version, _relative(canonical, identity_root)))
     if len(identities) != expected_count:
         raise CaptureBlocked("ACCEPTED_PACKAGE_IDENTITY_DUPLICATE")
     return identities
@@ -908,11 +916,17 @@ def main(argv=None) -> int:
     parser.add_argument("--builder", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        manifest_raw = _read_pinned_file(
+            args.accepted_manifest, ACCEPTED_MANIFEST_FILE_SHA256,
+            "ACCEPTED_MANIFEST_FILE_HASH_MISMATCH")
+        builder_raw = _read_pinned_file(
+            args.builder, ACCEPTED_BUILDER_SHA256,
+            "ACCEPTED_BUILDER_HASH_MISMATCH")
         payload = {"installRoot": str(INSTALL_ROOT),
-                   "acceptedManifest": json.loads(args.accepted_manifest.read_text(encoding="utf-8")),
-                   "builderSource": args.builder.read_text(encoding="utf-8")}
+                   "acceptedManifest": json.loads(manifest_raw.decode("utf-8")),
+                   "builderSource": builder_raw.decode("utf-8")}
         value = capture_payload(payload)
-    except (OSError, ValueError):
+    except (CaptureBlocked, OSError, UnicodeDecodeError, ValueError):
         value = _signed_receipt({"status": "BLOCKED", "reasons": ["CAPTURE_INPUT_INVALID"]})
     sys.stdout.write(canonical_bytes(value).decode("utf-8") + "\n")
     return 0

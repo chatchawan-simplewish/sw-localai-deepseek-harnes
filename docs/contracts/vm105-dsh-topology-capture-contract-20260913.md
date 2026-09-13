@@ -2,7 +2,7 @@
 
 ## Status and purpose
 
-`SOURCE READY / REMOTE CAPTURE NOT AUTHORIZED OR EXECUTED`
+`SOURCE FIXED / TWO LOCAL COORDINATOR ATTEMPTS SPENT / REMOTE CAPTURE NOT STARTED`
 
 This is the smallest new read-only capture needed to prove whether the accepted VM105 DSH installation can be reconstructed as an executable pnpm closure. It does not reuse a spent gate and does not authorize staging, package execution, provider traffic, credential access, a launch, or default activation.
 
@@ -14,7 +14,7 @@ This is the smallest new read-only capture needed to prove whether the accepted 
 - Pinned Node runtime: `/opt/node-v24.19.0-linux-x64/bin/node`
 - Target interpreter: `/usr/bin/python3.12 -I`
 - Local capture source: `scripts/Capture-VM105DshTopology.py`
-- Independently pinned capture-source SHA-256: `58f0799b56b3bfc99aacadde965bc367f7da02625787ce6241932865fc6ee02a`
+- Independently pinned capture-source SHA-256: `17e43721293d3bffe5c33f63ad2491cd79905bc961993bf40ac0072e48a2bb73`
 - Accepted manifest: `docs/evidence/vm105-final-client-runtime-manifest-20260913.json`
 - Accepted manifest canonical SHA-256: `4331e0e5fd9ac6f5e881a0dae941f9f07dea7b69969ee8b610071ce14cb03f8b`
 - Accepted manifest file SHA-256: `54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd`
@@ -49,7 +49,7 @@ $sourcePath = Join-Path $worktree 'scripts\Capture-VM105DshTopology.py'
 $manifestPath = Join-Path $worktree 'docs\evidence\vm105-final-client-runtime-manifest-20260913.json'
 $builderPath = Join-Path $worktree 'scripts\Build-VM105FinalClientManifest.py'
 $evidencePath = Join-Path $worktree 'docs\evidence\vm105-dsh-topology-capture-20260913.json'
-$expectedCaptureSourceSha256 = '58f0799b56b3bfc99aacadde965bc367f7da02625787ce6241932865fc6ee02a'
+$expectedCaptureSourceSha256 = '17e43721293d3bffe5c33f63ad2491cd79905bc961993bf40ac0072e48a2bb73'
 $sourceItem = Get-Item -LiteralPath $sourcePath -Force
 if ($sourceItem.PSIsContainer -or ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     throw 'CAPTURE_SOURCE_NOT_REGULAR'
@@ -81,4 +81,4 @@ The coordinator must independently recompute `receiptSha256`, verify `status=PAS
 
 ## Local verification and limits
 
-`python scripts/test_vm105_dsh_topology_capture.py` runs 13 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, exact CRLF binary-byte hashing, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots; Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until the newly authorized target capture.
+`python scripts/test_vm105_dsh_topology_capture.py` runs 16 focused tests. They exercise a three-package synthetic pnpm closure and prove PASS plus absolute-link/escape, identity-drift, closure-mismatch, missing-headless-patch, UID/GID/writable-path blocking, fresh pinned-builder inventory equality/failure handling, exact CRLF binary-byte hashing, coordinator-independent POSIX manifest paths with relative/traversal rejection, the complete accepted manifest/builder path reaching a no-network transport stub, binary-safe CLI entry handling of the real CRLF builder, independent source pinning before remote compile, total/stdout/stderr bounds, canonical receipt validation, and fresh no-overwrite publication. This Windows host cannot create unprivileged native symlinks, so the fixture emulates only link snapshots; Linux `lstat`, `readlink`, full builder inventory, `ldd`, ownership, and drift behavior remain unexecuted until a future separately authorized target capture.
