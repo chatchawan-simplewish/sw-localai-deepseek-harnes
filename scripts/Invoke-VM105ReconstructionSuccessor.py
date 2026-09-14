@@ -1,4 +1,4 @@
-"""Delivery-only Phase 13 successor for the dormant VM105 reconstruction."""
+"""Capture-only Phase 13 successor for the dormant VM105 reconstruction."""
 
 import argparse
 import base64
@@ -15,7 +15,7 @@ import threading
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATION = "phase13-r2-20260915"
+GENERATION = "phase13-r3-20260915"
 BUNDLE_ROOT = "/var/tmp/omniroute-dsh-reconstruction-input-20260914"
 TEMP_BUNDLE_ROOT = "/var/tmp/.omniroute-dsh-reconstruction-input-20260914.tmp"
 STAGING_ROOT = "/var/tmp/omniroute-dsh-client-final-20260913"
@@ -51,12 +51,12 @@ BUNDLE_FILES = (
      "sha256": "54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd"},
 )
 
-DELIVERY_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-attempt-20260915.json"
-DELIVERY_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
-BUNDLE_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r2-20260915.json"
-SUDO_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-r2-20260915.json"
-DISPATCH_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-r2-attempt-20260915.json"
-DISPATCH_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-r2-20260915.json"
+DELIVERY_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r3-attempt-20260915.json"
+DELIVERY_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r3-20260915.json"
+BUNDLE_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r3-20260915.json"
+SUDO_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-r3-20260915.json"
+DISPATCH_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-r3-attempt-20260915.json"
+DISPATCH_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-r3-20260915.json"
 ALL_EVIDENCE_PATHS = (
     DELIVERY_ATTEMPT_PATH, DELIVERY_TERMINAL_PATH, BUNDLE_RECEIPT_PATH,
     SUDO_RECEIPT_PATH, DISPATCH_ATTEMPT_PATH, DISPATCH_TERMINAL_PATH,
@@ -68,6 +68,23 @@ EVIDENCE_PATH_BINDING = {
     "sudoReceiptPath": SUDO_RECEIPT_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "dispatchAttemptPath": DISPATCH_ATTEMPT_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "dispatchTerminalPath": DISPATCH_TERMINAL_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+}
+
+DELIVERY_PROVENANCE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
+SUDO_DISCOVERY_PROVENANCE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-sudo-discovery-phase13-20260915.json"
+DELIVERY_PROVENANCE = {
+    "path": DELIVERY_PROVENANCE_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+    "rawSha256": "d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c",
+    "selfSha256": "d1990c9414ca647c36639fd703d0aef200ff7dd11d7678e779bcc6531fa68340",
+    "status": "PASS", "remoteState": "PROVEN_PASS", "retryAuthorized": False,
+}
+SUDO_DISCOVERY_PROVENANCE = {
+    "path": SUDO_DISCOVERY_PROVENANCE_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+    "rawSha256": "d88e629c18ef86249e27bfc02d944b35a0ae128faea43f0f74437dd5bf9c8f24",
+    "selfSha256": "64e1028797590c4349c5ce1b03f35bcf106e4699ee7f355bdd3f888bf52986fd",
+    "status": "PASS", "sudoVersion": "1.9.15p5", "exactCommandAllowed": True,
+    "policyState": "UNSUPPORTED", "targetExecuted": False,
+    "rawOutputStored": False, "retryAuthorized": False,
 }
 
 
@@ -100,6 +117,8 @@ PREREQUISITE_CAPTURE_BINDING = {
     "generation": GENERATION, **EVIDENCE_PATH_BINDING,
     "bundleRoot": BUNDLE_ROOT, "expectedFileCount": 5,
     "launcherSha256": LAUNCHER_SHA256,
+    "deliveryProvenance": DELIVERY_PROVENANCE,
+    "sudoDiscoveryProvenance": SUDO_DISCOVERY_PROVENANCE,
 }
 PREREQUISITE_CAPTURE_BINDING_SHA256 = _binding_sha256(PREREQUISITE_CAPTURE_BINDING)
 RECONSTRUCTION_DISPATCH_BINDING = {
@@ -109,15 +128,15 @@ RECONSTRUCTION_DISPATCH_BINDING = {
 }
 RECONSTRUCTION_DISPATCH_BINDING_SHA256 = _binding_sha256(RECONSTRUCTION_DISPATCH_BINDING)
 
-# Delivery alone is bound. Later reviewed source changes must bind every other gate.
-ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256 = "442a32392f04b8ee24a44b033db655f8136319e90682f75b0d6ef554566d0935"
-ACCEPTED_PREREQUISITE_CAPTURE_BINDING_SHA256 = None
+# Capture alone is bound. Later reviewed source changes must bind every other gate.
+ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256 = None
+ACCEPTED_PREREQUISITE_CAPTURE_BINDING_SHA256 = "ab2fc31d8280ab15437253ca65843b3728d17949eae6b64c34f833383a1a2bf1"
 ACCEPTED_RECONSTRUCTION_DISPATCH_BINDING_SHA256 = None
 ACCEPTED_BUNDLE_RECEIPT_RAW_SHA256 = None
 ACCEPTED_BUNDLE_RECEIPT_SELF_SHA256 = None
 ACCEPTED_SUDO_RECEIPT_RAW_SHA256 = None
 ACCEPTED_SUDO_RECEIPT_SELF_SHA256 = None
-ACCEPTED_SUDO_VERSION = None
+ACCEPTED_SUDO_VERSION = "1.9.15p5"
 ACCEPTED_LIVE_BINDINGS = None
 
 
@@ -277,6 +296,46 @@ def _validate_signed_line(raw, expected_keys):
     if not isinstance(claimed, str) or not re.fullmatch(r"[0-9a-f]{64}", claimed) or hashlib.sha256(canonical_bytes(unsigned)).hexdigest() != claimed:
         raise ValueError()
     return value
+
+
+def _validate_capture_provenance(read_evidence):
+    try:
+        delivery_raw = read_evidence(
+            DELIVERY_PROVENANCE_PATH, DELIVERY_PROVENANCE["rawSha256"])
+        if hashlib.sha256(delivery_raw).hexdigest() != DELIVERY_PROVENANCE["rawSha256"]:
+            raise ValueError()
+        delivery = _validate_signed_line(delivery_raw, {
+            "status", "reason", "remoteState", "retryAuthorized",
+            "bindingSha256", "remoteReceiptSha256",
+        })
+        if (delivery["receiptSha256"] != DELIVERY_PROVENANCE["selfSha256"] or
+                delivery["status"] != "PASS" or delivery["reason"] != "NONE" or
+                delivery["remoteState"] != "PROVEN_PASS" or
+                delivery["retryAuthorized"] is not False):
+            raise ValueError()
+
+        discovery_raw = read_evidence(
+            SUDO_DISCOVERY_PROVENANCE_PATH, SUDO_DISCOVERY_PROVENANCE["rawSha256"])
+        if hashlib.sha256(discovery_raw).hexdigest() != SUDO_DISCOVERY_PROVENANCE["rawSha256"]:
+            raise ValueError()
+        discovery = _validate_signed_line(discovery_raw, {
+            "status", "reason", "generation", "bindingSha256", "loadedSourceSha256",
+            "sudoVersion", "exactQueryReturnCode", "exactQueryOutputSha256",
+            "fullQueryReturnCode", "fullQueryOutputSha256", "exactCommandAllowed",
+            "policyState", "targetExecuted", "rawOutputStored", "retryAuthorized",
+            "targetArgc", "targetArgvSha256", "bootstrapBytes", "bootstrapSha256",
+        })
+        if (discovery["receiptSha256"] != SUDO_DISCOVERY_PROVENANCE["selfSha256"] or
+                discovery["status"] != "PASS" or discovery["reason"] != "NONE" or
+                discovery["sudoVersion"] != "1.9.15p5" or
+                discovery["exactCommandAllowed"] is not True or
+                discovery["policyState"] != "UNSUPPORTED" or
+                discovery["targetExecuted"] is not False or
+                discovery["rawOutputStored"] is not False or
+                discovery["retryAuthorized"] is not False):
+            raise ValueError()
+    except Exception:
+        raise PrerequisiteBlocked("CAPTURE_PROVENANCE_REJECTED") from None
 
 
 def _delivery_terminal(status, reason, remote_state, remote_sha=""):
@@ -536,7 +595,7 @@ def _parse_full_sudo_policy(raw, details):
     index += 1
     while index < len(lines) and not lines[index]:
         index += 1
-    source_pattern = r"/etc/sudoers(?:\.d/[A-Za-z0-9_.-]+)?(?::[0-9]+)?"
+    source_pattern = r"/etc/sudoers(?:\.d/[A-Za-z0-9_.-]+)?(?::[0-9]+(?::[0-9]+)?)?"
     if index >= len(lines) or re.fullmatch(
             r"Sudoers entry:(?: " + source_pattern + r")?", lines[index]) is None:
         return "UNSUPPORTED", version
@@ -617,10 +676,12 @@ def _unknown_bundle_receipt():
 
 def capture_prerequisites(authority_sha256, bundle_transport, sudo_transport, *,
                           command_details=_reconstruction_command_details,
+                          read_evidence=read_stable_source,
                           lstat=os.lstat, publish=_publish_exclusive):
     _require_authority(authority_sha256, ACCEPTED_PREREQUISITE_CAPTURE_BINDING_SHA256,
                        PREREQUISITE_CAPTURE_BINDING_SHA256,
                        "PREREQUISITE_CAPTURE_NOT_EXECUTABLE")
+    _validate_capture_provenance(read_evidence)
     _require_absent((BUNDLE_RECEIPT_PATH, SUDO_RECEIPT_PATH), lstat)
     try:
         return_code, stdout, stderr = bundle_transport(
