@@ -1,12 +1,12 @@
-# VM105 Phase 13 reconstruction successor contract — 2026-09-15
+# VM105 Phase 13 R2 reconstruction successor contract — 2026-09-15
 
 ## Status and authority
 
-**DELIVERY ONLY.** `scripts/Invoke-VM105ReconstructionSuccessor.py` authorizes exactly one bundle-delivery attempt for generation `phase13-20260915`. The accepted delivery binding is:
+**DELIVERY ONLY.** `scripts/Invoke-VM105ReconstructionSuccessor.py` authorizes exactly one bundle-delivery attempt for fresh generation `phase13-r2-20260915`. The accepted delivery binding is:
 
-`392eb6e28ef879eee3348f912fb8ff66a8a692ea749f91bc399cc5aa0b6676ee`
+`442a32392f04b8ee24a44b033db655f8136319e90682f75b0d6ef554566d0935`
 
-The successor is copy-derived from the immutable, independently reviewed Phase 12 source whose raw SHA-256 is `756354721f19d156ab336b79755c476a74ee8075cca3a1e11e91f1a418b2b29f`. The Phase 13 source raw SHA-256 is `15c346f2a14083467ec794335cc0b8d4df8eb3b1d92f3fba564bfd704c5f0eee`; the focused regression raw SHA-256 is `8840dc7c1d203fa78dc04a3558188751d16b6a5b4114fc726a2994cdacf84066`.
+The successor is copy-derived from the immutable, independently reviewed Phase 12 source whose raw SHA-256 is `756354721f19d156ab336b79755c476a74ee8075cca3a1e11e91f1a418b2b29f`. The Phase 13 R2 source raw SHA-256 is `b30366f98a22e1a77fbd24451248111adb884280e625d0ac0844d62fb881c960`; the focused regression raw SHA-256 is `3b502b1fd7872feea6f0d850f8b5aea2bacb1468313d7a8669a24205b93caa9d`.
 
 The delivery binding includes the generation, the fixed bundle and temporary roots, all five basename/SHA-256 pins, and all six fresh repository-relative evidence paths. Its canonical JSON SHA-256 is recomputed at import and must equal the accepted value before any source read, evidence reservation, or transport call.
 
@@ -19,7 +19,7 @@ The delivery binding includes the generation, the fixed bundle and temporary roo
 - Privileged target: `/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/sudo -n /usr/bin/python3.12 -I -c <fixed-base64-bootstrap>`
 - SSH prefix: the preserved strict Phase 12 `ssh.exe` argv with `BatchMode`, `IdentitiesOnly`, password and keyboard-interactive authentication disabled, strict host-key checking, cleared forwards, bounded connection settings, and target `dsh@192.168.1.139`
 
-The five fixed source pins remain:
+The five fixed source pins remain. Exact `-text` rules in `.gitattributes` prevent Git checkout or archive line-ending conversion for each path. `Build-VM105FinalClientManifest.py` is committed as its accepted raw bytes; its LF-normalized semantic content is identical to the prior Git blob. The other four prospective blobs remain byte-identical to their current Git blobs.
 
 | Basename | SHA-256 |
 |---|---|
@@ -33,12 +33,12 @@ Before transport, every fresh evidence leaf must be absent. The attempt leaf is 
 
 Fresh evidence leaves:
 
-- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-attempt-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-bundle-phase13-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-phase13-attempt-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-phase13-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-attempt-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r2-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-r2-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-phase13-r2-attempt-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-phase13-r2-20260915.json`
 
 ## Explicitly unavailable
 

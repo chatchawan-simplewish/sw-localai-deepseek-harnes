@@ -13,7 +13,7 @@ class ReconstructionSuccessorTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("vm105_reconstruction_successor", SOURCE)
         successor = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(successor)
-        self.assertEqual(successor.GENERATION, "phase13-20260915")
+        self.assertEqual(successor.GENERATION, "phase13-r2-20260915")
         self.assertEqual(
             successor.ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256,
             successor.BUNDLE_DELIVERY_BINDING_SHA256,
@@ -50,6 +50,8 @@ class ReconstructionSuccessorTests(unittest.TestCase):
             successor.DISPATCH_ATTEMPT_PATH,
             successor.DISPATCH_TERMINAL_PATH,
         }
+        self.assertTrue(all("phase13-r2-" in path.name and path.name.endswith("20260915.json")
+                            for path in leaves))
         checked = []
         published = {}
 

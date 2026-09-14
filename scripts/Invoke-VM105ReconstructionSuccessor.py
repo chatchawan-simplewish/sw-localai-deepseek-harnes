@@ -15,7 +15,7 @@ import threading
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATION = "phase13-20260915"
+GENERATION = "phase13-r2-20260915"
 BUNDLE_ROOT = "/var/tmp/omniroute-dsh-reconstruction-input-20260914"
 TEMP_BUNDLE_ROOT = "/var/tmp/.omniroute-dsh-reconstruction-input-20260914.tmp"
 STAGING_ROOT = "/var/tmp/omniroute-dsh-client-final-20260913"
@@ -51,12 +51,12 @@ BUNDLE_FILES = (
      "sha256": "54d117c638335edeefe43aaef0f181ea5317f7938a6861a145871a0d9e45e8dd"},
 )
 
-DELIVERY_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-attempt-20260915.json"
-DELIVERY_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-20260915.json"
-BUNDLE_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-20260915.json"
-SUDO_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-20260915.json"
-DISPATCH_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-attempt-20260915.json"
-DISPATCH_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-20260915.json"
+DELIVERY_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-attempt-20260915.json"
+DELIVERY_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
+BUNDLE_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r2-20260915.json"
+SUDO_RECEIPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-r2-20260915.json"
+DISPATCH_ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-r2-attempt-20260915.json"
+DISPATCH_TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-phase13-r2-20260915.json"
 ALL_EVIDENCE_PATHS = (
     DELIVERY_ATTEMPT_PATH, DELIVERY_TERMINAL_PATH, BUNDLE_RECEIPT_PATH,
     SUDO_RECEIPT_PATH, DISPATCH_ATTEMPT_PATH, DISPATCH_TERMINAL_PATH,
@@ -110,7 +110,7 @@ RECONSTRUCTION_DISPATCH_BINDING = {
 RECONSTRUCTION_DISPATCH_BINDING_SHA256 = _binding_sha256(RECONSTRUCTION_DISPATCH_BINDING)
 
 # Delivery alone is bound. Later reviewed source changes must bind every other gate.
-ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256 = "392eb6e28ef879eee3348f912fb8ff66a8a692ea749f91bc399cc5aa0b6676ee"
+ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256 = "442a32392f04b8ee24a44b033db655f8136319e90682f75b0d6ef554566d0935"
 ACCEPTED_PREREQUISITE_CAPTURE_BINDING_SHA256 = None
 ACCEPTED_RECONSTRUCTION_DISPATCH_BINDING_SHA256 = None
 ACCEPTED_BUNDLE_RECEIPT_RAW_SHA256 = None

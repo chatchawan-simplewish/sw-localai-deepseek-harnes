@@ -10,3 +10,8 @@ docs/evidence/vm105-native-core-source-2026-09-09.json text eol=lf
 scripts/Capture-VM105DshTopology.py text eol=lf
 docs/evidence/vm105-dsh-topology-capture-20260913.json text eol=lf
 docs/evidence/vm105-dsh-topology-capture-successor-20260913.json text eol=lf
+scripts/Build-VM105FinalClientManifest.py -text
+scripts/Capture-VM105DshTopology.py -text
+scripts/Invoke-VM105ProductionLauncher.py -text
+docs/evidence/vm105-dsh-topology-capture-successor-20260913.json -text
+docs/evidence/vm105-final-client-runtime-manifest-20260913.json -text
