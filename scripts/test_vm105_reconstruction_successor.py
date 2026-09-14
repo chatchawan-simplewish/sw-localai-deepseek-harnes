@@ -62,7 +62,7 @@ class ReconstructionSuccessorTests(unittest.TestCase):
 
     def test_capture_is_the_only_bound_mode_and_provenance_precedes_transport(self):
         successor = self.successor
-        self.assertEqual(successor.GENERATION, "phase13-r3-20260915")
+        self.assertEqual(successor.GENERATION, "phase13-r4-20260915")
         self.assertIsNone(successor.ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256)
         self.assertEqual(successor.ACCEPTED_PREREQUISITE_CAPTURE_BINDING_SHA256,
                          successor.PREREQUISITE_CAPTURE_BINDING_SHA256)
@@ -78,7 +78,10 @@ class ReconstructionSuccessorTests(unittest.TestCase):
                          "d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c")
         self.assertEqual(successor.SUDO_DISCOVERY_PROVENANCE["rawSha256"],
                          "d88e629c18ef86249e27bfc02d944b35a0ae128faea43f0f74437dd5bf9c8f24")
-        self.assertTrue(all("phase13-r3-" in path.name for path in successor.ALL_EVIDENCE_PATHS))
+        attributes = (SOURCE.parents[1] / ".gitattributes").read_text(encoding="utf-8").splitlines()
+        for provenance in (successor.DELIVERY_PROVENANCE, successor.SUDO_DISCOVERY_PROVENANCE):
+            self.assertIn(f'{provenance["path"]} -text', attributes)
+        self.assertTrue(all("phase13-r4-" in path.name for path in successor.ALL_EVIDENCE_PATHS))
 
         with self.assertRaisesRegex(successor.PrerequisiteBlocked,
                                     "BUNDLE_DELIVERY_NOT_EXECUTABLE"):

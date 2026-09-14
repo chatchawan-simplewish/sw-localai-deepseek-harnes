@@ -1,12 +1,12 @@
-# VM105 Phase 13 R3 reconstruction successor contract — 2026-09-15
+# VM105 Phase 13 R4 reconstruction successor contract — 2026-09-15
 
 ## Status and authority
 
-**CAPTURE ONLY.** `scripts/Invoke-VM105ReconstructionSuccessor.py` authorizes one prerequisite capture for generation `phase13-r3-20260915`. The accepted capture binding is:
+**CAPTURE ONLY.** `scripts/Invoke-VM105ReconstructionSuccessor.py` authorizes one prerequisite capture for generation `phase13-r4-20260915`. The accepted capture binding is:
 
-`ab2fc31d8280ab15437253ca65843b3728d17949eae6b64c34f833383a1a2bf1`
+`d9d14c8ebebb4b91dd775b32ad45ec2297273706ee85454c44d74ec6e5537e4d`
 
-The source raw SHA-256 is `6c460e8e82d5766df9290d408618f1e26f4dd94a38bb3247407a8740fe5caefb`; the focused regression raw SHA-256 is `b420716cdcde50ebe4a7ebd31555dc326229bc9d6b63010c3c8c830c461959e2`.
+The source raw SHA-256 is `35084d5e879d5ef0c207d0c17d546a5d3be1645129ea361961d66516856e6517`; the focused regression raw SHA-256 is `d007fd363d9094d1ac3495d037779745c80c65ef1ef478a4dc114a8d617af504`.
 
 `ACCEPTED_BUNDLE_DELIVERY_BINDING_SHA256` is closed. The dispatch binding, all four receipt pins, and `ACCEPTED_LIVE_BINDINGS` remain `None`. `ACCEPTED_SUDO_VERSION` is exactly `1.9.15p5`.
 
@@ -18,6 +18,8 @@ The capture binding includes the six fresh evidence paths and both immutable pro
 |---|---|---|---|
 | `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json` | `d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c` | `d1990c9414ca647c36639fd703d0aef200ff7dd11d7678e779bcc6531fa68340` | `status=PASS`, `reason=NONE`, `remoteState=PROVEN_PASS`, `retryAuthorized=false` |
 | `docs/evidence/vm105-dsh-reconstruction-sudo-discovery-phase13-20260915.json` | `d88e629c18ef86249e27bfc02d944b35a0ae128faea43f0f74437dd5bf9c8f24` | `64e1028797590c4349c5ce1b03f35bcf106e4699ee7f355bdd3f888bf52986fd` | `status=PASS`, `reason=NONE`, `sudoVersion=1.9.15p5`, `exactCommandAllowed=true`, `policyState=UNSUPPORTED`, `targetExecuted=false`, `rawOutputStored=false`, `retryAuthorized=false` |
+
+Exact `-text` rules in `.gitattributes` preserve both provenance files byte-for-byte in Windows checkouts, temporary-index materialization, and Git archives. The provenance content and Git blobs are unchanged.
 
 ## Fixed capture
 
@@ -33,12 +35,12 @@ Only canonical bundle and sudo receipts are exclusively published, each at most 
 
 Fresh evidence leaves:
 
-- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r3-attempt-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r3-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r3-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-r3-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-phase13-r3-attempt-20260915.json`
-- `docs/evidence/vm105-dsh-reconstruction-phase13-r3-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r4-attempt-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r4-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r4-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-sudo-policy-phase13-r4-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-phase13-r4-attempt-20260915.json`
+- `docs/evidence/vm105-dsh-reconstruction-phase13-r4-20260915.json`
 
 ## Explicitly unavailable
 

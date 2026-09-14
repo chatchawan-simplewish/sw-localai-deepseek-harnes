@@ -15,3 +15,5 @@ scripts/Capture-VM105DshTopology.py -text
 scripts/Invoke-VM105ProductionLauncher.py -text
 docs/evidence/vm105-dsh-topology-capture-successor-20260913.json -text
 docs/evidence/vm105-final-client-runtime-manifest-20260913.json -text
+docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json -text
+docs/evidence/vm105-dsh-reconstruction-sudo-discovery-phase13-20260915.json -text
