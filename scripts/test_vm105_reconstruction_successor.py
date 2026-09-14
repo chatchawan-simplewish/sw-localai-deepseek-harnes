@@ -1,5 +1,6 @@
 import errno
 import importlib.util
+import io
 import json
 from pathlib import Path
 import unittest
@@ -150,6 +151,31 @@ class ReconstructionSuccessorTests(unittest.TestCase):
         self.assertEqual(len(published), 2)
         self.assertEqual(json.loads(published[1][1])["status"], "UNKNOWN")
         self.assertNotIn(sensitive, published[1][1])
+
+    def test_empty_ssh_input_tolerates_a_closed_remote_stdin(self):
+        successor = self.successor
+
+        class ClosedInput:
+            def flush(self):
+                raise BrokenPipeError()
+
+            def close(self):
+                raise BrokenPipeError()
+
+        class Process:
+            def __init__(self):
+                self.stdin = ClosedInput()
+                self.stdout = io.BytesIO()
+                self.stderr = io.BytesIO()
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        self.assertEqual(successor._run_ssh(["ssh"], b"", popen=lambda *_a, **_k: Process()),
+                         (0, b"", b""))
 
 
 if __name__ == "__main__":

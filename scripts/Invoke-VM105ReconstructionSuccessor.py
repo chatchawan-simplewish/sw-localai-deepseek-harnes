@@ -809,6 +809,8 @@ def _run_ssh(command, payload=b"", *, popen=subprocess.Popen,
 
     def feed():
         try:
+            if not payload:
+                return
             view = memoryview(payload)
             while view:
                 count = process.stdin.write(view[:65536])
@@ -822,7 +824,8 @@ def _run_ssh(command, payload=b"", *, popen=subprocess.Popen,
             try:
                 process.stdin.close()
             except OSError:
-                stop("SSH_STDIN_FAILED")
+                if payload:
+                    stop("SSH_STDIN_FAILED")
 
     threads = [
         threading.Thread(target=drain, args=("stdout", process.stdout, max_stdout), daemon=True),

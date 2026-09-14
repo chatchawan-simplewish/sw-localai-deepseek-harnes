@@ -194,11 +194,13 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
 
     def test_binding_includes_current_source_commands_and_spent_provenance(self):
         binding = discovery.DISCOVERY_BINDING
-        self.assertEqual(binding["generation"], "phase13-r5-20260915")
+        self.assertEqual(binding["generation"], "phase13-r6-20260915")
         self.assertEqual(binding["loadedSourceSha256"], discovery.SUCCESSOR_SHA256)
         self.assertEqual(binding["deliveryProvenance"]["status"], "PASS")
         self.assertEqual(binding["spentR4CaptureProvenance"]["status"], "UNKNOWN")
         self.assertEqual(binding["spentR4CaptureProvenance"]["retryAuthorized"], False)
+        self.assertEqual(binding["spentR5PolicyProvenance"]["status"], "UNKNOWN")
+        self.assertEqual(binding["spentR5PolicyProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["captureExactQueryCommand"],
                          self.details["captureExactQueryCommand"])
         self.assertEqual(binding["reconstructionExactQueryCommand"],

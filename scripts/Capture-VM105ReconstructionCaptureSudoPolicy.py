@@ -12,13 +12,14 @@ import stat
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATION = "phase13-r5-20260915"
+GENERATION = "phase13-r6-20260915"
 SUCCESSOR_PATH = REPOSITORY_ROOT / "scripts/Invoke-VM105ReconstructionSuccessor.py"
-SUCCESSOR_SHA256 = "35084d5e879d5ef0c207d0c17d546a5d3be1645129ea361961d66516856e6517"
-ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-attempt-20260915.json"
-TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json"
+SUCCESSOR_SHA256 = "d929842db8f1ddc978d321761a36f07a875e07d3edc63b5301ac87a92f69abb4"
+ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-attempt-20260915.json"
+TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.json"
 DELIVERY_PROVENANCE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
 SPENT_R4_CAPTURE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r4-20260915.json"
+SPENT_R5_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json"
 DELIVERY_PROVENANCE = {
     "path": DELIVERY_PROVENANCE_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "rawSha256": "d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c",
@@ -31,6 +32,13 @@ SPENT_R4_CAPTURE_PROVENANCE = {
     "rawSha256": "a588740fcdb447b0ab1cf425ca53062a0577c7d8f439dd6467964efa082f2745",
     "selfSha256": "e2239a359200d814e23de1c19214f5c28eda2c591ac1b528c2779af5d6c14b96",
     "status": "UNKNOWN", "reason": "BUNDLE_CAPTURE_TRANSPORT_UNKNOWN",
+    "retryAuthorized": False,
+}
+SPENT_R5_POLICY_PROVENANCE = {
+    "path": SPENT_R5_POLICY_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+    "rawSha256": "eb1ed671ca295fe6206864e95a1b33d30d8d10b98e0f11893bfe6304a5d51364",
+    "selfSha256": "64387da1bd30ec80cc6d0c1b85788416a6b7d28fe874e7f97f5841ebe020b033",
+    "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
     "retryAuthorized": False,
 }
 
@@ -157,6 +165,7 @@ def _binding(namespace, details):
         "loadedSourceSha256": SUCCESSOR_SHA256,
         "deliveryProvenance": DELIVERY_PROVENANCE,
         "spentR4CaptureProvenance": SPENT_R4_CAPTURE_PROVENANCE,
+        "spentR5PolicyProvenance": SPENT_R5_POLICY_PROVENANCE,
         **{key: details[key] for key in (
             "captureTargetArgc", "captureTargetArgvSha256", "captureBootstrapBytes",
             "captureBootstrapSha256", "captureExactQueryCommand", "reconstructionTargetArgc",
@@ -171,7 +180,7 @@ _INITIAL_NAMESPACE, _INITIAL_DETAILS = _reviewed_context()
 DISCOVERY_BINDING = _binding(_INITIAL_NAMESPACE, _INITIAL_DETAILS)
 DISCOVERY_BINDING_SHA256 = hashlib.sha256(
     _INITIAL_NAMESPACE["canonical_bytes"](DISCOVERY_BINDING)).hexdigest()
-ACCEPTED_DISCOVERY_BINDING_SHA256 = "0998b798aa925b2fcb1182f46655187ec7b6410851e6d90e8d10967fcc425540"
+ACCEPTED_DISCOVERY_BINDING_SHA256 = "26099a1a9c4e745bd68d034b3feec2483082ba73357d915ac6cf18eb7fc2f036"
 del _INITIAL_NAMESPACE, _INITIAL_DETAILS
 
 
@@ -183,6 +192,10 @@ def _validate_provenance(namespace, read_evidence):
         }),
         (SPENT_R4_CAPTURE_PATH, SPENT_R4_CAPTURE_PROVENANCE, {
             "status": "UNKNOWN", "reason": "BUNDLE_CAPTURE_TRANSPORT_UNKNOWN",
+        }),
+        (SPENT_R5_POLICY_PATH, SPENT_R5_POLICY_PROVENANCE, {
+            "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
+            "retryAuthorized": False,
         }),
     ):
         raw = read_evidence(path, expected["rawSha256"])

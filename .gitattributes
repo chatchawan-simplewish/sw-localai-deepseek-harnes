@@ -13,10 +13,15 @@ docs/evidence/vm105-dsh-topology-capture-successor-20260913.json text eol=lf
 scripts/Build-VM105FinalClientManifest.py -text
 scripts/Capture-VM105DshTopology.py -text
 scripts/Invoke-VM105ProductionLauncher.py -text
+scripts/Invoke-VM105ReconstructionSuccessor.py -text
+scripts/test_vm105_reconstruction_successor.py text eol=lf
 docs/evidence/vm105-dsh-topology-capture-successor-20260913.json -text
 docs/evidence/vm105-final-client-runtime-manifest-20260913.json -text
 docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json -text
 docs/evidence/vm105-dsh-reconstruction-sudo-discovery-phase13-20260915.json -text
+docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-attempt-20260915.json -text
+docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json -text
 scripts/Capture-VM105ReconstructionCaptureSudoPolicy.py text eol=lf
 scripts/tests/test_vm105_reconstruction_capture_sudo_policy.py text eol=lf
 docs/contracts/vm105-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.md text eol=lf
+docs/contracts/vm105-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.md text eol=lf
