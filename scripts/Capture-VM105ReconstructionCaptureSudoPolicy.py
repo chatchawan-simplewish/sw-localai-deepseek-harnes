@@ -12,14 +12,15 @@ import stat
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATION = "phase13-r6-20260915"
+GENERATION = "phase13-r7-20260915"
 SUCCESSOR_PATH = REPOSITORY_ROOT / "scripts/Invoke-VM105ReconstructionSuccessor.py"
 SUCCESSOR_SHA256 = "d929842db8f1ddc978d321761a36f07a875e07d3edc63b5301ac87a92f69abb4"
-ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-attempt-20260915.json"
-TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.json"
+ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-attempt-20260915.json"
+TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-20260915.json"
 DELIVERY_PROVENANCE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
 SPENT_R4_CAPTURE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r4-20260915.json"
 SPENT_R5_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json"
+SPENT_R6_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.json"
 DELIVERY_PROVENANCE = {
     "path": DELIVERY_PROVENANCE_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "rawSha256": "d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c",
@@ -38,6 +39,13 @@ SPENT_R5_POLICY_PROVENANCE = {
     "path": SPENT_R5_POLICY_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "rawSha256": "eb1ed671ca295fe6206864e95a1b33d30d8d10b98e0f11893bfe6304a5d51364",
     "selfSha256": "64387da1bd30ec80cc6d0c1b85788416a6b7d28fe874e7f97f5841ebe020b033",
+    "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
+    "retryAuthorized": False,
+}
+SPENT_R6_POLICY_PROVENANCE = {
+    "path": SPENT_R6_POLICY_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+    "rawSha256": "615d7a51ad5daa178291ee7ec659316efa067f479e9684afd3877045c5829611",
+    "selfSha256": "5d6604f39572c4f184ab7c5cc8ca30963fb059935683bd1338a0a084cd9d059e",
     "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
     "retryAuthorized": False,
 }
@@ -166,6 +174,7 @@ def _binding(namespace, details):
         "deliveryProvenance": DELIVERY_PROVENANCE,
         "spentR4CaptureProvenance": SPENT_R4_CAPTURE_PROVENANCE,
         "spentR5PolicyProvenance": SPENT_R5_POLICY_PROVENANCE,
+        "spentR6PolicyProvenance": SPENT_R6_POLICY_PROVENANCE,
         **{key: details[key] for key in (
             "captureTargetArgc", "captureTargetArgvSha256", "captureBootstrapBytes",
             "captureBootstrapSha256", "captureExactQueryCommand", "reconstructionTargetArgc",
@@ -180,7 +189,7 @@ _INITIAL_NAMESPACE, _INITIAL_DETAILS = _reviewed_context()
 DISCOVERY_BINDING = _binding(_INITIAL_NAMESPACE, _INITIAL_DETAILS)
 DISCOVERY_BINDING_SHA256 = hashlib.sha256(
     _INITIAL_NAMESPACE["canonical_bytes"](DISCOVERY_BINDING)).hexdigest()
-ACCEPTED_DISCOVERY_BINDING_SHA256 = "26099a1a9c4e745bd68d034b3feec2483082ba73357d915ac6cf18eb7fc2f036"
+ACCEPTED_DISCOVERY_BINDING_SHA256 = "a32a7d5b5402ecce2bcb5eb133d97c72cdd06a7ed65d4f780e839209f47d66da"
 del _INITIAL_NAMESPACE, _INITIAL_DETAILS
 
 
@@ -194,6 +203,10 @@ def _validate_provenance(namespace, read_evidence):
             "status": "UNKNOWN", "reason": "BUNDLE_CAPTURE_TRANSPORT_UNKNOWN",
         }),
         (SPENT_R5_POLICY_PATH, SPENT_R5_POLICY_PROVENANCE, {
+            "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
+            "retryAuthorized": False,
+        }),
+        (SPENT_R6_POLICY_PATH, SPENT_R6_POLICY_PROVENANCE, {
             "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
             "retryAuthorized": False,
         }),
@@ -405,6 +418,11 @@ def capture_policy_discovery(authority_sha256, *, transport=None, lstat=os.lstat
             terminal = _classify(
                 namespace, details, capture_code, capture_raw, reconstruction_code,
                 reconstruction_raw, full_code, full_raw)
+    except RuntimeError as error:
+        reason = str(error)
+        if re.fullmatch(r"SSH_(?:START_FAILED|TIMEOUT|OUTPUT_LIMIT_EXCEEDED|DRAIN_FAILED|STDIN_FAILED)", reason) is None:
+            reason = "SUDO_POLICY_DISCOVERY_UNCERTAIN"
+        terminal = _terminal(namespace, details, status="UNKNOWN", reason=reason)
     except Exception:
         terminal = _terminal(
             namespace, details, status="UNKNOWN", reason="SUDO_POLICY_DISCOVERY_UNCERTAIN")

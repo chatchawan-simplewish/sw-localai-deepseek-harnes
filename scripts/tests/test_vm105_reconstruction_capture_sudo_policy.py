@@ -194,13 +194,15 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
 
     def test_binding_includes_current_source_commands_and_spent_provenance(self):
         binding = discovery.DISCOVERY_BINDING
-        self.assertEqual(binding["generation"], "phase13-r6-20260915")
+        self.assertEqual(binding["generation"], "phase13-r7-20260915")
         self.assertEqual(binding["loadedSourceSha256"], discovery.SUCCESSOR_SHA256)
         self.assertEqual(binding["deliveryProvenance"]["status"], "PASS")
         self.assertEqual(binding["spentR4CaptureProvenance"]["status"], "UNKNOWN")
         self.assertEqual(binding["spentR4CaptureProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["spentR5PolicyProvenance"]["status"], "UNKNOWN")
         self.assertEqual(binding["spentR5PolicyProvenance"]["retryAuthorized"], False)
+        self.assertEqual(binding["spentR6PolicyProvenance"]["status"], "UNKNOWN")
+        self.assertEqual(binding["spentR6PolicyProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["captureExactQueryCommand"],
                          self.details["captureExactQueryCommand"])
         self.assertEqual(binding["reconstructionExactQueryCommand"],
@@ -209,6 +211,18 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
         self.assertEqual(binding["policySourceSchema"], "safe-absolute-paths-only")
         self.assertEqual(discovery.ACCEPTED_DISCOVERY_BINDING_SHA256,
                          discovery.DISCOVERY_BINDING_SHA256)
+
+    def test_bounded_ssh_failure_category_is_sanitized_but_preserved(self):
+        published = {}
+        terminal = discovery.capture_policy_discovery(
+            discovery.ACCEPTED_DISCOVERY_BINDING_SHA256,
+            transport=lambda *_args: (_ for _ in ()).throw(RuntimeError("SSH_DRAIN_FAILED")),
+            lstat=self.absent,
+            publish=lambda path, raw: published.setdefault(path, raw),
+        )
+        self.assertEqual((terminal["status"], terminal["reason"]),
+                         ("UNKNOWN", "SSH_DRAIN_FAILED"))
+        self.assertNotIn(b"SSH_DRAIN_FAILED", published[discovery.ATTEMPT_PATH])
 
 
 if __name__ == "__main__":
