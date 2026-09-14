@@ -23,8 +23,11 @@ docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-
 docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json -text
 docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-attempt-20260915.json -text
 docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.json -text
+docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-attempt-20260915.json -text
+docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-20260915.json -text
 scripts/Capture-VM105ReconstructionCaptureSudoPolicy.py text eol=lf
 scripts/tests/test_vm105_reconstruction_capture_sudo_policy.py text eol=lf
 docs/contracts/vm105-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.md text eol=lf
 docs/contracts/vm105-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.md text eol=lf
 docs/contracts/vm105-reconstruction-capture-sudo-policy-discovery-phase13-r7-20260915.md text eol=lf
+docs/contracts/vm105-reconstruction-capture-sudo-policy-discovery-phase13-r8-20260915.md text eol=lf

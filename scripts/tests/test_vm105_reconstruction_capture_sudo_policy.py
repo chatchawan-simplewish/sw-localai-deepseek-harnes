@@ -194,7 +194,7 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
 
     def test_binding_includes_current_source_commands_and_spent_provenance(self):
         binding = discovery.DISCOVERY_BINDING
-        self.assertEqual(binding["generation"], "phase13-r7-20260915")
+        self.assertEqual(binding["generation"], "phase13-r8-20260915")
         self.assertEqual(binding["loadedSourceSha256"], discovery.SUCCESSOR_SHA256)
         self.assertEqual(binding["deliveryProvenance"]["status"], "PASS")
         self.assertEqual(binding["spentR4CaptureProvenance"]["status"], "UNKNOWN")
@@ -203,6 +203,8 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
         self.assertEqual(binding["spentR5PolicyProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["spentR6PolicyProvenance"]["status"], "UNKNOWN")
         self.assertEqual(binding["spentR6PolicyProvenance"]["retryAuthorized"], False)
+        self.assertEqual(binding["spentR7PolicyProvenance"]["status"], "UNKNOWN")
+        self.assertEqual(binding["spentR7PolicyProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["captureExactQueryCommand"],
                          self.details["captureExactQueryCommand"])
         self.assertEqual(binding["reconstructionExactQueryCommand"],
@@ -223,6 +225,19 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
         self.assertEqual((terminal["status"], terminal["reason"]),
                          ("UNKNOWN", "SSH_DRAIN_FAILED"))
         self.assertNotIn(b"SSH_DRAIN_FAILED", published[discovery.ATTEMPT_PATH])
+
+    def test_parser_failure_keeps_only_bounded_reason_codes_and_hashes(self):
+        raw = b"{}\n"
+        terminal, _calls, published = self.run_capture([
+            (0, b"capture", b""), (0, b"reconstruction", b""), (0, raw, b""),
+        ])
+        self.assertEqual((terminal["status"], terminal["reason"]),
+                         ("UNKNOWN", "SUDO_POLICY_FRAME_REJECTED"))
+        self.assertEqual((terminal["captureExactQueryReturnCode"],
+                          terminal["reconstructionExactQueryReturnCode"],
+                          terminal["fullQueryReturnCode"]), (0, 0, 0))
+        self.assertEqual(terminal["fullQueryOutputSha256"], hashlib.sha256(raw).hexdigest())
+        self.assertNotIn(raw, b"".join(published.values()))
 
 
 if __name__ == "__main__":

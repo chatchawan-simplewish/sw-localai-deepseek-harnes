@@ -12,15 +12,16 @@ import stat
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATION = "phase13-r7-20260915"
+GENERATION = "phase13-r8-20260915"
 SUCCESSOR_PATH = REPOSITORY_ROOT / "scripts/Invoke-VM105ReconstructionSuccessor.py"
 SUCCESSOR_SHA256 = "d929842db8f1ddc978d321761a36f07a875e07d3edc63b5301ac87a92f69abb4"
-ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-attempt-20260915.json"
-TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-20260915.json"
+ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r8-attempt-20260915.json"
+TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r8-20260915.json"
 DELIVERY_PROVENANCE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
 SPENT_R4_CAPTURE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r4-20260915.json"
 SPENT_R5_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json"
 SPENT_R6_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.json"
+SPENT_R7_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-20260915.json"
 DELIVERY_PROVENANCE = {
     "path": DELIVERY_PROVENANCE_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "rawSha256": "d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c",
@@ -46,6 +47,13 @@ SPENT_R6_POLICY_PROVENANCE = {
     "path": SPENT_R6_POLICY_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "rawSha256": "615d7a51ad5daa178291ee7ec659316efa067f479e9684afd3877045c5829611",
     "selfSha256": "5d6604f39572c4f184ab7c5cc8ca30963fb059935683bd1338a0a084cd9d059e",
+    "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
+    "retryAuthorized": False,
+}
+SPENT_R7_POLICY_PROVENANCE = {
+    "path": SPENT_R7_POLICY_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+    "rawSha256": "46504f5109471bc060a6b930e3d177d47832334d4e22cdfde330fb3e44fff9b4",
+    "selfSha256": "5d191a1a43599443e892e4a7a50426d2ab7683f22d94d22efed1f35c1c35a484",
     "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
     "retryAuthorized": False,
 }
@@ -175,6 +183,7 @@ def _binding(namespace, details):
         "spentR4CaptureProvenance": SPENT_R4_CAPTURE_PROVENANCE,
         "spentR5PolicyProvenance": SPENT_R5_POLICY_PROVENANCE,
         "spentR6PolicyProvenance": SPENT_R6_POLICY_PROVENANCE,
+        "spentR7PolicyProvenance": SPENT_R7_POLICY_PROVENANCE,
         **{key: details[key] for key in (
             "captureTargetArgc", "captureTargetArgvSha256", "captureBootstrapBytes",
             "captureBootstrapSha256", "captureExactQueryCommand", "reconstructionTargetArgc",
@@ -189,7 +198,7 @@ _INITIAL_NAMESPACE, _INITIAL_DETAILS = _reviewed_context()
 DISCOVERY_BINDING = _binding(_INITIAL_NAMESPACE, _INITIAL_DETAILS)
 DISCOVERY_BINDING_SHA256 = hashlib.sha256(
     _INITIAL_NAMESPACE["canonical_bytes"](DISCOVERY_BINDING)).hexdigest()
-ACCEPTED_DISCOVERY_BINDING_SHA256 = "a32a7d5b5402ecce2bcb5eb133d97c72cdd06a7ed65d4f780e839209f47d66da"
+ACCEPTED_DISCOVERY_BINDING_SHA256 = "220c426ae58e6b6b02100d1093b918a5efc6b603e8682d51efb527a18d2b514b"
 del _INITIAL_NAMESPACE, _INITIAL_DETAILS
 
 
@@ -207,6 +216,10 @@ def _validate_provenance(namespace, read_evidence):
             "retryAuthorized": False,
         }),
         (SPENT_R6_POLICY_PATH, SPENT_R6_POLICY_PROVENANCE, {
+            "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
+            "retryAuthorized": False,
+        }),
+        (SPENT_R7_POLICY_PATH, SPENT_R7_POLICY_PROVENANCE, {
             "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
             "retryAuthorized": False,
         }),
@@ -358,6 +371,8 @@ def _terminal(namespace, details, *, status, reason, exact_codes=(-1, -1), full_
 
 def _classify(namespace, details, capture_code, capture_raw, reconstruction_code,
               reconstruction_raw, full_code, full_raw):
+    hashes = tuple(hashlib.sha256(raw).hexdigest() for raw in (
+        capture_raw, reconstruction_raw, full_raw))
     try:
         frame = json.loads(full_raw)
         if (not isinstance(frame, dict) or set(frame) != {"sudoVersion", "policy"} or
@@ -375,15 +390,23 @@ def _classify(namespace, details, capture_code, capture_raw, reconstruction_code
                 "EXACT" if target in exact_present else "UNSUPPORTED")
         if full_state == "EXACT" and command_states != ["EXACT", "EXACT"]:
             full_state = "UNSUPPORTED"
-        hashes = tuple(hashlib.sha256(raw).hexdigest() for raw in (
-            capture_raw, reconstruction_raw, full_raw))
         return _terminal(
             namespace, details, status="PASS", reason="NONE", exact_codes=codes,
             full_code=full_code, states=(*command_states, full_state),
             sources=sources, hashes=hashes,
         )
-    except (DiscoveryBlocked, KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
-        return _terminal(namespace, details, status="UNKNOWN", reason="SUDO_POLICY_DISCOVERY_UNCERTAIN")
+    except DiscoveryBlocked as error:
+        reason = str(error)
+        if reason not in {"SUDO_POLICY_FRAME_REJECTED", "SUDO_POLICY_GRAMMAR_REJECTED",
+                          "SUDO_POLICY_SOURCE_REJECTED"}:
+            reason = "SUDO_POLICY_DISCOVERY_UNCERTAIN"
+        return _terminal(namespace, details, status="UNKNOWN", reason=reason,
+                         exact_codes=(capture_code, reconstruction_code), full_code=full_code,
+                         hashes=hashes)
+    except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        return _terminal(namespace, details, status="UNKNOWN", reason="SUDO_POLICY_FRAME_REJECTED",
+                         exact_codes=(capture_code, reconstruction_code), full_code=full_code,
+                         hashes=hashes)
 
 
 def capture_policy_discovery(authority_sha256, *, transport=None, lstat=os.lstat,
