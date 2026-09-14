@@ -12,16 +12,17 @@ import stat
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATION = "phase13-r8-20260915"
+GENERATION = "phase13-r9-20260915"
 SUCCESSOR_PATH = REPOSITORY_ROOT / "scripts/Invoke-VM105ReconstructionSuccessor.py"
 SUCCESSOR_SHA256 = "d929842db8f1ddc978d321761a36f07a875e07d3edc63b5301ac87a92f69abb4"
-ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r8-attempt-20260915.json"
-TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r8-20260915.json"
+ATTEMPT_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r9-attempt-20260915.json"
+TERMINAL_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r9-20260915.json"
 DELIVERY_PROVENANCE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-delivery-phase13-r2-20260915.json"
 SPENT_R4_CAPTURE_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-bundle-phase13-r4-20260915.json"
 SPENT_R5_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r5-20260915.json"
 SPENT_R6_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r6-20260915.json"
 SPENT_R7_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r7-20260915.json"
+SPENT_R8_POLICY_PATH = REPOSITORY_ROOT / "docs/evidence/vm105-dsh-reconstruction-capture-sudo-policy-discovery-phase13-r8-20260915.json"
 DELIVERY_PROVENANCE = {
     "path": DELIVERY_PROVENANCE_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
     "rawSha256": "d3739ef37d16c76f3aa29eefc461b6660e091620b37d3dbc6e9b68179f9e831c",
@@ -57,6 +58,26 @@ SPENT_R7_POLICY_PROVENANCE = {
     "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
     "retryAuthorized": False,
 }
+SPENT_R8_POLICY_PROVENANCE = {
+    "path": SPENT_R8_POLICY_PATH.relative_to(REPOSITORY_ROOT).as_posix(),
+    "rawSha256": "dcf393776782b03321e8522f69e90677a7c42cd4dfe01c5f4ec435900d8f8362",
+    "selfSha256": "63e2785ae0b0bf924d5d83124bf05d0640622301fbdc1b658ebbe58a24996145",
+    "status": "UNKNOWN", "reason": "SUDO_POLICY_GRAMMAR_REJECTED",
+    "retryAuthorized": False,
+}
+
+SEMANTIC_POLICY_BOOTSTRAP = r'''import json,re,subprocess,sys
+def run(argv):
+ p=subprocess.run(argv,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20,check=False)
+ if p.returncode!=0 or p.stderr or len(p.stdout)>262144:raise SystemExit(74)
+ return p.stdout.decode("utf-8")
+match=re.fullmatch(r"Sudo version ([0-9]+\.[0-9]+\.[0-9]+(?:p[0-9]+)?)",run(["/usr/bin/sudo","-V"]).splitlines()[0])
+if match is None:raise SystemExit(74)
+policy=run(["/usr/bin/sudo","-n","-ll"])
+paths=sorted(set(re.findall(r"/etc/sudoers(?:\.d/[A-Za-z0-9][A-Za-z0-9_.-]*)?",policy)))
+value={"entryCount":policy.count("Sudoers entry:"),"hasBroadAll":re.search(r"(?m)^\s*(?:NOPASSWD:\s*)?ALL\s*$",policy) is not None,"policySources":paths,"sudoVersion":match.group(1)}
+sys.stdout.write(json.dumps(value,sort_keys=True,separators=(",",":"))+"\n")
+'''
 
 
 class DiscoveryBlocked(RuntimeError):
@@ -144,10 +165,13 @@ def _reviewed_context():
     capture_query = "/usr/bin/sudo -n -l -- " + " ".join(
         shlex.quote(value) for value in capture_target)
     prefix = list(namespace["SSH_COMMAND_PREFIX"])
-    full_query = namespace["_sudo_full_query_command"]()
+    encoded = base64.b64encode(SEMANTIC_POLICY_BOOTSTRAP.encode("ascii")).decode("ascii")
+    semantic_full_query = prefix + [
+        "/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/python3.12 -I -c "
+        "'import base64;exec(base64.b64decode(\"" + encoded + "\"))'"
+    ]
     if (reconstruction["sudoExactQueryCommand"][:-1] != prefix or
-            reconstruction["sudoFullQueryCommand"] != full_query or
-            full_query[:-1] != prefix or
+            reconstruction["sudoFullQueryCommand"][:-1] != prefix or
             namespace["_capture_remote_command"]().count("/usr/bin/sudo") != 0):
         raise DiscoveryBlocked("REVIEWED_COMMANDS_REJECTED")
     details = {
@@ -167,7 +191,10 @@ def _reviewed_context():
         "reconstructionPolicyCommand": reconstruction["sudoPolicyCommand"],
         "reconstructionExactQueryCommand": reconstruction["sudoExactQueryCommand"],
         "reconstructionDispatchCommand": reconstruction["dispatchCommand"],
-        "sudoFullQueryCommand": full_query,
+        "semanticBootstrapBytes": len(SEMANTIC_POLICY_BOOTSTRAP.encode("ascii")),
+        "semanticBootstrapSha256": hashlib.sha256(
+            SEMANTIC_POLICY_BOOTSTRAP.encode("ascii")).hexdigest(),
+        "sudoFullQueryCommand": semantic_full_query,
     }
     return namespace, details
 
@@ -184,12 +211,13 @@ def _binding(namespace, details):
         "spentR5PolicyProvenance": SPENT_R5_POLICY_PROVENANCE,
         "spentR6PolicyProvenance": SPENT_R6_POLICY_PROVENANCE,
         "spentR7PolicyProvenance": SPENT_R7_POLICY_PROVENANCE,
+        "spentR8PolicyProvenance": SPENT_R8_POLICY_PROVENANCE,
         **{key: details[key] for key in (
             "captureTargetArgc", "captureTargetArgvSha256", "captureBootstrapBytes",
             "captureBootstrapSha256", "captureExactQueryCommand", "reconstructionTargetArgc",
             "reconstructionTargetArgvSha256", "reconstructionBootstrapBytes",
             "reconstructionBootstrapSha256", "reconstructionExactQueryCommand",
-            "sudoFullQueryCommand",
+            "semanticBootstrapBytes", "semanticBootstrapSha256", "sudoFullQueryCommand",
         )},
     }
 
@@ -198,7 +226,7 @@ _INITIAL_NAMESPACE, _INITIAL_DETAILS = _reviewed_context()
 DISCOVERY_BINDING = _binding(_INITIAL_NAMESPACE, _INITIAL_DETAILS)
 DISCOVERY_BINDING_SHA256 = hashlib.sha256(
     _INITIAL_NAMESPACE["canonical_bytes"](DISCOVERY_BINDING)).hexdigest()
-ACCEPTED_DISCOVERY_BINDING_SHA256 = "220c426ae58e6b6b02100d1093b918a5efc6b603e8682d51efb527a18d2b514b"
+ACCEPTED_DISCOVERY_BINDING_SHA256 = "18c42af77fb8a42e309361e46e85ae2028b8d23b1983473374cccb7dff14a87c"
 del _INITIAL_NAMESPACE, _INITIAL_DETAILS
 
 
@@ -221,6 +249,10 @@ def _validate_provenance(namespace, read_evidence):
         }),
         (SPENT_R7_POLICY_PATH, SPENT_R7_POLICY_PROVENANCE, {
             "status": "UNKNOWN", "reason": "SUDO_POLICY_DISCOVERY_UNCERTAIN",
+            "retryAuthorized": False,
+        }),
+        (SPENT_R8_POLICY_PATH, SPENT_R8_POLICY_PROVENANCE, {
+            "status": "UNKNOWN", "reason": "SUDO_POLICY_GRAMMAR_REJECTED",
             "retryAuthorized": False,
         }),
     ):
@@ -375,25 +407,41 @@ def _classify(namespace, details, capture_code, capture_raw, reconstruction_code
         capture_raw, reconstruction_raw, full_raw))
     try:
         frame = json.loads(full_raw)
-        if (not isinstance(frame, dict) or set(frame) != {"sudoVersion", "policy"} or
-                namespace["canonical_line"](frame) != full_raw or
-                frame["sudoVersion"] != "1.9.15p5"):
-            raise DiscoveryBlocked("SUDO_POLICY_FRAME_REJECTED")
-        full_state, sources, exact_present = _parse_policy(frame["policy"], details)
-        codes = (capture_code, reconstruction_code)
-        command_states = []
-        for code, target in zip(codes, (
-                details["capturePolicyCommand"], details["reconstructionPolicyCommand"])):
-            command_states.append(
+        if (isinstance(frame, dict) and set(frame) == {"sudoVersion", "policy"} and
+                namespace["canonical_line"](frame) == full_raw and
+                frame["sudoVersion"] == "1.9.15p5"):
+            full_state, sources, exact_present = _parse_policy(frame["policy"], details)
+            codes = (capture_code, reconstruction_code)
+            command_states = [
                 "UNSUPPORTED" if code != 0 else
                 "BROAD" if full_state == "BROAD" else
-                "EXACT" if target in exact_present else "UNSUPPORTED")
-        if full_state == "EXACT" and command_states != ["EXACT", "EXACT"]:
-            full_state = "UNSUPPORTED"
+                "EXACT" if target in exact_present else "UNSUPPORTED"
+                for code, target in zip(codes, (
+                    details["capturePolicyCommand"], details["reconstructionPolicyCommand"]))]
+            if full_state == "EXACT" and command_states != ["EXACT", "EXACT"]:
+                full_state = "UNSUPPORTED"
+            return _terminal(namespace, details, status="PASS", reason="NONE", exact_codes=codes,
+                             full_code=full_code, states=(*command_states, full_state),
+                             sources=sources, hashes=hashes)
+        if (not isinstance(frame, dict) or set(frame) != {
+                    "entryCount", "hasBroadAll", "policySources", "sudoVersion"} or
+                namespace["canonical_line"](frame) != full_raw or
+                frame["sudoVersion"] != "1.9.15p5" or
+                not isinstance(frame["entryCount"], int) or not 1 <= frame["entryCount"] <= 16 or
+                not isinstance(frame["hasBroadAll"], bool) or
+                not isinstance(frame["policySources"], list) or
+                frame["policySources"] != sorted(set(frame["policySources"])) or
+                any(not isinstance(path, str) or _safe_source(path) != path
+                    for path in frame["policySources"])):
+            raise DiscoveryBlocked("SUDO_POLICY_FRAME_REJECTED")
+        codes = (capture_code, reconstruction_code)
+        full_state = "BROAD" if frame["hasBroadAll"] else "UNSUPPORTED"
+        command_states = ["BROAD" if code == 0 and full_state == "BROAD" else "UNSUPPORTED"
+                          for code in codes]
         return _terminal(
             namespace, details, status="PASS", reason="NONE", exact_codes=codes,
             full_code=full_code, states=(*command_states, full_state),
-            sources=sources, hashes=hashes,
+            sources=frame["policySources"], hashes=hashes,
         )
     except DiscoveryBlocked as error:
         reason = str(error)

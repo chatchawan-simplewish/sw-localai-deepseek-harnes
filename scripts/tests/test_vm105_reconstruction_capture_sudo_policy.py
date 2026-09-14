@@ -194,7 +194,7 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
 
     def test_binding_includes_current_source_commands_and_spent_provenance(self):
         binding = discovery.DISCOVERY_BINDING
-        self.assertEqual(binding["generation"], "phase13-r8-20260915")
+        self.assertEqual(binding["generation"], "phase13-r9-20260915")
         self.assertEqual(binding["loadedSourceSha256"], discovery.SUCCESSOR_SHA256)
         self.assertEqual(binding["deliveryProvenance"]["status"], "PASS")
         self.assertEqual(binding["spentR4CaptureProvenance"]["status"], "UNKNOWN")
@@ -205,6 +205,8 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
         self.assertEqual(binding["spentR6PolicyProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["spentR7PolicyProvenance"]["status"], "UNKNOWN")
         self.assertEqual(binding["spentR7PolicyProvenance"]["retryAuthorized"], False)
+        self.assertEqual(binding["spentR8PolicyProvenance"]["status"], "UNKNOWN")
+        self.assertEqual(binding["spentR8PolicyProvenance"]["retryAuthorized"], False)
         self.assertEqual(binding["captureExactQueryCommand"],
                          self.details["captureExactQueryCommand"])
         self.assertEqual(binding["reconstructionExactQueryCommand"],
@@ -238,6 +240,20 @@ class CaptureSudoPolicyDiscoveryTests(unittest.TestCase):
                           terminal["fullQueryReturnCode"]), (0, 0, 0))
         self.assertEqual(terminal["fullQueryOutputSha256"], hashlib.sha256(raw).hexdigest())
         self.assertNotIn(raw, b"".join(published.values()))
+
+    def test_semantic_projection_classifies_broad_policy_without_raw_listing(self):
+        projection = self.namespace["canonical_line"]({
+            "entryCount": 1, "hasBroadAll": True,
+            "policySources": ["/etc/sudoers"], "sudoVersion": "1.9.15p5",
+        })
+        terminal, _calls, published = self.run_capture([
+            (0, b"capture", b""), (0, b"reconstruction", b""), (0, projection, b""),
+        ])
+        self.assertEqual((terminal["captureCommandState"],
+                          terminal["reconstructionCommandState"],
+                          terminal["fullPolicyState"]), ("BROAD", "BROAD", "BROAD"))
+        self.assertEqual(terminal["policySources"], ["/etc/sudoers"])
+        self.assertNotIn(projection, b"".join(published.values()))
 
 
 if __name__ == "__main__":
