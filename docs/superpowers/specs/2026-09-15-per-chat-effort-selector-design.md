@@ -6,13 +6,13 @@ Expose only verified, selectable reasoning effort levels in DeepSeek Harness wit
 
 ## Scope
 
-- Add `low`, `medium`, `high`, `xhigh`, and `max` to `cx/gpt-5.6-sol`.
+- Add the provider-advertised levels to `cx/gpt-5.6-sol`, `antigravity/gemini-3.7-flash-tiered`, `cgpt-web/gpt-5.6-sol-pro`, and `openrouter/z-ai/glm-5.2:free`.
 - Send the selected level through the OpenAI-compatible `reasoning_effort` field.
-- Leave every other model unchanged until its provider-level effort routing is independently verified.
+- Leave every other model unchanged until its provider publishes a tier list; `gweb/gemini-3.6-flash` explicitly does not support effort controls.
 
 ## Configuration
 
-The `omniroute-vm1205` model profile declares `reasoningEfforts` for the five supported levels and enables OpenAI reasoning-effort compatibility. The Harness UI then presents the selector per chat when that model is selected.
+The `omniroute-vm1205` model profile declares `reasoningEfforts` with each provider's exact levels and enables OpenAI reasoning-effort compatibility. The Harness UI then presents the selector per chat when that model is selected.
 
 ## Verification
 
