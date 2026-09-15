@@ -39,3 +39,6 @@ docs/contracts/vm105-reconstruction-sudoers-narrowing-r10-action-contract-202609
 docs/handoffs/2026-09-15-vm105-r10-sealed-action-pause.md text eol=lf
 scripts/Invoke-VM105ReconstructionSudoersNarrowing.py text eol=lf
 scripts/tests/test_vm105_reconstruction_sudoers_narrowing.py text eol=lf
+scripts/Invoke-VM105ReconstructionSudoersNarrowingAction.py text eol=lf
+scripts/tests/test_vm105_reconstruction_sudoers_narrowing_action.py text eol=lf
+docs/evidence/vm105-reconstruction-sudoers-narrowing-r10-payload-action-review-20260915.md text eol=lf
