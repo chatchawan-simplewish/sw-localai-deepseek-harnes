@@ -14,6 +14,7 @@ Owner preferences override optional skill friction, but never override system or
 
 - Every user-facing message starts with an Asia/Bangkok `YYYYMMDD HHMMSS` timestamp.
 - Number progress as an evidence-derived tree with zero-padded completed/total counts; never invent totals. Literal examples: `Phase 1 - 05/20`, `Phase 2 - 00/20`, `Phase 3 - 00/30`, and `Phase 4 - 00/20`.
+- When the owner asks for a numbering overview, render every active phase and its known subtasks as that tree. During active multi-phase work, repeat the evidence-derived overview every 30 minutes; remain quiet when idle or complete.
 - Keep decisions and questions separate from ordinary progress under exactly these headings: `Overview`, `What I need from you`, `Choices`, `Recommended choice`, and `Exact reply`. Include pros, cons, costs, risks, and trade-offs when a decision is presented.
 - Completion summaries cover important changes, verification, remaining work or limits, impact, and switchable choices.
 
@@ -21,6 +22,7 @@ Owner preferences override optional skill friction, but never override system or
 
 - The owner pre-approves all future recommended routine choices. Proceed automatically, record the choice afterward, and ask once per topic only for supercritical actions, materially different architecture or scope, materially higher cost, irreversible deletion, broad public exposure, or production data/identity mutation.
 - Minimize mandatory input: check, recheck, and verify automatically first. Ask only for owner-only input, interactive authentication, a secret that is not safely available, or a non-overridable gate; explain the need in one concise request.
+- Before requesting any manual owner action, exhaust safe checks and remove optional workflow friction. Do not ask for browser/profile selection when the required profile can be verified as already open.
 - Keep credentials out of chat, Git, logs, screenshots, and evidence.
 - Project-scoped token creation and required MCP installation, connection, and use are pre-approved. Use least privilege, owner-only storage, minimal lifetime and scope; never expose secrets; record safe metadata and revocation steps; do not create speculative integrations.
 
@@ -28,6 +30,7 @@ Owner preferences override optional skill friction, but never override system or
 
 - Use only Chrome profile `Codex-Chrome-Bell-PC2` for project browser work.
 - Verify the exact profile before every project link or new tab. Never fall back to another Chrome profile, Edge, Firefox, the OS-default browser, or an in-app browser.
+- Check the existing active Chrome windows for `Codex-Chrome-Bell-PC2` before asking the owner to locate it; ask only when that exact profile is genuinely unavailable.
 
 ## Sub-agents and context rollover
 

@@ -1,0 +1,23 @@
+[Unit]
+Description=DeepSeek Harness infrastructure administration MCP broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/dsh-infra-admin/broker.env
+WorkingDirectory=/opt/dsh-infra-admin
+ExecStart=/opt/node-v24.19.0-linux-x64/bin/node /opt/dsh-infra-admin/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/dsh-infra-admin
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

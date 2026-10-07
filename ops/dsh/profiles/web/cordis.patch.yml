@@ -1,0 +1,36 @@
+- insert:
+    - id: mcp-cloudflare
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: cloudflare
+        transport: streamable-http
+        url: https://mcp.cloudflare.com/mcp
+        headers:
+          Authorization: !!js '`Bearer ${process.env.CLOUDFLARE_API_TOKEN}`'
+
+    - id: mcp-coolify
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: coolify
+        transport: streamable-http
+        url: https://app.coolify.io/mcp
+        headers:
+          Authorization: !!js '`Bearer ${process.env.COOLIFY_MCP_TOKEN}`'
+
+    - id: mcp-coolify-write
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: coolify-write
+        transport: streamable-http
+        url: https://app.coolify.io/mcp
+        headers:
+          Authorization: !!js '`Bearer ${process.env.COOLIFY_MCP_WRITE_TOKEN}`'
+
+    - id: mcp-infrastructure-admin
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: infrastructure-admin
+        transport: streamable-http
+        url: http://127.0.0.1:8182/mcp
+        headers:
+          Authorization: !!js '`Bearer ${process.env.MCP_INFRA_ADMIN_TOKEN}`'
